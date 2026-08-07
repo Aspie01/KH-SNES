@@ -25,7 +25,8 @@ GEN     := assets/gen/bgchr.bin assets/gen/bg1map.bin assets/gen/collmap.bin \
            assets/gen/sorachr.bin assets/gen/hudchr.bin \
            assets/gen/hudpal.bin assets/gen/divechr.bin \
            assets/gen/divemap.bin assets/gen/divecoll.bin \
-           assets/gen/divepal.bin
+           assets/gen/divepal.bin assets/gen/dive2chr.bin \
+           assets/gen/dive2map.bin assets/gen/dive2coll.bin
 
 ASSET_SRC := tools/build_assets.py tools/pixel.py assets/island.txt
 

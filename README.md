@@ -9,7 +9,14 @@ SNES-styled game running on a modern engine.
 The game opens where it should: the **Dive to the Heart**. Sora stands on a
 stained-glass platform, a voice speaks, and three pedestals offer the Dream
 Sword, Shield and Rod. Walking up to one describes its power and asks whether
-you want it; take one, give one up, and the first Shadows appear.
+you want it. Take one, give one up, and the platform breaks apart underfoot.
+
+![Darkside](docs/screenshot-darkside.png)
+
+He lands on a second station where the first Shadows are waiting. Clear them
+and his own shadow rises into **Darkside**, which telegraphs a fist, marks the
+ground where he is standing, and slams it down a beat later — leaving a new
+Shadow in the crater.
 
 ![Destiny Islands](docs/screenshot.png)
 
@@ -112,7 +119,15 @@ j = (2 * world_y - a) >> 5
   with half-add colour math against BG1 on the sub screen. The result is the
   ground at 50% brightness — a real translucent shadow, not a dark blob.
 - **Mode 1 with BG3 priority.** BG1 carries the ground, BG3 carries the HUD
-  above everything, and sprites sit between them at priority 2.
+  and dialogue above everything, and sprites sit between them at priority 2.
+- **A shatter built from registers, not art.** The platform coming apart is
+  MOSAIC coarsening BG1 into ever larger blocks while brightness falls and the
+  screen shakes — no debris tileset needed.
+- **A boss larger than a sprite.** The SNES caps a sprite at 64×64, and taking
+  that size slot would cost the 16×16 one the Shadows need. Darkside is
+  therefore four 32×32 sprites emitted as a block, after every sorted actor so
+  it always lands behind them — correct nearly always, since Sora fights at
+  its feet.
 - **FastROM** in banks `$80+`, LoROM mapping.
 
 ## Layout
@@ -188,8 +203,9 @@ The slice is deliberately bounded by one constraint: a 64×32 tilemap is 512×25
 pixels, which is exactly one screen of isometric ground, so the world currently
 fits in VRAM with no streaming. In rough order:
 
-1. **Finish the Dive** — the platform shattering between stations, the second
-   and third stations, and the Darkside fight that ends the sequence.
+1. **Boss polish** — Darkside has no HP gauge yet, so the fight reads as
+   guesswork; it also only has the one attack. A third station and the fall to
+   Destiny Islands would close the sequence properly.
 2. **The real Destiny Islands opening** — Kairi, Riku, Tidus, Selphie and Wakka
    as talkable NPCs, Kairi's raft-material lists, and Riku's race. The content
    is written up in `docs/DESTINY_ISLANDS.md`; the blocker is multi-level

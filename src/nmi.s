@@ -40,6 +40,13 @@
 
     lda RDNMI                   ; acknowledge the interrupt
 
+    ; Screen-wide effects. INIDISP and MOSAIC are not VRAM, but writing them
+    ; here keeps the change atomic with the frame it belongs to.
+    lda screenBright
+    sta INIDISP
+    lda mosaicAmt
+    sta MOSAIC
+
     ;--- sprite table -------------------------------------------------------
     lda oamDirty
     beq @scroll

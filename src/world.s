@@ -12,12 +12,15 @@
 .import TextBusy
 .import soraChr
 
-.export InitWorld, UpdateWorld, SpawnActor
+.export InitWorld, UpdateWorld, SpawnActor, ClearActors, CountType
 
 ;--- attack tuning -----------------------------------------------------------
 ATK_ACTIVE   = 12               ; timer value on which the swing connects
-ATK_REACH_X  = 200              ; Q12.4, compared after un-squashing X
-ATK_REACH_Y  = 160
+; The swing is generous on purpose: the arc is centred just off Sora's body
+; rather than out at arm's length, so an enemy pressed right up against him is
+; still inside it.
+ATK_REACH_X  = 320              ; Q12.4, compared after un-squashing X
+ATK_REACH_Y  = 240
 TOUCH_X      = 176
 TOUCH_Y      = 144
 HEART_DEAD_X = 384              ; AI deadzone, Q12.4
@@ -92,6 +95,51 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     bra @loop
 @done:
     jsr HudUpdate
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; ClearActors -- empty the table so a new scene starts from nothing.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc ClearActors
+    .a8
+    .i16
+    ldx #0
+@loop:
+    stz actType,x
+    stz actFlags,x
+    stz actHitT,x
+    stz actState,x
+    stz actTimer,x
+    inx
+    cpx #MAX_ACTORS
+    bcc @loop
+    stz playerIdx
+    lda #$FF
+    sta soraFrameCur            ; force the next cel upload
+    stz hitStopTimer
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; CountType -- In (A8/I16): A = type.  Out: A = how many are alive.
+;-----------------------------------------------------------------------------
+.proc CountType
+    .a8
+    .i16
+    sta tmp2
+    ldy #0
+    ldx #0
+@loop:
+    lda actType,x
+    cmp tmp2
+    bne @next
+    iny
+@next:
+    inx
+    cpx #MAX_ACTORS
+    bcc @loop
+    tya
     rts
 .endproc
 
@@ -211,6 +259,13 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     plx
     bra @next
 @notHeart:
+    cmp #ACT_DARKSIDE
+    bne @notBoss
+    phx
+    jsr UpdateDarkside
+    plx
+    bra @next
+@notBoss:
     cmp #ACT_SLASH
     bne @next
     phx
@@ -641,6 +696,17 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     ldx #0
 @loop:
     lda actType,x
+    cmp #ACT_DARKSIDE
+    bne @notBoss
+    phx
+    jsr BossInRange
+    plx
+    bcc @next
+    phx
+    jsr HurtBoss
+    plx
+    bra @next
+@notBoss:
     cmp #ACT_SHADOW
     bne @next
     phx
@@ -654,6 +720,228 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     inx
     cpx #MAX_ACTORS
     bcc @loop
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; BossInRange / HurtBoss -- In (A8/I16): X = actor index.
+;-----------------------------------------------------------------------------
+.proc BossInRange
+    .a8
+    .i16
+    txa
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    sec
+    sbc tmp0
+    bpl :+
+    eor #$FFFF
+    inc a
+:   lsr a
+    cmp #DS_HURT_X
+    bcs @miss
+    lda actY,x
+    sec
+    sbc tmp1
+    bpl :+
+    eor #$FFFF
+    inc a
+:   cmp #DS_HURT_Y
+    bcs @miss
+    sep #$20
+    .a8
+    sec
+    rts
+@miss:
+    sep #$20
+    .a8
+    clc
+    rts
+.endproc
+
+.proc HurtBoss
+    .a8
+    .i16
+    lda actHitT,x
+    bne @out                    ; still flinching from the last hit
+    lda actHP,x
+    beq @out
+    dec a
+    sta actHP,x
+    sta bossHP
+    lda #10
+    sta actHitT,x
+    lda #3
+    sta hitStopTimer
+    jsr HudUpdate
+    lda actHP,x
+    bne @out
+    stz actType,x               ; defeated
+@out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; UpdateDarkside -- In (A8/I16): X = actor index.
+;
+; It never walks.  The threat is the fist: it telegraphs, marks where Sora is
+; standing, and comes down there a beat later, leaving a Shadow behind.
+;-----------------------------------------------------------------------------
+.proc UpdateDarkside
+    .a8
+    .i16
+    stx curActor
+
+    lda actHitT,x
+    beq :+
+    dec a
+    sta actHitT,x
+:
+    lda actState,x
+    cmp #1
+    beq @winding
+    cmp #2
+    beq @holding
+
+    ;--- resting ---
+    lda actTimer,x
+    beq @beginWind
+    dec a
+    sta actTimer,x
+    rts
+@beginWind:
+    ; mark where Sora is standing; the fist lands there, so moving dodges it
+    jsr AimAtPlayer
+    ldx curActor
+    lda #1
+    sta actState,x
+    lda #DS_SLAM_WIND
+    sta actTimer,x
+    rts
+
+    ;--- fist raised ---
+@winding:
+    lda actTimer,x
+    beq @impact
+    dec a
+    sta actTimer,x
+    rts
+@impact:
+    jsr DarksideSlam
+    ldx curActor
+    lda #2
+    sta actState,x
+    lda #DS_SLAM_HOLD
+    sta actTimer,x
+    rts
+
+    ;--- fist on the glass ---
+@holding:
+    lda actTimer,x
+    beq @rest
+    dec a
+    sta actTimer,x
+    rts
+@rest:
+    stz actState,x
+    lda #DS_REST
+    sta actTimer,x
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; AimAtPlayer -- park Sora's position in the boss's unused velocity slots.
+; In (A8/I16): X = boss index.
+;-----------------------------------------------------------------------------
+.proc AimAtPlayer
+    .a8
+    .i16
+    lda playerIdx
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    sta tmp0
+    lda actY,x
+    sta tmp1
+    sep #$20
+    .a8
+    lda curActor
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda tmp0
+    sta actVX,x
+    lda tmp1
+    sta actVY,x
+    sep #$20
+    .a8
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; DarksideSlam -- the fist lands on the marked spot.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc DarksideSlam
+    .a8
+    .i16
+    lda curActor
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actVX,x
+    sta tmp0                    ; where the fist comes down
+    lda actVY,x
+    sta tmp1
+    sep #$20
+    .a8
+
+    ; A Shadow crawls out of the impact.
+    lda #ACT_SHADOW
+    jsr SpawnActor
+
+    ; Anyone still standing there takes the hit.
+    lda playerIdx
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    sec
+    sbc tmp0
+    bpl :+
+    eor #$FFFF
+    inc a
+:   lsr a
+    cmp #TOUCH_X
+    bcs @clear
+    lda actY,x
+    sec
+    sbc tmp1
+    bpl :+
+    eor #$FFFF
+    inc a
+:   cmp #TOUCH_Y
+    bcs @clear
+    sep #$20
+    .a8
+    ldx curActor
+    jsr DamageSora
+    rts
+@clear:
+    sep #$20
+    .a8
     rts
 .endproc
 
@@ -1094,8 +1382,8 @@ dirVelX:    .word   0,  34,  48,  34,   0, .loword(-34), .loword(-48), .loword(-
 dirVelY:    .word  24,  17,   0, .loword(-17), .loword(-24), .loword(-17),   0,  17
 
 ; Offset from Sora to the centre of a swing, Q12.4.
-atkOfsX:    .word   0, 352, 512, 352,   0, .loword(-352), .loword(-512), .loword(-352)
-atkOfsY:    .word 256, 176,   0, .loword(-176), .loword(-256), .loword(-176),   0, 176
+atkOfsX:    .word   0, 176, 256, 176,   0, .loword(-176), .loword(-256), .loword(-176)
+atkOfsY:    .word 128,  88,   0, .loword(-88), .loword(-128), .loword(-88),    0,  88
 
 ; (vertical bucket * 3 + horizontal bucket) -> facing; $FF means "standing".
 dirTable:   .byte DIR_NW, DIR_N, DIR_NE
@@ -1108,14 +1396,17 @@ drawFlip:   .byte 0, 0, 0, 0, 0, 1, 1, 1
 
 ;                    -      Sora        Heartless    Palm        BigRock      Rock        Slash
 typeTile:   .byte $00, TILE_SORA,  TILE_HEART0, TILE_PALM,  TILE_ROCKBIG, TILE_ROCK,  TILE_SLASH0
-            .byte TILE_PEDESTAL, TILE_SWORD, TILE_SHIELD, TILE_STAFF
+            .byte TILE_PEDESTAL, TILE_SWORD, TILE_SHIELD, TILE_STAFF, TILE_DARKSIDE
 typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_FX
-            .byte PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE
+            .byte PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_HEART
 typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LARGE|AF_SHADOW, AF_SHADOW, $00
             ; the weapons hover, so they cast no shadow of their own
             .byte AF_LARGE|AF_SHADOW, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK
+            ; the boss is drawn by EmitBoss, so it carries no sprite flags of
+            ; its own -- only its shadow
+            .byte AF_SHADOW
 typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
-            .byte $00, $00, $00, $00
+            .byte $00, $00, $00, $00, DS_MAX_HP
 
 ; type, isometric i, isometric j -- terminated by $FF
 spawnTable:

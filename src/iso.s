@@ -74,6 +74,18 @@
     lda #CAM_MAX_X
 @cx_done:
     sta camX
+    ; shakeX is a signed byte, normally zero; the shatter drives it.
+    sep #$20
+    .a8
+    lda shakeX
+    rep #$20
+    .a16
+    and #$00FF
+    cmp #$0080
+    bcc :+
+    ora #$FF00                  ; sign-extend
+:   clc
+    adc camX
     sta bgHOfs
 
     ;--- vertical ---

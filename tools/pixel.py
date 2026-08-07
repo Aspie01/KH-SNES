@@ -61,15 +61,21 @@ OBJ_SORA = [
 
 OBJ_HEART = [
     (0, 0, 0),          # 0  transparent
-    (12, 12, 20),       # 1  outline
-    (32, 28, 48),       # 2  body
-    (56, 52, 88),       # 3  body highlight
+    (6, 6, 12),         # 1  outline
+    (40, 34, 62),       # 2  body
+    (86, 78, 130),      # 3  body highlight
     (255, 232, 80),     # 4  eye
     (240, 168, 40),     # 5  eye rim
-    (72, 64, 104),      # 6  antenna
+    (72, 64, 104),      # 6  antenna / sinew
     (20, 20, 32),       # 7  underside
-    (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0),
-    (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0),
+    (148, 138, 200),    # 8  rim light along the boss's edges
+    (128, 52, 132),     # 9  the heart-shaped hole
+    (208, 104, 208),    # 10 hole glow
+    (60, 52, 94),       # 11 torso mid
+    (22, 20, 36),       # 12 torso deep
+    (96, 86, 146),      # 13 highlight
+    (255, 255, 255),    # 14 spark
+    (0, 0, 0),          # 15
 ]
 
 OBJ_SCENE = [
@@ -225,6 +231,23 @@ class Canvas:
                         break
         for x, y in add:
             self.px[y][x] = color
+
+    def rim_light(self, colour: int, skip: tuple[int, ...] = ()) -> None:
+        """Light the upward-facing edge of every solid run.
+
+        A near-black character on bright ground reads as a hole unless its
+        edges catch something; this is cheaper than shading every plane.
+        """
+        add = []
+        for y in range(self.h):
+            for x in range(self.w):
+                v = self.px[y][x]
+                if v == 0 or v in skip:
+                    continue
+                if self.get(x, y - 1) == 0:
+                    add.append((x, y))
+        for x, y in add:
+            self.px[y][x] = colour
 
     def sub(self, x0: int, y0: int, w: int, h: int) -> "Canvas":
         out = Canvas(w, h)

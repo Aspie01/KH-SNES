@@ -64,6 +64,7 @@ OAM_HIDE_Y = $E0        ; 224: a 32-tall sprite here ends at 255 and never
     jsr BuildSortList
     stz tmp7                    ; next free OAM slot
     jsr EmitActors
+    jsr EmitBoss
     jsr EmitShadows
     sep #$20
     .a8
@@ -207,6 +208,103 @@ OAM_HIDE_Y = $E0        ; 224: a 32-tall sprite here ends at 255 and never
 @done:
     rts
 .endproc
+
+;-----------------------------------------------------------------------------
+; EmitBoss -- Darkside is 64x64, which no single sprite can be, so it goes out
+; as four 32x32 quadrants.
+;
+; It is emitted after every sorted actor rather than inside the sort, so it
+; always lands in higher OAM slots and therefore behind them.  That is the
+; right answer nearly always: it towers over Sora and he fights at its feet.
+; A16/I16.
+;-----------------------------------------------------------------------------
+.proc EmitBoss
+    .a16
+    .i16
+    ldx #0
+@scan:
+    sep #$20
+    .a8
+    lda actType,x
+    rep #$20
+    .a16
+    and #$00FF
+    cmp #ACT_DARKSIDE
+    beq @found
+    inx
+    cpx #MAX_ACTORS
+    bcc @scan
+    rts
+
+@found:
+    stx tmp3                    ; actor index, for WriteOamRaw
+    txa
+    asl a
+    tax
+    lda actX,x
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sec
+    sbc camX
+    sta tmp8                    ; screen X of its feet
+    lda actY,x
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sec
+    sbc camY
+    sta tmp9
+
+    ldy #0                      ; quadrant, as a byte offset into the tables
+@quad:
+    lda tmp7
+    cmp #128
+    bcs @done
+    lda tmp8
+    clc
+    adc quadX,y
+    sta tmp0
+    lda tmp9
+    clc
+    adc quadY,y
+    sta tmp1
+
+    lda tmp1
+    clc
+    adc #32
+    cmp #(SCREEN_H + 32)
+    bcs @next
+    lda tmp0
+    clc
+    adc #32
+    cmp #(SCREEN_W + 32)
+    bcs @next
+
+    lda quadT,y
+    sta tmp2
+    lda #$0002                  ; each quadrant is a large (32x32) sprite
+    sta tmp5
+    lda #PAL_OBJ_HEART
+    sta tmp6
+    phy
+    jsr WriteOamRaw
+    ply
+@next:
+    iny
+    iny
+    cpy #8
+    bcc @quad
+@done:
+    rts
+.endproc
+
+; Quadrant offsets from the boss's feet, and the tile each one starts at.
+quadX: .word .loword(-32), .loword(0), .loword(-32), .loword(0)
+quadY: .word .loword(-64), .loword(-64), .loword(-32), .loword(-32)
+quadT: .word TILE_DARKSIDE, TILE_DARKSIDE+$04, TILE_DARKSIDE+$40, TILE_DARKSIDE+$44
 
 ;-----------------------------------------------------------------------------
 ; EmitActorSprite -- In: X = actor index.  A16/I16.

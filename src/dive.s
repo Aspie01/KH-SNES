@@ -12,10 +12,12 @@
 .include "macros.inc"
 .include "text.inc"
 
-.import SpawnActor, IsoToWorld
+.import SpawnActor, IsoToWorld, ClearActors, CountType
+.import LoadScene
 .import TextOpen, TextBusy, TextClose
+.import HudUpdate
 
-.export DiveInit, DiveUpdate, DiveSpawnShadows
+.export DiveInit, DiveUpdate
 
 REACH_X = 320                   ; interaction range, Q12.4 (un-squashed X)
 REACH_Y = 260
@@ -38,25 +40,61 @@ REACH_Y = 260
     stz pendWeapon
     stz scriptWait
 
-    ldy #0
-@loop:
-    lda diveSpawns,y
-    cmp #$FF
-    beq @done
-    sta tmp6
-    iny
     rep #$20
     .a16
-    lda diveSpawns,y
+    lda #.loword(diveSpawns)
+    sta tmp8
+    sep #$20
+    .a8
+    jsr SpawnFromTable
+    jsr HudUpdate               ; the player exists now, so the gauge can fill
+    ; open on the voice
+    lda #<scriptIntro
+    sta txtPtr
+    lda #>scriptIntro
+    sta txtPtr+1
+    lda #^scriptIntro
+    sta txtPtr+2
+    lda #TM_MESSAGE
+    jsr TextOpen
+    rts
+.endproc
+
+
+;-----------------------------------------------------------------------------
+; SpawnFromTable -- walk a table of (type, isometric i, isometric j) triples
+; until $FF.  In (A8/I16): tmp8 = the table's address in this bank.
+;-----------------------------------------------------------------------------
+.proc SpawnFromTable
+    .a8
+    .i16
+    ldy #0
+@loop:
+    lda (tmp8),y
+    cmp #$FF
+    beq @done
+    sta tmp6                    ; type
+    iny
+    lda (tmp8),y
+    sta tmp4                    ; i
+    iny
+    lda (tmp8),y
+    sta tmp5                    ; j
+    iny
+    sty tmp7                    ; SpawnActor clobbers Y, so park the cursor
+
+    rep #$20
+    .a16
+    lda tmp4
     and #$00FF
     sta tmp0
-    iny
-    lda diveSpawns,y
+    lda tmp5
     and #$00FF
     sta tmp1
-    iny
-    sty tmp7
     jsr IsoToWorld
+
+    ; IsoToWorld lands on the diamond's top corner; step to its centre and
+    ; convert to Q12.4.
     lda tmp0
     clc
     adc #16
@@ -75,20 +113,12 @@ REACH_Y = 260
     sta tmp1
     sep #$20
     .a8
+
     lda tmp6
     jsr SpawnActor
     ldy tmp7
     bra @loop
 @done:
-    ; open on the voice
-    lda #<scriptIntro
-    sta txtPtr
-    lda #>scriptIntro
-    sta txtPtr+1
-    lda #^scriptIntro
-    sta txtPtr+2
-    lda #TM_MESSAGE
-    jsr TextOpen
     rts
 .endproc
 
@@ -113,15 +143,28 @@ REACH_Y = 260
 @noanswer:
     lda diveStage
     cmp #DIVE_INTRO
-    bne @playable
+    bne :+
     ; the opening message has been dismissed: the pedestals are now live
     lda #DIVE_PICK
     sta diveStage
     rts
-
-@playable:
-    cmp #DIVE_FIGHT
+:   cmp #DIVE_SHATTER
+    bne :+
+    jmp Shatter
+:   cmp #DIVE_S2_INTRO
+    bne :+
+    lda #DIVE_S2_FIGHT
+    sta diveStage
+    rts
+:   cmp #DIVE_S2_FIGHT
+    bne :+
+    jmp WatchShadows
+:   cmp #DIVE_BOSS
+    bne :+
+    jmp WatchBoss
+:   cmp #DIVE_DONE
     beq @out
+
     ; PICK or DROP: pressing A next to a weapon asks about it
     rep #$20
     .a16
@@ -134,6 +177,187 @@ REACH_Y = 260
     bcc @out
     jsr AskAbout
 @out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; Shatter -- the platform comes apart underfoot.
+;
+; Done with hardware rather than art: MOSAIC coarsens BG1 into ever larger
+; blocks while the brightness falls and the screen shakes, which reads as the
+; glass breaking up without needing a second tileset for the debris.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc Shatter
+    .a8
+    .i16
+    lda shatterTimer
+    beq @land
+    dec shatterTimer
+
+    ; elapsed = SHATTER_LEN - remaining, scaled to the 0-15 the registers take
+    lda #SHATTER_LEN
+    sec
+    sbc shatterTimer
+    lsr a
+    lsr a
+    lsr a                       ; /8 -> 0..12
+    cmp #16
+    bcc :+
+    lda #15
+:   sta tmp2
+
+    asl a
+    asl a
+    asl a
+    asl a
+    ora #$01                    ; mosaic size in the high nibble, BG1 enabled
+    sta mosaicAmt
+
+    lda #15
+    sec
+    sbc tmp2
+    sta screenBright
+
+    ; a shake that alternates either side of centre
+    lda frameCount
+    and #$02
+    beq :+
+    lda #$FE                    ; -2
+    bra :++
+:   lda #$02
+:   sta shakeX
+    rts
+
+@land:
+    stz shakeX
+    stz mosaicAmt
+    lda #$8F                    ; forced blank while VRAM is rewritten
+    sta screenBright
+    sta INIDISP
+
+    lda #SCENE_DIVE2
+    jsr LoadScene
+    jsr ClearActors
+    jsr SpawnStation2
+
+    lda #$0F
+    sta screenBright
+    lda #DIVE_S2_INTRO
+    sta diveStage
+
+    lda #<scriptStation2
+    sta txtPtr
+    lda #>scriptStation2
+    sta txtPtr+1
+    lda #^scriptStation2
+    sta txtPtr+2
+    lda #TM_MESSAGE
+    jsr TextOpen
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; WatchShadows -- once the last Shadow is gone, Darkside rises.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc WatchShadows
+    .a8
+    .i16
+    lda #ACT_SHADOW
+    jsr CountType
+    bne @out
+
+    jsr SpawnBoss
+    lda #DIVE_BOSS
+    sta diveStage
+    lda #<scriptBoss
+    sta txtPtr
+    lda #>scriptBoss
+    sta txtPtr+1
+    lda #^scriptBoss
+    sta txtPtr+2
+    lda #TM_MESSAGE
+    jsr TextOpen
+@out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; WatchBoss -- A8/I16.
+;-----------------------------------------------------------------------------
+.proc WatchBoss
+    .a8
+    .i16
+    lda #ACT_DARKSIDE
+    jsr CountType
+    bne @out
+
+    stz bossHP
+    lda #DIVE_DONE
+    sta diveStage
+    lda #<scriptVictory
+    sta txtPtr
+    lda #>scriptVictory
+    sta txtPtr+1
+    lda #^scriptVictory
+    sta txtPtr+2
+    lda #TM_MESSAGE
+    jsr TextOpen
+@out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; SpawnStation2 / SpawnBoss -- A8/I16.
+;-----------------------------------------------------------------------------
+.proc SpawnStation2
+    .a8
+    .i16
+    rep #$20
+    .a16
+    lda #.loword(station2Spawns)
+    sta tmp8
+    sep #$20
+    .a8
+    jsr SpawnFromTable
+    jsr HudUpdate
+    rts
+.endproc
+
+.proc SpawnBoss
+    .a8
+    .i16
+    rep #$20
+    .a16
+    lda #8                      ; isometric (8,3): the far side of the platform
+    sta tmp0
+    lda #3
+    sta tmp1
+    jsr IsoToWorld
+    lda tmp0
+    clc
+    adc #16
+    asl a
+    asl a
+    asl a
+    asl a
+    sta tmp0
+    lda tmp1
+    clc
+    adc #8
+    asl a
+    asl a
+    asl a
+    asl a
+    sta tmp1
+    sep #$20
+    .a8
+    lda #ACT_DARKSIDE
+    jsr SpawnActor
+    lda #DS_MAX_HP
+    sta bossHP
+    lda #DS_REST
+    sta actTimer,x
+    jsr HudUpdate
     rts
 .endproc
 
@@ -270,7 +494,13 @@ REACH_Y = 260
     ;--- taking a power ---
     lda pendWeapon
     sta weaponTaken
-    ldx pendActor
+    lda pendActor
+    rep #$20
+    .a16
+    and #$00FF
+    tax
+    sep #$20
+    .a8
     stz actType,x               ; the weapon leaves its pedestal
     lda #DIVE_DROP
     sta diveStage
@@ -288,11 +518,18 @@ REACH_Y = 260
 @drop:
     lda pendWeapon
     sta weaponGiven
-    ldx pendActor
+    lda pendActor
+    rep #$20
+    .a16
+    and #$00FF
+    tax
+    sep #$20
+    .a8
     stz actType,x
-    lda #DIVE_FIGHT
+    lda #DIVE_SHATTER
     sta diveStage
-    jsr DiveSpawnShadows
+    lda #SHATTER_LEN
+    sta shatterTimer
     lda #<scriptChosen
     sta txtPtr
     lda #>scriptChosen
@@ -301,56 +538,6 @@ REACH_Y = 260
     sta txtPtr+2
     lda #TM_MESSAGE
     jsr TextOpen
-    rts
-.endproc
-
-;-----------------------------------------------------------------------------
-; DiveSpawnShadows -- the first Heartless rise from the glass.  A8/I16.
-;-----------------------------------------------------------------------------
-.proc DiveSpawnShadows
-    .a8
-    .i16
-    ldy #0
-@loop:
-    lda shadowSpawns,y
-    cmp #$FF
-    beq @done
-    iny
-    rep #$20
-    .a16
-    lda shadowSpawns,y
-    and #$00FF
-    sta tmp0
-    iny
-    lda shadowSpawns,y
-    and #$00FF
-    sta tmp1
-    iny
-    sty tmp7
-    jsr IsoToWorld
-    lda tmp0
-    clc
-    adc #16
-    asl a
-    asl a
-    asl a
-    asl a
-    sta tmp0
-    lda tmp1
-    clc
-    adc #8
-    asl a
-    asl a
-    asl a
-    asl a
-    sta tmp1
-    sep #$20
-    .a8
-    lda #ACT_SHADOW
-    jsr SpawnActor
-    ldy tmp7
-    bra @loop
-@done:
     rts
 .endproc
 
@@ -370,10 +557,12 @@ diveSpawns:
     .byte ACT_STAFF,    10, 10
     .byte $FF
 
-shadowSpawns:
-    .byte 0,  5,  5
-    .byte 0, 11,  7
-    .byte 0,  6, 11
+; Station two: Sora lands alone, and three Shadows are already waiting.
+station2Spawns:
+    .byte ACT_SORA,    8, 10
+    .byte ACT_SHADOW,  5,  6
+    .byte ACT_SHADOW, 11,  6
+    .byte ACT_SHADOW,  8,  4
     .byte $FF
 
 ;--- scripts.  SC_NL breaks a line, SC_PAGE waits and clears, SC_END ends. ---
@@ -396,6 +585,25 @@ scriptGiveUp:
     .byte SC_NL
     .byte "NOW, WHAT WILL YOU", SC_NL
     .byte "GIVE UP IN EXCHANGE?", SC_END
+
+scriptStation2:
+    .byte "YOU GOT IT.", SC_NL
+    .byte SC_NL
+    .byte "THE CLOSER YOU GET TO", SC_NL
+    .byte "THE LIGHT, THE GREATER", SC_NL
+    .byte "YOUR SHADOW BECOMES.", SC_END
+
+scriptBoss:
+    .byte "BUT DON'T BE AFRAID.", SC_PAGE
+    .byte "YOUR SHADOW HAS RISEN.", SC_NL
+    .byte SC_NL
+    .byte "IT WILL NOT BE BEATEN", SC_NL
+    .byte "BY RUNNING FROM IT.", SC_END
+
+scriptVictory:
+    .byte "THE DOOR IS OPENING.", SC_PAGE
+    .byte "YOUR ADVENTURE BEGINS", SC_NL
+    .byte "AT DAWN.", SC_END
 
 scriptChosen:
     .byte "YOU HAVE CHOSEN.", SC_NL

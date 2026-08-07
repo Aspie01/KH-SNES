@@ -26,8 +26,9 @@
 .import bgPal, objPal, hudPal
 .import bg1Map, collMap
 .import diveChr, diveChrEnd, diveMap, diveColl, divePal
+.import dive2Chr, dive2ChrEnd, dive2Map, dive2Coll
 
-.export Reset, IrqHandler, WaitVBlank
+.export Reset, IrqHandler, WaitVBlank, LoadScene
 
 ;-----------------------------------------------------------------------------
 ; CLEAR_WRAM -- zero all 128 KiB of work RAM through the WMDATA port.
@@ -109,9 +110,13 @@
     jsr UpdateCamera
     jsr BuildOam
 
-    ; Bring the screen up and arm the vblank interrupt.
+    ; Bring the screen up and arm the vblank interrupt.  The NMI drives
+    ; INIDISP from screenBright from here on, so set it there too.
     lda #$0F
-    sta INIDISP                 ; full brightness
+    sta screenBright
+    sta INIDISP
+    stz mosaicAmt
+    stz shakeX
     lda #$81
     sta NMITIMEN                ; NMI enable + auto joypad read
     cli
@@ -253,14 +258,21 @@ MainLoop:
     DMA_VRAM VRAM_OBJ_CHR, objChr, (objChrEnd - objChr)
     DMA_CGRAM 128, objPal, 256                  ; OBJ palettes 0-7
 
-    ; Each branch is longer than a short branch can clear, so the dispatch
-    ; hops over a jmp rather than branching to the far label directly.
+    ; Every branch is longer than a short branch can clear, so the dispatch
+    ; hops through jmps.
     lda sceneId
-    beq :+
+    cmp #SCENE_DIVE2
+    beq @toDive2
+    cmp #SCENE_ISLAND
+    beq @toIsland
+    jmp @dive1
+@toDive2:
+    jmp @dive2
+@toIsland:
     jmp @island
 
-    ;--- Station of Awakening ---
-:
+    ;--- Station of Awakening, first platform ---
+@dive1:
     DMA_VRAM VRAM_BG1_CHR, diveChr, (diveChrEnd - diveChr)
     DMA_VRAM VRAM_BG1_MAP, diveMap, 4096
     DMA_CGRAM 0, divePal, 256
@@ -269,6 +281,19 @@ MainLoop:
     lda #>diveColl
     sta collPtr+1
     lda #^diveColl
+    sta collPtr+2
+    jmp @common
+
+    ;--- Station of Awakening, second platform (shares the glass palette) ---
+@dive2:
+    DMA_VRAM VRAM_BG1_CHR, dive2Chr, (dive2ChrEnd - dive2Chr)
+    DMA_VRAM VRAM_BG1_MAP, dive2Map, 4096
+    DMA_CGRAM 0, divePal, 256
+    lda #<dive2Coll
+    sta collPtr
+    lda #>dive2Coll
+    sta collPtr+1
+    lda #^dive2Coll
     sta collPtr+2
     jmp @common
 
@@ -330,10 +355,11 @@ MainLoop:
 .proc SceneUpdate
     .a8
     .i16
+    ; Both Stations of Awakening run the same script; only the island opts out.
     lda sceneId
-    bne @island
+    cmp #SCENE_ISLAND
+    beq @island
     jsr DiveUpdate
-    rts
 @island:
     rts
 .endproc

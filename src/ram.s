@@ -18,6 +18,8 @@ tmp4:         .res 2
 tmp5:         .res 2
 tmp6:         .res 2
 tmp7:         .res 2
+tmp8:         .res 2
+tmp9:         .res 2
 ptr0:         .res 3
 ptr1:         .res 3
 
@@ -68,6 +70,13 @@ pendWeapon:   .res 1
 ; Collision map of the scene currently loaded, as a long pointer so the
 ; walkability test does not have to know which scene it is in.
 collPtr:      .res 3
+
+; Screen-wide effects, written by the NMI so they land in vblank.
+screenBright: .res 1            ; INIDISP value
+mosaicAmt:    .res 1            ; MOSAIC value
+shatterTimer: .res 1
+bossHP:       .res 1            ; mirrored for the gauge
+shakeX:       .res 1
 curActor:     .res 2            ; actor being updated, survives calls that use tmp*
 
 .segment "BSS"

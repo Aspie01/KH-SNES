@@ -7,7 +7,7 @@ RAM_INC = 1
 .include "game.inc"
 
 ;--- direct page scratch -----------------------------------------------------
-.globalzp tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7
+.globalzp tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, tmp8, tmp9
 .globalzp ptr0, ptr1
 
 ;--- input -------------------------------------------------------------------
@@ -36,6 +36,7 @@ RAM_INC = 1
 ;--- scene / script ----------------------------------------------------------
 .globalzp sceneId, diveStage, weaponTaken, weaponGiven, scriptWait
 .globalzp pendActor, pendWeapon, collPtr
+.globalzp screenBright, mosaicAmt, shatterTimer, bossHP, shakeX
 
 ;--- buffers (BSS) -----------------------------------------------------------
 .global oamBuf, oamHigh, sortIdx, sortCount, hudRow, txtBuf

@@ -597,8 +597,13 @@ G_GREEN, G_VIOLET, G_TEAL, G_EDGE = 12, 13, 14, 15
 WEDGE_COLOURS = (G_MID, G_DEEP, G_TEAL, G_DEEP, G_VIOLET, G_DEEP,
                  G_MID, G_DEEP, G_TEAL, G_DEEP, G_VIOLET, G_DEEP)
 
+# The second Station of Awakening: cooler glass, a fair-haired figure in blue.
+WEDGE_COLOURS_2 = (G_TEAL, G_DEEP, G_LIGHT, G_DEEP, G_MID, G_DEEP,
+                   G_TEAL, G_DEEP, G_LIGHT, G_DEEP, G_MID, G_DEEP)
 
-def dive_medallion(r: float, ang: float, nx: float, ny: float) -> int | None:
+
+def dive_medallion(r: float, ang: float, nx: float, ny: float,
+                   station: int = 1) -> int | None:
     """The figure at the centre of the platform, in un-squashed coordinates.
 
     nx/ny are -1..1 across the medallion with the isometric squash undone, so
@@ -607,6 +612,15 @@ def dive_medallion(r: float, ang: float, nx: float, ny: float) -> int | None:
     """
     # Pale radiating backdrop.
     base = G_PALE if int((ang / (2 * math.pi)) * 24) % 2 == 0 else G_WHITE
+    # Station two dresses the same figure differently: fair hair, blue gown.
+    hair = G_HAIR if station == 1 else G_GOLD
+    hair_hi = G_HAIR if station == 1 else G_PALE
+    bow = G_RED if station == 1 else G_LIGHT
+    bodice_a = G_MID if station == 1 else G_LIGHT
+    bodice_b = G_DEEP if station == 1 else G_MID
+    skirt_a = G_PALE if station == 1 else G_WHITE
+    skirt_b = G_GOLD if station == 1 else G_LIGHT
+    sleeve = G_RED_D if station == 1 else G_WHITE
 
     # --- head: an elliptical face set inside a rounder mass of hair ---
     hx, hy = nx, ny + 0.42
@@ -614,15 +628,17 @@ def dive_medallion(r: float, ang: float, nx: float, ny: float) -> int | None:
         fx, fy = nx / 0.19, (ny + 0.40) / 0.23
         if fx * fx + fy * fy < 1.0:
             return G_SKIN
-        return G_HAIR
+        if hy < -0.16:
+            return hair_hi
+        return hair
     # bow above the hair
     bx, by = nx, ny + 0.76
     if bx * bx * 0.7 + by * by < 0.16 * 0.16:
-        return G_RED
+        return bow
 
     # --- bodice ---
     if -0.20 < ny < 0.16 and abs(nx) < 0.26 - ny * 0.25:
-        return G_MID if abs(nx) < 0.18 else G_DEEP
+        return bodice_a if abs(nx) < 0.18 else bodice_b
     # collar
     if 0.10 < ny + 0.22 < 0.20 and abs(nx) < 0.30:
         return G_WHITE
@@ -633,17 +649,17 @@ def dive_medallion(r: float, ang: float, nx: float, ny: float) -> int | None:
         if abs(nx) < span:
             # gold pleats
             if int(abs(nx) / span * 7) % 2 == 0:
-                return G_PALE
-            return G_GOLD
+                return skirt_a
+            return skirt_b
     # sleeves
     for side in (-1.0, 1.0):
         sx, sy = nx - side * 0.30, ny + 0.02
         if sx * sx + sy * sy < 0.13 * 0.13:
-            return G_RED_D
+            return sleeve
     return base
 
 
-def build_dive_platform() -> tuple[Canvas, bytes]:
+def build_dive_platform(station: int = 1) -> tuple[Canvas, bytes]:
     """Paint the platform and derive which isometric tiles are standable."""
     world = Canvas(WORLD_W, WORLD_H, V_VOID)
 
@@ -667,16 +683,17 @@ def build_dive_platform() -> tuple[Canvas, bytes]:
                 c = G_GOLD
             elif r > 0.60:
                 # ring of stained-glass wedges
-                seg = int(ang / (2 * math.pi) * len(WEDGE_COLOURS))
-                c = WEDGE_COLOURS[seg % len(WEDGE_COLOURS)]
-                if abs((ang % (2 * math.pi / len(WEDGE_COLOURS)))) < 0.035:
+                wedges = WEDGE_COLOURS if station == 1 else WEDGE_COLOURS_2
+                seg = int(ang / (2 * math.pi) * len(wedges))
+                c = wedges[seg % len(wedges)]
+                if abs((ang % (2 * math.pi / len(wedges)))) < 0.035:
                     c = G_GOLD_D                    # leading between wedges
             elif r > 0.565:
                 c = G_GOLD
             else:
                 nx = dx / 0.565
                 ny = dy / 0.565
-                c = dive_medallion(r, ang, nx, ny) or G_PALE
+                c = dive_medallion(r, ang, nx, ny, station) or G_PALE
             world.set(x, y, c)
 
     # Standable tiles: those whose centre sits comfortably inside the rim.
@@ -769,6 +786,102 @@ def draw_staff() -> Canvas:
     return c
 
 
+def draw_darkside() -> Canvas:
+    """Darkside, 64x64 -- four 32x32 sprites assembled by the OAM builder.
+
+    Twice Sora in both axes is as large as a single sprite can get without
+    surrendering the 16x16 size slot the Shadows need, so the silhouette does
+    the work: long limbs, a tiny head set low between huge shoulders, and the
+    heart-shaped hole punched clean through the chest.
+    """
+    c = Canvas(64, 64)
+    B_OUT, B_BODY, B_HI, B_EYE, B_EYERIM = 1, 2, 3, 4, 5
+    B_SINEW, B_RIM, B_HOLE, B_GLOW = 6, 8, 9, 10
+    B_MID, B_DEEP, B_LIGHT = 11, 12, 13
+
+    # Built as one connected mass rather than separate limbs: at 64x64 against
+    # bright glass the silhouette is the whole read, and detached arms just
+    # look like pillars standing behind the body.
+
+    # --- legs ---
+    c.rect(22, 44, 29, 58, B_DEEP)
+    c.rect(35, 44, 42, 58, B_DEEP)
+    c.ellipse(25, 59, 7.0, 3.4, B_BODY)
+    c.ellipse(39, 59, 7.0, 3.4, B_BODY)
+
+    # --- shoulders sweeping out, then the torso tapering to the waist ---
+    for y in range(21, 34):
+        t = (y - 21) / 13.0
+        hw = int(25 - 6 * t)
+        c.rect(32 - hw, y, 32 + hw, y, B_MID)
+    for y in range(34, 48):
+        t = (y - 34) / 14.0
+        hw = int(19 - 5 * t)
+        c.rect(32 - hw, y, 32 + hw, y, B_MID)
+
+    # --- arms: continuous from the shoulder tips down to the hands ---
+    for side in (-1, 1):
+        for y in range(24, 50):
+            t = (y - 24) / 26.0
+            ax = 32 + side * int(22 + 3 * t)
+            c.rect(ax - 5, y, ax + 5, y, B_BODY)
+        hx = 32 + side * 25
+        c.ellipse(hx, 53, 7.0, 6.0, B_BODY)
+        c.ellipse(hx - side, 51, 4.4, 3.6, B_HI)
+        for k in range(3):                          # splayed fingers
+            c.rect(hx - 5 + k * 4, 57, hx - 4 + k * 4, 60, B_BODY)
+
+    # Seams: without them the arms and legs merge into the torso and the whole
+    # figure reads as one slab.
+    for side in (-1, 1):
+        for y in range(26, 50):
+            t = (y - 26) / 24.0
+            ax = 32 + side * int(22 + 3 * t)
+            c.vline(ax - side * 6, y, y, B_OUT)
+    c.vline(32, 44, 58, B_OUT)                      # between the legs
+    c.ellipse(24, 34, 8.0, 12.0, B_DEEP)            # shaded flank
+
+    # --- the heart-shaped hole, punched clean through the chest ---
+    for y in range(28, 50):
+        for x in range(20, 45):
+            fx = (x + 0.5 - 32) / 8.0
+            fy = -(y + 0.5 - 36) / 8.5
+            t = fx * fx + fy * fy - 1.0
+            if t * t * t - fx * fx * fy * fy * fy <= 0.0:
+                c.set(x, y, B_HOLE)
+    for y in range(28, 50):
+        for x in range(20, 45):
+            if c.get(x, y) != B_HOLE:
+                continue
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                if c.get(x + dx, y + dy) not in (B_HOLE, B_GLOW):
+                    c.set(x, y, B_GLOW)
+                    break
+
+    # --- head, sitting proud of the shoulder line ---
+    c.rect(28, 18, 36, 24, B_BODY)                  # neck into the chest
+    c.ellipse(32, 14, 9.0, 8.0, B_BODY)
+    c.ellipse(30, 12, 5.5, 4.2, B_HI)
+    for side in (-1, 1):
+        ex = 32 + side * 4
+        c.ellipse(ex, 15, 2.9, 2.2, B_EYERIM)
+        c.ellipse(ex, 15, 1.9, 1.4, B_EYE)
+
+    # --- tendrils, swept back off the crown and kept clear of the face ---
+    TENDRILS = ((-18, -1), (-12, -6), (-5, -8), (4, -8), (12, -5), (18, 0))
+    for dx, dy in TENDRILS:
+        spike(c, 32 + dx // 3, 7 + dy // 3, 32 + dx, max(0, 7 + dy), 2.2, B_SINEW)
+    for dx, dy in TENDRILS:
+        spike(c, 32 + dx // 3, 7 + dy // 3, 32 + dx, max(0, 7 + dy), 0.9, B_LIGHT)
+
+    # Catch the upward edges before the outline goes on, leaving the eyes and
+    # the chest cavity alone.
+    c.rim_light(B_RIM, skip=(B_EYE, B_EYERIM, B_HOLE, B_GLOW))
+
+    c.outline(B_OUT)
+    return c
+
+
 def build_obj_page() -> Canvas:
     """Assemble the 128x128 sprite page (a 16x16 grid of 8x8 tiles).
 
@@ -785,13 +898,17 @@ def build_obj_page() -> Canvas:
     page.blit(draw_sword(), 32, 32)         # $44
     page.blit(draw_shield(), 64, 32)        # $48
     page.blit(draw_staff(), 96, 32)         # $4C
-    # row 12: everything 16x16
-    for f in range(4):                      # $C0 $C2 $C4 $C6
-        page.blit(draw_heartless(f), f * 16, 96)
-    page.blit(draw_shadow_blob(), 64, 96)   # $C8
-    page.blit(draw_slash(0), 80, 96)        # $CA
-    page.blit(draw_slash(1), 96, 96)        # $CC
-    page.blit(draw_rock(), 112, 96)         # $CE
+    # rows 8-15, cols 0-7: Darkside, as a 2x2 arrangement of 32x32 blocks
+    # with tile bases $80 $84 / $C0 $C4.
+    page.blit(draw_darkside(), 0, 64)
+    # row 12, cols 8-15: the Shadow's four cels
+    for f in range(4):                      # $C8 $CA $CC $CE
+        page.blit(draw_heartless(f), 64 + f * 16, 96)
+    # row 14, cols 8-15: the remaining 16x16 pieces
+    page.blit(draw_shadow_blob(), 64, 112)  # $E8
+    page.blit(draw_slash(0), 80, 112)       # $EA
+    page.blit(draw_slash(1), 96, 112)       # $EC
+    page.blit(draw_rock(), 112, 112)        # $EE
     return page
 
 
@@ -997,6 +1114,15 @@ def main() -> int:
     write_bin(GEN / "divecoll.bin", dive_coll)
     write_bin(GEN / "divepal.bin", palette_bytes(BG_DIVE) + bytes(256 - 32))
 
+    dive2, dive2_coll = build_dive_platform(station=2)
+    write_png(dive2, BG_DIVE, SRC / "dive2_preview.png", transparent0=False)
+    d2_chr, d2_map, d2_n = dedupe_tilemap(dive2)
+    if d2_n > 512:
+        raise SystemExit(f"station two needs {d2_n} characters; BG1 holds 512.")
+    write_bin(GEN / "dive2chr.bin", d2_chr)
+    write_bin(GEN / "dive2map.bin", d2_map)
+    write_bin(GEN / "dive2coll.bin", dive2_coll)
+
     #--- Sora ---------------------------------------------------------------
     sheet = build_sora()
     write_png(sheet, OBJ_SORA, SRC / "sora.png")
@@ -1021,8 +1147,10 @@ def main() -> int:
     # where all sixteen ground colours live.
     write_bin(GEN / "hudpal.bin", palette_bytes(HUD_PAL, 4))
 
-    print(f"platform  {dive_n:3d} unique characters, "
+    print(f"station1  {dive_n:3d} unique characters, "
           f"{len(dive_chr):5d} bytes chr")
+    print(f"station2  {d2_n:3d} unique characters, "
+          f"{len(d2_chr):5d} bytes chr")
     print(f"ground    {nchars:3d} unique characters, "
           f"{len(bg_chr):5d} bytes chr, {len(bg_map)} bytes map")
     print(f"sora      {len(sheet.px[0])//32}x{len(sheet.px)//32} cels, "

@@ -67,14 +67,17 @@ TILE_PEDESTAL = $40             ; 32x32, Station of Awakening
 TILE_SWORD   = $44              ; 32x32 Dream Sword
 TILE_SHIELD  = $48              ; 32x32 Dream Shield
 TILE_STAFF   = $4C              ; 32x32 Dream Rod
-TILE_HEART0  = $C0              ; 16x16 Shadow Heartless, 4 frames
-TILE_HEART1  = $C2
-TILE_HEART2  = $C4
-TILE_HEART3  = $C6
-TILE_SHADOW  = $C8              ; 16x16 ground shadow
-TILE_SLASH0  = $CA              ; 16x16 keyblade arc
-TILE_SLASH1  = $CC
-TILE_ROCK    = $CE              ; 16x16
+; Darkside is 64x64 -- four 32x32 blocks at $80/$84 over $C0/$C4, filling the
+; lower-left quadrant of the sprite page.
+TILE_DARKSIDE = $80
+TILE_HEART0  = $C8              ; 16x16 Shadow Heartless, 4 frames
+TILE_HEART1  = $CA
+TILE_HEART2  = $CC
+TILE_HEART3  = $CE
+TILE_SHADOW  = $E8              ; 16x16 ground shadow
+TILE_SLASH0  = $EA              ; 16x16 keyblade arc
+TILE_SLASH1  = $EC
+TILE_ROCK    = $EE              ; 16x16
 
 ; Sora's streaming window: 4 tile rows of 4 tiles at VRAM_OBJ_CHR.
 SORA_FRAME_BYTES = 512          ; 32x32 4bpp
@@ -109,10 +112,12 @@ ACT_PEDESTAL = 7                ; Station of Awakening dais
 ACT_SWORD    = 8                ; the three dream weapons hovering above them
 ACT_SHIELD   = 9
 ACT_STAFF    = 10
+ACT_DARKSIDE = 11               ; the boss that ends the Dive
 
 ; Scenes
 SCENE_DIVE   = 0                ; Station of Awakening
-SCENE_ISLAND = 1                ; Destiny Islands
+SCENE_DIVE2  = 1                ; the second Station of Awakening
+SCENE_ISLAND = 2                ; Destiny Islands
 
 ; Which dream weapon was taken / surrendered
 WEAPON_NONE  = 0
@@ -124,7 +129,20 @@ WEAPON_STAFF = 3
 DIVE_INTRO   = 0                ; the voice speaks
 DIVE_PICK    = 1                ; choose a power to take
 DIVE_DROP    = 2                ; choose a power to give up
-DIVE_FIGHT   = 3                ; the first Shadows appear
+DIVE_SHATTER = 3                ; the platform breaks up underfoot
+DIVE_S2_INTRO = 4               ; landed on the second station
+DIVE_S2_FIGHT = 5               ; the first Shadows
+DIVE_BOSS    = 6                ; Darkside rises
+DIVE_DONE    = 7
+
+; Boss tuning
+DS_MAX_HP    = 36
+DS_SLAM_WIND = 44               ; frames of telegraph before a fist comes down
+DS_SLAM_HOLD = 22               ; fist on the ground, vulnerable
+DS_REST      = 60
+DS_HURT_X    = 480              ; Q12.4, generous: the body is 64 px wide
+DS_HURT_Y    = 400
+SHATTER_LEN  = 96               ; frames the platform takes to come apart
 
 ; actFlags bits
 AF_LARGE     = $01              ; 32x32 sprite (otherwise 16x16)
@@ -132,6 +150,7 @@ AF_SHADOW    = $02              ; drop a ground shadow
 AF_SOLID     = $04              ; blocks movement
 AF_HFLIP     = $08              ; mirror horizontally when drawn
 AF_TALK      = $10              ; can be interacted with by pressing A
+AF_HUGE      = $20              ; 64x64, emitted as four sprites
 
 ; actState values for Sora
 ST_IDLE      = 0
