@@ -157,6 +157,13 @@ DSS_SLAM_UP  = 1
 DSS_SLAM_HIT = 2
 DSS_ORB_UP   = 3
 DSS_ORB_FIRE = 4
+DSS_SWEEP_UP = 5                ; close-range arm sweep
+DSS_SWEEP_HIT = 6
+
+DS_SWEEP_WIND = 26              ; shorter telegraph than the fist: it is the
+DS_SWEEP_HOLD = 16              ; punish for standing underneath
+SWEEP_X      = 700              ; Q12.4, compared after un-squashing X
+SWEEP_Y      = 420
 DS_HURT_X    = 480              ; Q12.4, generous: the body is 64 px wide
 DS_HURT_Y    = 400
 SHATTER_LEN  = 96               ; frames the platform takes to come apart
@@ -174,6 +181,7 @@ ST_IDLE      = 0
 ST_WALK      = 1
 ST_ATTACK    = 2
 ST_HURT      = 3
+ST_DEAD      = 4                ; out of HP; no control until the retry
 
 ; Facing directions.  Only N, NE, E, SE, S are drawn; W, SW, NW reuse the
 ; eastern art mirrored, which is how the sprite budget stays sane.
@@ -192,6 +200,7 @@ WALK_SPEED   = 24               ; 1.5 px/frame vertically
 
 ATTACK_FRAMES = 18              ; length of a swing
 HURT_FRAMES   = 20
+DEATH_FRAMES  = 50              ; the screen dims over these before GAME OVER
 SORA_MAX_HP   = 20
 HEART_MAX_HP  = 3
 

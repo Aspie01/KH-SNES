@@ -18,7 +18,7 @@
 .import ReadPad
 .import HudInit
 .import TextInit, TextUpdate
-.import DiveInit, DiveUpdate
+.import DiveInit, DiveUpdate, GameOverUpdate
 
 .import bgChr, bgChrEnd
 .import objChr, objChrEnd
@@ -355,8 +355,15 @@ MainLoop:
 .proc SceneUpdate
     .a8
     .i16
+    ; Being out of HP takes priority over whatever the scene was doing.
+    lda deadFlag
+    beq @alive
+    jsr GameOverUpdate
+    rts
+
     ; The opening script owns the transition onto Destiny Islands too, so it
     ; keeps running after the scene changes; DIVE_ARRIVED is its terminal state.
+@alive:
     jsr DiveUpdate
     rts
 .endproc

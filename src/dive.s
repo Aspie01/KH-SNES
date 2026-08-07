@@ -17,7 +17,7 @@
 .import TextOpen, TextBusy, TextClose
 .import HudUpdate
 
-.export DiveInit, DiveUpdate
+.export DiveInit, DiveUpdate, GameOverUpdate
 
 REACH_X = 320                   ; interaction range, Q12.4 (un-squashed X)
 REACH_Y = 260
@@ -309,6 +309,101 @@ REACH_Y = 260
     lda #TM_MESSAGE
     jsr TextOpen
 @out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; GameOverUpdate -- runs instead of the scene script while Sora is down.
+; A8/I16.
+;-----------------------------------------------------------------------------
+.proc GameOverUpdate
+    .a8
+    .i16
+    jsr TextBusy
+    bcc :+
+    rts                         ; the message is still up
+:
+    lda deadFlag
+    cmp #1
+    bne @retry
+
+    lda #2                      ; message shown; the next pass retries
+    sta deadFlag
+    lda #<scriptGameOver
+    sta txtPtr
+    lda #>scriptGameOver
+    sta txtPtr+1
+    lda #^scriptGameOver
+    sta txtPtr+2
+    lda #TM_MESSAGE
+    jsr TextOpen
+    rts
+
+@retry:
+    jsr RestartScene
+    stz deadFlag
+    lda #$0F
+    sta screenBright
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; RestartScene -- put the current scene back the way it started, at whatever
+; stage the player had reached.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc RestartScene
+    .a8
+    .i16
+    lda #$8F
+    sta screenBright
+    sta INIDISP
+
+    lda sceneId
+    jsr LoadScene
+    jsr ClearActors
+
+    lda sceneId
+    cmp #SCENE_ISLAND
+    bne :+
+    jsr InitWorld
+    lda #DIVE_ARRIVED
+    sta diveStage
+    jmp @done
+:   cmp #SCENE_DIVE2
+    bne @station1
+
+    ; Station two: retry the boss directly rather than the Shadows again.
+    lda diveStage
+    cmp #DIVE_BOSS
+    bne @shadows
+    rep #$20
+    .a16
+    lda #.loword(soraOnlySpawns)
+    sta tmp8
+    sep #$20
+    .a8
+    jsr SpawnFromTable
+    jsr SpawnBoss
+    jmp @done
+@shadows:
+    jsr SpawnStation2
+    lda #DIVE_S2_FIGHT
+    sta diveStage
+    jmp @done
+
+@station1:
+    rep #$20
+    .a16
+    lda #.loword(diveSpawns)
+    sta tmp8
+    sep #$20
+    .a8
+    jsr SpawnFromTable
+    lda #DIVE_PICK
+    sta diveStage
+
+@done:
+    jsr HudUpdate
     rts
 .endproc
 
@@ -649,6 +744,11 @@ diveSpawns:
     .byte ACT_STAFF,    10, 10
     .byte $FF
 
+; Used when retrying the boss: he comes back alone, the Shadows stay cleared.
+soraOnlySpawns:
+    .byte ACT_SORA,    8, 10
+    .byte $FF
+
 ; Station two: Sora lands alone, and three Shadows are already waiting.
 station2Spawns:
     .byte ACT_SORA,    8, 10
@@ -691,6 +791,12 @@ scriptBoss:
     .byte SC_NL
     .byte "IT WILL NOT BE BEATEN", SC_NL
     .byte "BY RUNNING FROM IT.", SC_END
+
+scriptGameOver:
+    .byte "YOUR LIGHT WENT OUT.", SC_PAGE
+    .byte "BUT IT IS NOT GONE.", SC_NL
+    .byte SC_NL
+    .byte "STAND UP AND TRY AGAIN.", SC_END
 
 scriptWake:
     .byte "DESTINY ISLANDS.", SC_PAGE

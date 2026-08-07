@@ -16,9 +16,13 @@ you want it. Take one, give one up, and the platform breaks apart underfoot.
 He lands on a second station where the first Shadows are waiting. Clear them
 and his own shadow rises into **Darkside**. It alternates two attacks: a fist
 that telegraphs, marks the ground where Sora is standing and lands there a beat
-later leaving a new Shadow in the crater, and a volley of three dark orbs spat
-from the hole in its chest. Both are dodged by moving, which is the only thing
-a boss that never walks can ask of you.
+later leaving a new Shadow in the crater, a volley of three dark orbs spat
+from the hole in its chest, and — if you stand underneath it — a short-notice
+arm sweep across the ground at its feet. The first two are dodged by moving;
+the third is the punish for not moving at all.
+
+Run out of HP and the screen dims, a GAME OVER line comes up, and the fight
+restarts from the boss rather than from the Shadows.
 
 ![Destiny Islands](docs/screenshot-island.png)
 
@@ -215,9 +219,9 @@ fits in VRAM with no streaming. In rough order:
 
 1. **The real Destiny Islands opening** — the arrival works, but the island is
    still empty of people and things to do.
-2. **Dive polish** — a third station, and a close-range sweep for Darkside so
-   standing under it is not safe. Sora also has no death state yet: his HP
-   floors at zero and he keeps going.
+2. **Dive polish** — a third station would close the sequence properly. Sora's
+   death is currently a dim and a retry; a proper collapse animation and a
+   CONTINUE / QUIT choice would sell it better.
    The cast, both raft-material lists and where each piece is found are written
    up in `docs/DESTINY_ISLANDS.md`. The blocker is multi-level terrain: the
    rope and the bridge are not on the ground plane.

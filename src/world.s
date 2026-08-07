@@ -304,6 +304,8 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 :   ldx curActor
 
     lda actState,x
+    cmp #ST_DEAD
+    beq @dying
     cmp #ST_ATTACK
     beq @attacking
     cmp #ST_HURT
@@ -367,6 +369,26 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     sta actState,x
 @atk_done:
     rts
+
+    ;--- out of HP: no control, and the screen goes down with him ---
+@dying:
+    lda actTimer,x
+    beq @down
+    dec a
+    sta actTimer,x
+    lsr a
+    lsr a                       ; 50 frames -> brightness 12 down to 0
+    cmp #3
+    bcs :+
+    lda #3                      ; stop short of black so GAME OVER can be read
+:   sta screenBright
+    rts
+@down:
+    lda deadFlag
+    bne :+                      ; already handed over to the GAME OVER script
+    lda #$01
+    sta deadFlag
+:   rts
 
     ;--- knocked back ---
 @hurt:
@@ -819,8 +841,17 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     beq @slamHit
     cmp #DSS_ORB_UP
     beq @orbUp
+    ; The later states sit past a short branch's reach, so they go via jmp.
     cmp #DSS_ORB_FIRE
-    beq @orbFire
+    bne :+
+    jmp @orbFire
+:   cmp #DSS_SWEEP_UP
+    bne :+
+    jmp @sweepUp
+:   cmp #DSS_SWEEP_HIT
+    bne :+
+    jmp @sweepHit
+:
 
     ;--- resting ---
     lda actTimer,x
@@ -829,6 +860,17 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     sta actTimer,x
     rts
 @choose:
+    ; Standing underneath is answered immediately, ahead of the alternation.
+    jsr PlayerUnderBoss
+    ldx curActor
+    bcc @alternate
+    lda #DSS_SWEEP_UP
+    sta actState,x
+    lda #DS_SWEEP_WIND
+    sta actTimer,x
+    rts
+
+@alternate:
     lda actAnim,x
     eor #$01                    ; alternate fist / orbs
     sta actAnim,x
@@ -893,10 +935,144 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     sta actTimer,x
     rts
 
+    ;--- arm drawn back ---
+@sweepUp:
+    lda actTimer,x
+    beq @sweepNow
+    dec a
+    sta actTimer,x
+    rts
+@sweepNow:
+    jsr DarksideSweep
+    ldx curActor
+    lda #DSS_SWEEP_HIT
+    sta actState,x
+    lda #DS_SWEEP_HOLD
+    sta actTimer,x
+    rts
+
+@sweepHit:
+    lda actTimer,x
+    beq @rest
+    dec a
+    sta actTimer,x
+    rts
+
 @rest:
     stz actState,x
     lda #DS_REST
     sta actTimer,x
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; PlayerUnderBoss -- is Sora inside the sweep's reach?
+; In (A8/I16): X = boss index.  Out: carry set when he is.  Clobbers X.
+;-----------------------------------------------------------------------------
+.proc PlayerUnderBoss
+    .a8
+    .i16
+    txa
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    sta tmp0
+    lda actY,x
+    sta tmp1
+
+    sep #$20
+    .a8
+    lda playerIdx
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    sec
+    sbc tmp0
+    bpl :+
+    eor #$FFFF
+    inc a
+:   lsr a                       ; the ground is squashed 2:1 across X
+    cmp #SWEEP_X
+    bcs @no
+    lda actY,x
+    sec
+    sbc tmp1
+    bpl :+
+    eor #$FFFF
+    inc a
+:   cmp #SWEEP_Y
+    bcs @no
+    sep #$20
+    .a8
+    sec
+    rts
+@no:
+    sep #$20
+    .a8
+    clc
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; DarksideSweep -- the arm comes across the ground at its feet.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc DarksideSweep
+    .a8
+    .i16
+    ; three arcs across the front of the boss, as the tell that it connected
+    lda curActor
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    sta tmp8
+    lda actY,x
+    clc
+    adc #160                    ; 10 px in front of its feet
+    sta tmp9
+    sep #$20
+    .a8
+
+    ldy #0
+@arc:
+    sty tmp7
+    rep #$20
+    .a16
+    lda tmp8
+    clc
+    adc sweepOfs,y
+    sta tmp0
+    lda tmp9
+    sta tmp1
+    sep #$20
+    .a8
+    lda #ACT_SLASH
+    jsr SpawnActor
+    bcc @next
+    lda #8
+    sta actTimer,x
+@next:
+    ldy tmp7
+    iny
+    iny
+    cpy #6
+    bcc @arc
+
+    ; anyone still underneath takes it
+    ldx curActor
+    jsr PlayerUnderBoss
+    bcc @out
+    ldx curActor
+    jsr DamageSora
+@out:
     rts
 .endproc
 
@@ -1603,15 +1779,26 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     sep #$20
     .a8
 
+    lda actState,x
+    cmp #ST_DEAD
+    beq @out                    ; already down; nothing more to take
     lda actHP,x
-    beq @nohp
+    beq @kill
     dec a
     sta actHP,x
-@nohp:
+    bne @reel
+@kill:
+    lda #ST_DEAD
+    sta actState,x
+    lda #DEATH_FRAMES
+    sta actTimer,x
+    bra @knock
+@reel:
     lda #ST_HURT
     sta actState,x
     lda #HURT_FRAMES
     sta actTimer,x
+@knock:
 
     rep #$20
     .a16
@@ -1634,6 +1821,7 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     lda #3
     sta hitStopTimer
     jsr HudUpdate
+@out:
     rts
 .endproc
 
@@ -1675,6 +1863,9 @@ dirVelY:    .word  24,  17,   0, .loword(-17), .loword(-24), .loword(-17),   0, 
 ; Offset from Sora to the centre of a swing, Q12.4.
 atkOfsX:    .word   0, 176, 256, 176,   0, .loword(-176), .loword(-256), .loword(-176)
 atkOfsY:    .word 128,  88,   0, .loword(-88), .loword(-128), .loword(-88),    0,  88
+
+; Screen offsets of the three arcs the sweep leaves behind, Q12.4.
+sweepOfs:   .word .loword(-448), 0, 448
 
 ; (vertical bucket * 3 + horizontal bucket) -> facing; $FF means "standing".
 dirTable:   .byte DIR_NW, DIR_N, DIR_NE
