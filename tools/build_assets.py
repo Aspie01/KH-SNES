@@ -882,6 +882,19 @@ def draw_darkside() -> Canvas:
     return c
 
 
+def draw_orb(frame: int) -> Canvas:
+    """A dark orb spat from the heart-shaped hole: dark core, glowing rim."""
+    c = Canvas(16, 16)
+    B_OUT, B_HOLE, B_GLOW, B_DEEP = 1, 9, 10, 12
+    r = 6.2 if frame == 0 else 5.4
+    c.ellipse(8, 8, r, r, B_GLOW)
+    c.ellipse(8, 8, r - 1.4, r - 1.4, B_HOLE)
+    c.ellipse(8, 8, r - 3.0, r - 3.0, B_DEEP)
+    c.set(6, 6, B_GLOW)                         # a catchlight so it reads round
+    c.outline(B_OUT)
+    return c
+
+
 def build_obj_page() -> Canvas:
     """Assemble the 128x128 sprite page (a 16x16 grid of 8x8 tiles).
 
@@ -901,6 +914,9 @@ def build_obj_page() -> Canvas:
     # rows 8-15, cols 0-7: Darkside, as a 2x2 arrangement of 32x32 blocks
     # with tile bases $80 $84 / $C0 $C4.
     page.blit(draw_darkside(), 0, 64)
+    # rows 8-11, cols 8-15: the boss's projectiles
+    page.blit(draw_orb(0), 64, 64)          # $88
+    page.blit(draw_orb(1), 80, 64)          # $8A
     # row 12, cols 8-15: the Shadow's four cels
     for f in range(4):                      # $C8 $CA $CC $CE
         page.blit(draw_heartless(f), 64 + f * 16, 96)

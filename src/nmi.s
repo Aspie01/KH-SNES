@@ -132,7 +132,7 @@
 
     lda #$80
     sta VMAIN
-    ldx #(VRAM_BG3_MAP + 32)    ; second row of the BG3 tilemap
+    ldx #(VRAM_BG3_MAP + 32)    ; rows 1 and 2 of the BG3 tilemap
     stx VMADDL
     lda #$01
     sta DMAP0
@@ -142,7 +142,7 @@
     stx A1T0L
     lda #^hudRow
     sta A1B0
-    ldx #64
+    ldx #128
     stx DAS0L
     lda #$01
     sta MDMAEN

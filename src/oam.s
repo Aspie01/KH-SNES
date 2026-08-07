@@ -258,6 +258,27 @@ OAM_HIDE_Y = $E0        ; 224: a 32-tall sprite here ends at 255 and never
     sbc camY
     sta tmp9
 
+    ; Flash while it is flinching.  Set once: WriteOamRaw reads tmp6 but never
+    ; writes it, and Y is the quadrant cursor from here on.
+    sep #$20
+    .a8
+    ldy tmp3
+    lda actHitT,y
+    beq @normalPal
+    lda frameCount
+    and #$02
+    bne @flashPal
+@normalPal:
+    lda #PAL_OBJ_HEART
+    bra @setPal
+@flashPal:
+    lda #PAL_OBJ_FX
+@setPal:
+    rep #$20
+    .a16
+    and #$00FF
+    sta tmp6
+
     ldy #0                      ; quadrant, as a byte offset into the tables
 @quad:
     lda tmp7
@@ -287,8 +308,6 @@ OAM_HIDE_Y = $E0        ; 224: a 32-tall sprite here ends at 255 and never
     sta tmp2
     lda #$0002                  ; each quadrant is a large (32x32) sprite
     sta tmp5
-    lda #PAL_OBJ_HEART
-    sta tmp6
     phy
     jsr WriteOamRaw
     ply

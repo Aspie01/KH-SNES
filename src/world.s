@@ -266,6 +266,13 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     plx
     bra @next
 @notBoss:
+    cmp #ACT_ORB
+    bne @notOrb
+    phx
+    jsr UpdateOrb
+    plx
+    bra @next
+@notOrb:
     cmp #ACT_SLASH
     bne @next
     phx
@@ -777,10 +784,12 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     sta actHitT,x
     lda #3
     sta hitStopTimer
-    jsr HudUpdate
+    ; HudUpdate reloads X with the player, so settle the boss's fate first.
     lda actHP,x
-    bne @out
+    bne @alive
     stz actType,x               ; defeated
+@alive:
+    jsr HudUpdate
 @out:
     rts
 .endproc
@@ -788,8 +797,10 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 ;-----------------------------------------------------------------------------
 ; UpdateDarkside -- In (A8/I16): X = actor index.
 ;
-; It never walks.  The threat is the fist: it telegraphs, marks where Sora is
-; standing, and comes down there a beat later, leaving a Shadow behind.
+; It never walks.  It alternates two attacks: a fist that telegraphs, marks
+; where Sora is standing and lands there a beat later, and a volley of three
+; dark orbs spat from the hole in its chest.  Both are dodged by moving, which
+; is the only thing a stationary boss can ask of the player.
 ;-----------------------------------------------------------------------------
 .proc UpdateDarkside
     .a8
@@ -802,54 +813,334 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     sta actHitT,x
 :
     lda actState,x
-    cmp #1
-    beq @winding
-    cmp #2
-    beq @holding
+    cmp #DSS_SLAM_UP
+    beq @slamUp
+    cmp #DSS_SLAM_HIT
+    beq @slamHit
+    cmp #DSS_ORB_UP
+    beq @orbUp
+    cmp #DSS_ORB_FIRE
+    beq @orbFire
 
     ;--- resting ---
     lda actTimer,x
-    beq @beginWind
+    beq @choose
     dec a
     sta actTimer,x
     rts
-@beginWind:
-    ; mark where Sora is standing; the fist lands there, so moving dodges it
+@choose:
+    lda actAnim,x
+    eor #$01                    ; alternate fist / orbs
+    sta actAnim,x
+    beq @beginOrbs
     jsr AimAtPlayer
     ldx curActor
-    lda #1
+    lda #DSS_SLAM_UP
     sta actState,x
     lda #DS_SLAM_WIND
     sta actTimer,x
     rts
+@beginOrbs:
+    lda #DSS_ORB_UP
+    sta actState,x
+    lda #DS_ORB_WIND
+    sta actTimer,x
+    rts
 
     ;--- fist raised ---
-@winding:
+@slamUp:
     lda actTimer,x
-    beq @impact
+    beq @slamNow
     dec a
     sta actTimer,x
     rts
-@impact:
+@slamNow:
     jsr DarksideSlam
     ldx curActor
-    lda #2
+    lda #DSS_SLAM_HIT
     sta actState,x
     lda #DS_SLAM_HOLD
     sta actTimer,x
     rts
 
-    ;--- fist on the glass ---
-@holding:
+@slamHit:
     lda actTimer,x
     beq @rest
     dec a
     sta actTimer,x
     rts
+
+    ;--- chest gathering ---
+@orbUp:
+    lda actTimer,x
+    beq @fireNow
+    dec a
+    sta actTimer,x
+    rts
+@fireNow:
+    jsr FireOrbs
+    ldx curActor
+    lda #DSS_ORB_FIRE
+    sta actState,x
+    lda #DS_ORB_REST
+    sta actTimer,x
+    rts
+
+@orbFire:
+    lda actTimer,x
+    beq @rest
+    dec a
+    sta actTimer,x
+    rts
+
 @rest:
     stz actState,x
     lda #DS_REST
     sta actTimer,x
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; FireOrbs -- three orbs from the chest, aimed at Sora with a spread.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc FireOrbs
+    .a8
+    .i16
+    ; the hole in the chest, about 40 px above the boss's feet
+    lda curActor
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    sta tmp8
+    lda actY,x
+    sec
+    sbc #640                    ; 40 px in Q12.4
+    sta tmp9
+
+    ; direction toward Sora, snapped to the same eight facings the player uses
+    sep #$20
+    .a8
+    lda playerIdx
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    sec
+    sbc tmp8
+    sta tmp2
+    lda actY,x
+    sec
+    sbc tmp9
+    sta tmp3
+
+    ldy #1
+    lda tmp2
+    bmi @xneg
+    cmp #HEART_DEAD_X
+    bcc @xdone
+    ldy #2
+    bra @xdone
+@xneg:
+    eor #$FFFF
+    inc a
+    cmp #HEART_DEAD_X
+    bcc @xdone
+    ldy #0
+@xdone:
+    sty tmp4
+
+    ldy #1
+    lda tmp3
+    bmi @yneg
+    cmp #HEART_DEAD_Y
+    bcc @ydone
+    ldy #2
+    bra @ydone
+@yneg:
+    eor #$FFFF
+    inc a
+    cmp #HEART_DEAD_Y
+    bcc @ydone
+    ldy #0
+@ydone:
+    tya
+    sta tmp5
+    asl a
+    clc
+    adc tmp5                    ; vertical * 3
+    clc
+    adc tmp4                    ; + horizontal
+    tay
+    sep #$20
+    .a8
+    lda dirTable,y
+    cmp #$FF
+    bne :+
+    lda #DIR_S                  ; directly underneath: fire downward
+:   sta tmp7
+
+    ; centre orb, then one either side
+    lda tmp7
+    sec
+    sbc #1
+    and #$07
+    jsr SpawnOrb
+    lda tmp7
+    jsr SpawnOrb
+    lda tmp7
+    clc
+    adc #1
+    and #$07
+    jsr SpawnOrb
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; SpawnOrb -- In (A8/I16): A = facing; tmp8/tmp9 = the muzzle position.
+;-----------------------------------------------------------------------------
+.proc SpawnOrb
+    .a8
+    .i16
+    pha                         ; SpawnActor reuses tmp2-tmp6
+    rep #$20
+    .a16
+    lda tmp8
+    sta tmp0
+    lda tmp9
+    sta tmp1
+    sep #$20
+    .a8
+    lda #ACT_ORB
+    jsr SpawnActor
+    pla                         ; PLA leaves carry alone, so the test survives
+    bcc @out                    ; actor table full
+    sta actDir,x
+    lda #ORB_LIFE
+    sta actTimer,x
+
+    lda actDir,x                ; A was overwritten above; reload the facing
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tay                         ; Y = facing * 2
+    txa
+    asl a
+    tax                         ; X = word offset
+    lda dirVelX,y
+    asl a                       ; an orb outruns a walk
+    sta actVX,x
+    lda dirVelY,y
+    asl a
+    sta actVY,x
+    sep #$20
+    .a8
+@out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; UpdateOrb -- In (A8/I16): X = actor index.  Orbs ignore the ground, so they
+; carry on out over the void until they burn out.
+;-----------------------------------------------------------------------------
+.proc UpdateOrb
+    .a8
+    .i16
+    stx curActor
+    lda actTimer,x
+    bne @alive
+    stz actType,x
+    rts
+@alive:
+    dec a
+    sta actTimer,x
+
+    lda actAnimT,x
+    bne @tick
+    lda #5
+    sta actAnimT,x
+    lda actAnim,x
+    eor #$01
+    sta actAnim,x
+    asl a
+    clc
+    adc #TILE_ORB
+    sta actTile,x
+    bra @move
+@tick:
+    dec a
+    sta actAnimT,x
+
+@move:
+    rep #$30
+    .a16
+    .i16
+    lda curActor
+    asl a
+    tax
+    lda actX,x
+    clc
+    adc actVX,x
+    sta actX,x
+    lda actY,x
+    clc
+    adc actVY,x
+    sta actY,x
+    sep #$20
+    .a8
+    ldx curActor
+    jsr OrbHitPlayer
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; OrbHitPlayer -- In (A8/I16): X = orb index.
+;-----------------------------------------------------------------------------
+.proc OrbHitPlayer
+    .a8
+    .i16
+    phx
+    lda playerIdx
+    rep #$20
+    .a16
+    and #$00FF
+    tax
+    sep #$20
+    .a8
+    lda actType,x
+    beq @out
+    lda actState,x
+    cmp #ST_HURT
+    beq @out                    ; already reeling
+
+    rep #$20
+    .a16
+    txa
+    asl a
+    tax
+    lda actX,x
+    sta tmp0
+    lda actY,x
+    sta tmp1
+    sep #$20
+    .a8
+    plx
+    phx
+    jsr HeartlessTouchTest      ; the same overlap test; nothing Shadow-specific
+    bcc @out
+    plx
+    phx
+    jsr DamageSora              ; X is the orb, whose facing drives the knockback
+    plx
+    stz actType,x               ; the orb bursts
+    rts
+@out:
+    plx
     rts
 .endproc
 
@@ -1397,16 +1688,20 @@ drawFlip:   .byte 0, 0, 0, 0, 0, 1, 1, 1
 ;                    -      Sora        Heartless    Palm        BigRock      Rock        Slash
 typeTile:   .byte $00, TILE_SORA,  TILE_HEART0, TILE_PALM,  TILE_ROCKBIG, TILE_ROCK,  TILE_SLASH0
             .byte TILE_PEDESTAL, TILE_SWORD, TILE_SHIELD, TILE_STAFF, TILE_DARKSIDE
+            .byte TILE_ORB
 typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_FX
             .byte PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_HEART
+            .byte PAL_OBJ_HEART
 typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LARGE|AF_SHADOW, AF_SHADOW, $00
             ; the weapons hover, so they cast no shadow of their own
             .byte AF_LARGE|AF_SHADOW, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK
             ; the boss is drawn by EmitBoss, so it carries no sprite flags of
-            ; its own -- only its shadow
+            ; its own -- only its shadow.  Orbs float, so no shadow either.
             .byte AF_SHADOW
+            .byte $00
 typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
             .byte $00, $00, $00, $00, DS_MAX_HP
+            .byte $00
 
 ; type, isometric i, isometric j -- terminated by $FF
 spawnTable:

@@ -14,9 +14,11 @@ you want it. Take one, give one up, and the platform breaks apart underfoot.
 ![Darkside](docs/screenshot-darkside.png)
 
 He lands on a second station where the first Shadows are waiting. Clear them
-and his own shadow rises into **Darkside**, which telegraphs a fist, marks the
-ground where he is standing, and slams it down a beat later — leaving a new
-Shadow in the crater.
+and his own shadow rises into **Darkside**. It alternates two attacks: a fist
+that telegraphs, marks the ground where Sora is standing and lands there a beat
+later leaving a new Shadow in the crater, and a volley of three dark orbs spat
+from the hole in its chest. Both are dodged by moving, which is the only thing
+a boss that never walks can ask of you.
 
 ![Destiny Islands](docs/screenshot.png)
 
@@ -203,9 +205,8 @@ The slice is deliberately bounded by one constraint: a 64×32 tilemap is 512×25
 pixels, which is exactly one screen of isometric ground, so the world currently
 fits in VRAM with no streaming. In rough order:
 
-1. **Boss polish** — Darkside has no HP gauge yet, so the fight reads as
-   guesswork; it also only has the one attack. A third station and the fall to
-   Destiny Islands would close the sequence properly.
+1. **Close out the Dive** — a third station and the fall to Destiny Islands.
+   Darkside could also use a close-range sweep for when Sora is under it.
 2. **The real Destiny Islands opening** — Kairi, Riku, Tidus, Selphie and Wakka
    as talkable NPCs, Kairi's raft-material lists, and Riku's race. The content
    is written up in `docs/DESTINY_ISLANDS.md`; the blocker is multi-level

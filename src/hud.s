@@ -1,9 +1,10 @@
 ;=============================================================================
-; hud.s -- HP gauge on BG3
+; hud.s -- HP gauges on BG3
 ;
 ; BG3 is the 2bpp layer and, with the mode-1 priority bit set, it draws above
-; everything else -- which is exactly what a HUD wants.  Only one 32-entry
-; tilemap row ever changes, so an update costs a single 64-byte DMA.
+; everything else -- which is exactly what a HUD wants.  Two tilemap rows ever
+; change: Sora's gauge and, while a boss is alive, its own.  An update costs a
+; single 128-byte DMA.
 ;=============================================================================
 .p816
 .include "snes.inc"
@@ -18,8 +19,15 @@ CH_H         = CH_A + 'H' - 'A'
 CH_P         = CH_A + 'P' - 'A'
 HUD_ATTR     = TXT_ATTR
 
-HP_BAR_X     = 5                ; column of the first gauge cell
-HP_BAR_CELLS = 10               ; each cell is worth two HP
+; Each gauge cell is worth two points, so these counts have to match the
+; maximum HP values in game.inc.
+HP_BAR_X       = 5              ; first gauge cell of Sora's row
+HP_BAR_CELLS   = 10             ; 10 cells * 2 = SORA_MAX_HP
+
+BOSS_ROW       = 64             ; byte offset of the second row within hudRow
+BOSS_LABEL_X   = 1
+BOSS_BAR_X     = 11
+BOSS_BAR_CELLS = 18             ; 18 cells * 2 = DS_MAX_HP
 
 .segment "CODE"
 
@@ -51,49 +59,14 @@ HP_BAR_CELLS = 10               ; each cell is worth two HP
 .endproc
 
 ;-----------------------------------------------------------------------------
-; HudUpdate -- rebuild the gauge row from Sora's HP and flag it for upload.
-; A8/I16.
+; DrawGauge -- fill a run of cells from a hit-point total.
+; In (A16/I16): tmp0 = byte offset of the first cell inside hudRow,
+;               tmp1 = number of cells, tmp4 = remaining HP.
+; Clobbers A, X, Y, tmp5, tmp6.
 ;-----------------------------------------------------------------------------
-.proc HudUpdate
-    .a8
+.proc DrawGauge
+    .a16
     .i16
-    lda playerIdx
-    rep #$20
-    .a16
-    and #$00FF
-    tax
-    sep #$20
-    .a8
-
-    lda actType,x
-    beq @flag                   ; no player yet: leave the row alone
-    lda actHP,x
-    rep #$20
-    .a16
-    and #$00FF
-    sta tmp4                    ; remaining HP
-
-    ;--- blank the row ---
-    lda #(HUD_ATTR | CH_CLEAR)
-    ldx #0
-@blank:
-    sta hudRow,x
-    inx
-    inx
-    cpx #64
-    bcc @blank
-
-    ;--- label and end caps ---
-    lda #(HUD_ATTR | CH_H)
-    sta hudRow + 2 * 2
-    lda #(HUD_ATTR | CH_P)
-    sta hudRow + 3 * 2
-    lda #(HUD_ATTR | CH_BAR_L)
-    sta hudRow + (HP_BAR_X - 1) * 2
-    lda #(HUD_ATTR | CH_BAR_R)
-    sta hudRow + (HP_BAR_X + HP_BAR_CELLS) * 2
-
-    ;--- gauge cells: each covers two HP, so it can be full, half or empty ---
     ldx #0
 @cell:
     txa
@@ -101,7 +74,7 @@ HP_BAR_CELLS = 10               ; each cell is worth two HP
     sta tmp5                    ; HP already accounted for by earlier cells
     lda tmp4
     sec
-    sbc tmp5                    ; HP left for this cell
+    sbc tmp5                    ; HP left for this one
     bmi @empty
     beq @empty
     cmp #2
@@ -118,19 +91,129 @@ HP_BAR_CELLS = 10               ; each cell is worth two HP
     txa
     asl a
     clc
-    adc #(HP_BAR_X * 2)
+    adc tmp0
     tay
     lda tmp6
     sta hudRow,y
 
     inx
-    cpx #HP_BAR_CELLS
+    cpx tmp1
     bcc @cell
+    rts
+.endproc
 
+;-----------------------------------------------------------------------------
+; HudUpdate -- rebuild both gauge rows and flag them for upload.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc HudUpdate
+    .a8
+    .i16
+    rep #$30
+    .a16
+    .i16
+
+    ;--- blank both rows ---
+    lda #(HUD_ATTR | CH_CLEAR)
+    ldx #0
+@blank:
+    sta hudRow,x
+    inx
+    inx
+    cpx #128
+    bcc @blank
+
+    ;--- Sora ---
     sep #$20
     .a8
+    lda playerIdx
+    rep #$20
+    .a16
+    and #$00FF
+    tax
+    sep #$20
+    .a8
+    lda actType,x
+    beq @boss                   ; no player yet: leave the row blank
+    lda actHP,x
+    rep #$20
+    .a16
+    and #$00FF
+    sta tmp4
+
+    lda #(HUD_ATTR | CH_H)
+    sta hudRow + 2 * 2
+    lda #(HUD_ATTR | CH_P)
+    sta hudRow + 3 * 2
+    lda #(HUD_ATTR | CH_BAR_L)
+    sta hudRow + (HP_BAR_X - 1) * 2
+    lda #(HUD_ATTR | CH_BAR_R)
+    sta hudRow + (HP_BAR_X + HP_BAR_CELLS) * 2
+
+    lda #(HP_BAR_X * 2)
+    sta tmp0
+    lda #HP_BAR_CELLS
+    sta tmp1
+    jsr DrawGauge
+
+    ;--- the boss, only while one is alive ---
+@boss:
+    sep #$20
+    .a8
+    lda bossHP
+    beq @flag
+    rep #$20
+    .a16
+    and #$00FF
+    sta tmp4
+
+    ldx #0
+@label:
+    sep #$20
+    .a8
+    lda bossName,x
+    beq @caps
+    rep #$20
+    .a16
+    and #$00FF
+    ora #HUD_ATTR
+    sta tmp6
+    txa
+    asl a
+    clc
+    adc #(BOSS_ROW + BOSS_LABEL_X * 2)
+    tay
+    lda tmp6
+    sta hudRow,y
+    inx
+    bra @label
+
+@caps:
+    rep #$20
+    .a16
+    lda #(HUD_ATTR | CH_BAR_L)
+    sta hudRow + BOSS_ROW + (BOSS_BAR_X - 1) * 2
+    lda #(HUD_ATTR | CH_BAR_R)
+    sta hudRow + BOSS_ROW + (BOSS_BAR_X + BOSS_BAR_CELLS) * 2
+
+    lda #(BOSS_ROW + BOSS_BAR_X * 2)
+    sta tmp0
+    lda #BOSS_BAR_CELLS
+    sta tmp1
+    jsr DrawGauge
+
 @flag:
+    sep #$20
+    .a8
     lda #$01
     sta hudDirty
     rts
 .endproc
+
+.segment "RODATA"
+; Stored as font tile numbers rather than ASCII: the label never changes, so
+; running it through the conversion table at runtime would buy nothing.
+bossName:
+    .byte CH_A + 'D' - 'A', CH_A + 'A' - 'A', CH_A + 'R' - 'A'
+    .byte CH_A + 'K' - 'A', CH_A + 'S' - 'A', CH_A + 'I' - 'A'
+    .byte CH_A + 'D' - 'A', CH_A + 'E' - 'A'
+    .byte $00

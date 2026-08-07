@@ -70,6 +70,7 @@ TILE_STAFF   = $4C              ; 32x32 Dream Rod
 ; Darkside is 64x64 -- four 32x32 blocks at $80/$84 over $C0/$C4, filling the
 ; lower-left quadrant of the sprite page.
 TILE_DARKSIDE = $80
+TILE_ORB     = $88              ; 16x16 dark orb, 2 frames
 TILE_HEART0  = $C8              ; 16x16 Shadow Heartless, 4 frames
 TILE_HEART1  = $CA
 TILE_HEART2  = $CC
@@ -113,6 +114,7 @@ ACT_SWORD    = 8                ; the three dream weapons hovering above them
 ACT_SHIELD   = 9
 ACT_STAFF    = 10
 ACT_DARKSIDE = 11               ; the boss that ends the Dive
+ACT_ORB      = 12               ; dark orb fired from its chest
 
 ; Scenes
 SCENE_DIVE   = 0                ; Station of Awakening
@@ -139,7 +141,18 @@ DIVE_DONE    = 7
 DS_MAX_HP    = 36
 DS_SLAM_WIND = 44               ; frames of telegraph before a fist comes down
 DS_SLAM_HOLD = 22               ; fist on the ground, vulnerable
-DS_REST      = 60
+DS_REST      = 56
+DS_ORB_WIND  = 40               ; the chest gathers before it fires
+DS_ORB_REST  = 30
+ORB_LIFE     = 110              ; frames before an orb burns out
+ORB_SPEED    = 40               ; Q12.4 along the eight facings
+
+; Boss states
+DSS_REST     = 0
+DSS_SLAM_UP  = 1
+DSS_SLAM_HIT = 2
+DSS_ORB_UP   = 3
+DSS_ORB_FIRE = 4
 DS_HURT_X    = 480              ; Q12.4, generous: the body is 64 px wide
 DS_HURT_Y    = 400
 SHATTER_LEN  = 96               ; frames the platform takes to come apart

@@ -91,8 +91,8 @@ oamHigh:      .res 32
 sortIdx:      .res MAX_ACTORS * 2
 sortCount:    .res 2
 
-; One 32-entry row of the BG3 tilemap, holding the HP/MP gauges.
-hudRow:       .res 64
+; Two 32-entry rows of the BG3 tilemap: Sora's gauge, then the boss's.
+hudRow:       .res 128
 
 ; The dialogue box: seven 32-entry rows of the BG3 tilemap.
 txtBuf:       .res 7 * 32 * 2
