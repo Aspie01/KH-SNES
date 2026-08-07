@@ -37,6 +37,7 @@ RAM_INC = 1
 .globalzp sceneId, diveStage, weaponTaken, weaponGiven, scriptWait
 .globalzp pendActor, pendWeapon, collPtr
 .globalzp screenBright, mosaicAmt, shatterTimer, bossHP, shakeX
+.globalzp fadeTimer, coldataAmt
 
 ;--- buffers (BSS) -----------------------------------------------------------
 .global oamBuf, oamHigh, sortIdx, sortCount, hudRow, txtBuf

@@ -355,12 +355,9 @@ MainLoop:
 .proc SceneUpdate
     .a8
     .i16
-    ; Both Stations of Awakening run the same script; only the island opts out.
-    lda sceneId
-    cmp #SCENE_ISLAND
-    beq @island
+    ; The opening script owns the transition onto Destiny Islands too, so it
+    ; keeps running after the scene changes; DIVE_ARRIVED is its terminal state.
     jsr DiveUpdate
-@island:
     rts
 .endproc
 

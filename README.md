@@ -20,12 +20,15 @@ later leaving a new Shadow in the crater, and a volley of three dark orbs spat
 from the hole in its chest. Both are dodged by moving, which is the only thing
 a boss that never walks can ask of you.
 
-![Destiny Islands](docs/screenshot.png)
+![Destiny Islands](docs/screenshot-island.png)
 
-The second scene is **Destiny Islands**, currently a movement and combat
-sandbox: Sora walks the island in eight directions with depth sorting against
-palms and rocks, translucent shadows, and a Keyblade swing. It is not yet the
-real island opening -- see `docs/DESTINY_ISLANDS.md` for what that needs.
+Beat it and the light takes him: the screen washes to white, and he wakes on
+the beach at **Destiny Islands**.
+
+The island is currently a movement sandbox: Sora walks it in eight directions
+with depth sorting against palms and rocks, translucent shadows, and a Keyblade
+swing. It is not yet the real island opening -- there is nobody to talk to and
+nothing to collect. See `docs/DESTINY_ISLANDS.md` for what that needs.
 
 ## Build
 
@@ -122,6 +125,11 @@ j = (2 * world_y - a) >> 5
   ground at 50% brightness — a real translucent shadow, not a dark blob.
 - **Mode 1 with BG3 priority.** BG1 carries the ground, BG3 carries the HUD
   and dialogue above everything, and sprites sit between them at priority 2.
+- **Two transitions, both from registers.** The platform shattering is MOSAIC
+  coarsening BG1 while brightness falls; the ending is colour math adding a
+  fixed colour to every layer, ramped to white. Note the whiteout only takes
+  the backgrounds: the SNES restricts OBJ colour math to palettes 4-7, so
+  sprites ride through it unwashed.
 - **A shatter built from registers, not art.** The platform coming apart is
   MOSAIC coarsening BG1 into ever larger blocks while brightness falls and the
   screen shakes — no debris tileset needed.
@@ -205,12 +213,14 @@ The slice is deliberately bounded by one constraint: a 64×32 tilemap is 512×25
 pixels, which is exactly one screen of isometric ground, so the world currently
 fits in VRAM with no streaming. In rough order:
 
-1. **Close out the Dive** — a third station and the fall to Destiny Islands.
-   Darkside could also use a close-range sweep for when Sora is under it.
-2. **The real Destiny Islands opening** — Kairi, Riku, Tidus, Selphie and Wakka
-   as talkable NPCs, Kairi's raft-material lists, and Riku's race. The content
-   is written up in `docs/DESTINY_ISLANDS.md`; the blocker is multi-level
-   terrain, since the rope and the bridge are not on the ground plane.
+1. **The real Destiny Islands opening** — the arrival works, but the island is
+   still empty of people and things to do.
+2. **Dive polish** — a third station, and a close-range sweep for Darkside so
+   standing under it is not safe. Sora also has no death state yet: his HP
+   floors at zero and he keeps going.
+   The cast, both raft-material lists and where each piece is found are written
+   up in `docs/DESTINY_ISLANDS.md`. The blocker is multi-level terrain: the
+   rope and the bridge are not on the ground plane.
 3. **Tilemap streaming** — upload columns and rows as the camera crosses tile
    boundaries, which lifts the world-size ceiling entirely.
 4. **Combat depth** — three-hit ground combo, lock-on targeting, MP and a magic

@@ -12,7 +12,7 @@
 .include "macros.inc"
 .include "text.inc"
 
-.import SpawnActor, IsoToWorld, ClearActors, CountType
+.import SpawnActor, IsoToWorld, ClearActors, CountType, InitWorld
 .import LoadScene
 .import TextOpen, TextBusy, TextClose
 .import HudUpdate
@@ -163,6 +163,12 @@ REACH_Y = 260
     bne :+
     jmp WatchBoss
 :   cmp #DIVE_DONE
+    bne :+
+    jmp BeginFade               ; the victory line has been dismissed
+:   cmp #DIVE_FADE
+    bne :+
+    jmp FadeOut
+:   cmp #DIVE_ARRIVED
     beq @out
 
     ; PICK or DROP: pressing A next to a weapon asks about it
@@ -303,6 +309,92 @@ REACH_Y = 260
     lda #TM_MESSAGE
     jsr TextOpen
 @out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; BeginFade -- arm the whiteout that carries Sora off the platform.  A8/I16.
+;
+; Colour math switches from the half-add that draws shadows to a plain add
+; against the fixed colour, so ramping COLDATA washes every layer to white.
+;-----------------------------------------------------------------------------
+.proc BeginFade
+    .a8
+    .i16
+    lda #DIVE_FADE
+    sta diveStage
+    lda #FADE_LEN
+    sta fadeTimer
+    stz coldataAmt
+    stz CGWSEL                  ; second operand is the fixed colour
+    lda #$3F                    ; add, no halving, backdrop + OBJ + every BG
+    sta CGADSUB
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; FadeOut -- white out, swap to Destiny Islands at the midpoint, fade back in.
+; A8/I16.
+;-----------------------------------------------------------------------------
+.proc FadeOut
+    .a8
+    .i16
+    lda fadeTimer
+    beq @finish
+    dec fadeTimer
+
+    lda fadeTimer
+    cmp #(FADE_LEN / 2)
+    beq @swap
+    bcc @backIn
+
+    ; first half: 0 -> 31 as the timer falls from FADE_LEN to 32
+    lda #FADE_LEN
+    sec
+    sbc fadeTimer
+    sta coldataAmt
+    rts
+
+@backIn:
+    ; second half: the timer itself is already 31 down to 0
+    lda fadeTimer
+    sta coldataAmt
+    rts
+
+@swap:
+    ; Fully white, so nothing of the swap is visible.
+    lda #$FF
+    sta coldataAmt              ; clamped to 31 by the register's five bits
+    lda #$8F
+    sta screenBright
+    sta INIDISP
+
+    lda #SCENE_ISLAND
+    jsr LoadScene
+    jsr ClearActors
+    jsr InitWorld
+
+    lda #$0F
+    sta screenBright
+    rts
+
+@finish:
+    stz coldataAmt
+    lda #CGWSEL_VAL             ; back to the shadow set-up
+    sta CGWSEL
+    lda #CGADSUB_VAL
+    sta CGADSUB
+
+    lda #DIVE_ARRIVED
+    sta diveStage
+    lda #<scriptWake
+    sta txtPtr
+    lda #>scriptWake
+    sta txtPtr+1
+    lda #^scriptWake
+    sta txtPtr+2
+    lda #TM_MESSAGE
+    jsr TextOpen
     rts
 .endproc
 
@@ -599,6 +691,12 @@ scriptBoss:
     .byte SC_NL
     .byte "IT WILL NOT BE BEATEN", SC_NL
     .byte "BY RUNNING FROM IT.", SC_END
+
+scriptWake:
+    .byte "DESTINY ISLANDS.", SC_PAGE
+    .byte "SORA!", SC_NL
+    .byte SC_NL
+    .byte "ARE YOU DREAMING AGAIN?", SC_END
 
 scriptVictory:
     .byte "THE DOOR IS OPENING.", SC_PAGE

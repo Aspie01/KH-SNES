@@ -46,6 +46,16 @@
     sta INIDISP
     lda mosaicAmt
     sta MOSAIC
+    ; COLDATA takes one write per channel, each tagged with which it sets.
+    lda coldataAmt
+    ora #$20
+    sta COLDATA
+    lda coldataAmt
+    ora #$40
+    sta COLDATA
+    lda coldataAmt
+    ora #$80
+    sta COLDATA
 
     ;--- sprite table -------------------------------------------------------
     lda oamDirty

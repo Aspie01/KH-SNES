@@ -77,6 +77,8 @@ mosaicAmt:    .res 1            ; MOSAIC value
 shatterTimer: .res 1
 bossHP:       .res 1            ; mirrored for the gauge
 shakeX:       .res 1
+fadeTimer:    .res 1
+coldataAmt:   .res 1            ; fixed colour-math colour, 0-31
 curActor:     .res 2            ; actor being updated, survives calls that use tmp*
 
 .segment "BSS"

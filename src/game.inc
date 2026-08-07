@@ -135,7 +135,11 @@ DIVE_SHATTER = 3                ; the platform breaks up underfoot
 DIVE_S2_INTRO = 4               ; landed on the second station
 DIVE_S2_FIGHT = 5               ; the first Shadows
 DIVE_BOSS    = 6                ; Darkside rises
-DIVE_DONE    = 7
+DIVE_DONE    = 7                ; Darkside beaten, victory line showing
+DIVE_FADE    = 8                ; the light takes him off the platform
+DIVE_ARRIVED = 9                ; awake on Destiny Islands
+
+FADE_LEN     = 64               ; frames; the scene swaps at the halfway point
 
 ; Boss tuning
 DS_MAX_HP    = 36

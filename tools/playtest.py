@@ -61,6 +61,11 @@ def read_xwd(path: Path) -> Image.Image:
             s += 1
         return s
 
+    if (bpp == 32 and red_mask == 0x00FF0000
+            and green_mask == 0x0000FF00 and blue_mask == 0x000000FF):
+        return Image.frombuffer("RGBA", (width, height), pixels,
+                                "raw", "BGRA", bytes_per_line, 1).convert("RGB")
+
     rs, gs, bs = shift_of(red_mask), shift_of(green_mask), shift_of(blue_mask)
     step = bpp // 8
     out = Image.new("RGB", (width, height))

@@ -1704,8 +1704,10 @@ typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
             .byte $00
 
 ; type, isometric i, isometric j -- terminated by $FF
+; Sora wakes on the sand. No Heartless: they arrive the night the island
+; falls, which is a later state of this same map.
 spawnTable:
-    .byte ACT_SORA,     7,  8
+    .byte ACT_SORA,     5, 10
     .byte ACT_PALM,     6,  4
     .byte ACT_PALM,    10,  5
     .byte ACT_PALM,     4,  7
@@ -1713,7 +1715,4 @@ spawnTable:
     .byte ACT_ROCKBIG,  6,  6
     .byte ACT_ROCKBIG,  8,  8
     .byte ACT_ROCK,     7, 10
-    .byte ACT_SHADOW,   9,  6
-    .byte ACT_SHADOW,   5,  9
-    .byte ACT_SHADOW,   8,  5
     .byte $FF
