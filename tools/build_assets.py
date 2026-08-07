@@ -16,7 +16,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pixel import (                                    # noqa: E402
-    BG_GROUND, HUD_PAL, OBJ_FX, OBJ_HEART, OBJ_SCENE, OBJ_SHADOW, OBJ_SORA,
+    BG_DIVE, BG_GROUND, HUD_PAL, OBJ_DIVE, OBJ_FX, OBJ_HEART, OBJ_SCENE,
+    OBJ_SHADOW, OBJ_SORA,
     Canvas, GEN, ROOT, SRC, cut_tiles, encode_2bpp_page, encode_4bpp_page,
     palette_bytes, tile_4bpp, write_bin, write_png,
 )
@@ -576,6 +577,198 @@ def draw_slash(frame: int) -> Canvas:
     return c
 
 
+# ---------------------------------------------------------------------------
+# Station of Awakening -- the stained-glass platform the game opens on
+# ---------------------------------------------------------------------------
+
+import math                                             # noqa: E402
+
+DIVE_CX, DIVE_CY = 256.0, 128.0
+# Sized so most of the platform is on screen at once: the SNES cannot pull
+# the camera back, so the platform has to come to it.
+DIVE_RX, DIVE_RY = 168.0, 84.0      # a circle seen at 2:1
+
+# Glass palette indices, named.
+V_VOID, G_DEEP, G_MID, G_LIGHT = 0, 1, 2, 3
+G_GOLD, G_GOLD_D, G_RED, G_RED_D = 4, 5, 6, 7
+G_PALE, G_SKIN, G_HAIR, G_WHITE = 8, 9, 10, 11
+G_GREEN, G_VIOLET, G_TEAL, G_EDGE = 12, 13, 14, 15
+
+WEDGE_COLOURS = (G_MID, G_DEEP, G_TEAL, G_DEEP, G_VIOLET, G_DEEP,
+                 G_MID, G_DEEP, G_TEAL, G_DEEP, G_VIOLET, G_DEEP)
+
+
+def dive_medallion(r: float, ang: float, nx: float, ny: float) -> int | None:
+    """The figure at the centre of the platform, in un-squashed coordinates.
+
+    nx/ny are -1..1 across the medallion with the isometric squash undone, so
+    the drawing below is composed as if seen head-on and comes out foreshortened
+    on the platform, which is how the stations read in the source game.
+    """
+    # Pale radiating backdrop.
+    base = G_PALE if int((ang / (2 * math.pi)) * 24) % 2 == 0 else G_WHITE
+
+    # --- head: an elliptical face set inside a rounder mass of hair ---
+    hx, hy = nx, ny + 0.42
+    if hx * hx + hy * hy < 0.32 * 0.32:
+        fx, fy = nx / 0.19, (ny + 0.40) / 0.23
+        if fx * fx + fy * fy < 1.0:
+            return G_SKIN
+        return G_HAIR
+    # bow above the hair
+    bx, by = nx, ny + 0.76
+    if bx * bx * 0.7 + by * by < 0.16 * 0.16:
+        return G_RED
+
+    # --- bodice ---
+    if -0.20 < ny < 0.16 and abs(nx) < 0.26 - ny * 0.25:
+        return G_MID if abs(nx) < 0.18 else G_DEEP
+    # collar
+    if 0.10 < ny + 0.22 < 0.20 and abs(nx) < 0.30:
+        return G_WHITE
+
+    # --- skirt, widening toward the bottom ---
+    if 0.16 <= ny < 0.86:
+        span = 0.20 + (ny - 0.16) * 0.62
+        if abs(nx) < span:
+            # gold pleats
+            if int(abs(nx) / span * 7) % 2 == 0:
+                return G_PALE
+            return G_GOLD
+    # sleeves
+    for side in (-1.0, 1.0):
+        sx, sy = nx - side * 0.30, ny + 0.02
+        if sx * sx + sy * sy < 0.13 * 0.13:
+            return G_RED_D
+    return base
+
+
+def build_dive_platform() -> tuple[Canvas, bytes]:
+    """Paint the platform and derive which isometric tiles are standable."""
+    world = Canvas(WORLD_W, WORLD_H, V_VOID)
+
+    for y in range(WORLD_H):
+        for x in range(WORLD_W):
+            dx = (x + 0.5 - DIVE_CX) / DIVE_RX
+            dy = (y + 0.5 - DIVE_CY) / DIVE_RY
+            r = math.sqrt(dx * dx + dy * dy)
+            if r > 1.0:
+                continue
+            ang = math.atan2(dy, dx) + math.pi
+
+            if r > 0.965:
+                c = G_GOLD_D                        # outer lip
+            elif r > 0.935:
+                c = G_GOLD
+            elif r > 0.83:
+                # dark band ticked with gold spokes every 15 degrees
+                c = G_GOLD if int(ang / (math.pi / 12)) % 2 == 0 else G_DEEP
+            elif r > 0.80:
+                c = G_GOLD
+            elif r > 0.60:
+                # ring of stained-glass wedges
+                seg = int(ang / (2 * math.pi) * len(WEDGE_COLOURS))
+                c = WEDGE_COLOURS[seg % len(WEDGE_COLOURS)]
+                if abs((ang % (2 * math.pi / len(WEDGE_COLOURS)))) < 0.035:
+                    c = G_GOLD_D                    # leading between wedges
+            elif r > 0.565:
+                c = G_GOLD
+            else:
+                nx = dx / 0.565
+                ny = dy / 0.565
+                c = dive_medallion(r, ang, nx, ny) or G_PALE
+            world.set(x, y, c)
+
+    # Standable tiles: those whose centre sits comfortably inside the rim.
+    coll = bytearray(MAP_W * MAP_H)
+    for j in range(MAP_H):
+        for i in range(MAP_W):
+            wx = (i - j) * 16 + ORIGIN_X + 16
+            wy = (i + j) * 8 + 8
+            dx = (wx - DIVE_CX) / (DIVE_RX - 18)
+            dy = (wy - DIVE_CY) / (DIVE_RY - 9)
+            coll[j * MAP_W + i] = 1 if dx * dx + dy * dy <= 1.0 else 0
+    return world, bytes(coll)
+
+
+# --- pedestals and the three dream weapons --------------------------------
+
+D_OUT, D_STONE_L, D_STONE_M, D_STONE_D = 1, 2, 3, 4
+D_MET_L, D_MET_M, D_MET_D = 5, 6, 7
+D_GOLD, D_GOLD_D, D_RED, D_RED_D = 8, 9, 10, 11
+D_BLUE, D_BLUE_D, D_GLOW, D_WOOD = 12, 13, 14, 15
+
+
+def draw_pedestal() -> Canvas:
+    """A short isometric dais for a weapon to hover over."""
+    c = Canvas(32, 32)
+    # column
+    c.rect(10, 18, 21, 27, D_STONE_D)
+    c.rect(10, 18, 15, 27, D_STONE_M)
+    # top slab, an isometric diamond
+    for y in range(10):
+        hw = 2 * (y + 1) if y < 5 else 2 * (10 - y)
+        for x in range(16 - hw, 16 + hw):
+            c.set(x, 13 + y, D_STONE_L if y < 5 else D_STONE_M)
+    # base
+    for y in range(6):
+        hw = 2 * (y + 1) if y < 3 else 2 * (6 - y)
+        for x in range(16 - hw, 16 + hw):
+            c.set(x, 25 + y, D_STONE_M if y < 3 else D_STONE_D)
+    c.outline(D_OUT)
+    return c
+
+
+def draw_sword() -> Canvas:
+    """Dream Sword: a broad straight blade with a gold crossguard."""
+    c = Canvas(32, 32)
+    c.rect(14, 3, 17, 20, D_MET_L)          # blade
+    c.rect(16, 3, 17, 20, D_MET_M)          # shaded edge
+    c.set(15, 2, D_MET_L)
+    c.set(16, 2, D_MET_L)
+    c.rect(10, 20, 21, 22, D_GOLD)          # crossguard
+    c.rect(10, 22, 21, 22, D_GOLD_D)
+    c.rect(14, 23, 17, 28, D_RED)           # grip
+    c.rect(16, 23, 17, 28, D_RED_D)
+    c.ellipse(16, 29, 2.6, 2.0, D_GOLD)     # pommel
+    c.outline(D_OUT)
+    return c
+
+
+def draw_shield() -> Canvas:
+    """Dream Shield: a rounded shield carrying the three-circle emblem."""
+    c = Canvas(32, 32)
+    c.ellipse(16, 15, 11.0, 12.0, D_BLUE)
+    c.rect(5, 4, 27, 15, D_BLUE)
+    c.ellipse(16, 15, 8.6, 9.8, D_BLUE_D)
+    c.rect(8, 6, 24, 15, D_BLUE_D)
+    # rim
+    c.ellipse(16, 15, 11.0, 12.0, D_GOLD)
+    c.ellipse(16, 15, 9.4, 10.4, D_BLUE)
+    c.rect(6, 4, 26, 6, D_GOLD)
+    # emblem: one large circle and two ears
+    c.ellipse(16, 17, 5.0, 5.0, D_RED)
+    c.ellipse(11, 10, 3.0, 3.0, D_RED)
+    c.ellipse(21, 10, 3.0, 3.0, D_RED)
+    c.ellipse(16, 17, 3.4, 3.4, D_RED_D)
+    c.outline(D_OUT)
+    return c
+
+
+def draw_staff() -> Canvas:
+    """Dream Rod: a slim rod topped with the same three-circle emblem."""
+    c = Canvas(32, 32)
+    c.rect(15, 10, 17, 30, D_WOOD)          # shaft
+    c.rect(15, 10, 15, 30, D_GOLD_D)
+    c.ellipse(16, 8, 5.2, 5.2, D_BLUE)      # emblem head
+    c.ellipse(11, 3, 3.0, 3.0, D_BLUE)
+    c.ellipse(21, 3, 3.0, 3.0, D_BLUE)
+    c.ellipse(16, 8, 3.4, 3.4, D_BLUE_D)
+    c.ellipse(16, 12, 2.4, 1.6, D_GOLD)     # collar
+    c.outline(D_OUT)
+    return c
+
+
 def build_obj_page() -> Canvas:
     """Assemble the 128x128 sprite page (a 16x16 grid of 8x8 tiles).
 
@@ -583,15 +776,22 @@ def build_obj_page() -> Canvas:
     animation frame is streamed into every time it changes.
     """
     page = Canvas(128, 128)
-    page.blit(draw_palm(), 32, 0)           # tile $04
-    page.blit(draw_boulder(), 64, 0)        # tile $08
-    page.blit(draw_shadow_big(), 96, 0)     # tile $0C
-    for f in range(4):                      # tiles $40, $42, $44, $46
-        page.blit(draw_heartless(f), f * 16, 32)
-    page.blit(draw_shadow_blob(), 64, 32)   # tile $48
-    page.blit(draw_slash(0), 80, 32)        # tile $4A
-    page.blit(draw_slash(1), 96, 32)        # tile $4C
-    page.blit(draw_rock(), 112, 32)         # tile $4E
+    # rows 0-3: 32x32 blocks.  $00 is the window Sora's current cel streams into.
+    page.blit(draw_palm(), 32, 0)           # $04
+    page.blit(draw_boulder(), 64, 0)        # $08
+    page.blit(draw_shadow_big(), 96, 0)     # $0C
+    # rows 4-7: the Dive props
+    page.blit(draw_pedestal(), 0, 32)       # $40
+    page.blit(draw_sword(), 32, 32)         # $44
+    page.blit(draw_shield(), 64, 32)        # $48
+    page.blit(draw_staff(), 96, 32)         # $4C
+    # row 12: everything 16x16
+    for f in range(4):                      # $C0 $C2 $C4 $C6
+        page.blit(draw_heartless(f), f * 16, 96)
+    page.blit(draw_shadow_blob(), 64, 96)   # $C8
+    page.blit(draw_slash(0), 80, 96)        # $CA
+    page.blit(draw_slash(1), 96, 96)        # $CC
+    page.blit(draw_rock(), 112, 96)         # $CE
     return page
 
 
@@ -599,71 +799,153 @@ def build_obj_page() -> Canvas:
 # HUD font (2bpp)
 # ---------------------------------------------------------------------------
 
+# 5x7 glyphs.  Every cell is drawn on an opaque dark background so text tiles
+# sit seamlessly inside a dialogue window -- BG3 has only one layer, so a
+# transparent glyph background would let the ground show through the box.
 GLYPHS = {
-    "A": ("..##..", ".#..#.", "#....#", "######", "#....#", "#....#"),
-    "H": ("#....#", "#....#", "######", "#....#", "#....#", "#....#"),
-    "M": ("#....#", "##..##", "#.##.#", "#....#", "#....#", "#....#"),
-    "P": ("#####.", "#....#", "#####.", "#.....", "#.....", "#....."),
+    "A": (".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
+    "B": ("####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."),
+    "C": (".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."),
+    "D": ("####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."),
+    "E": ("#####", "#....", "#....", "####.", "#....", "#....", "#####"),
+    "F": ("#####", "#....", "#....", "####.", "#....", "#....", "#...."),
+    "G": (".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".###."),
+    "H": ("#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
+    "I": ("#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"),
+    "J": ("....#", "....#", "....#", "....#", "#...#", "#...#", ".###."),
+    "K": ("#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"),
+    "L": ("#....", "#....", "#....", "#....", "#....", "#....", "#####"),
+    "M": ("#...#", "##.##", "#.#.#", "#...#", "#...#", "#...#", "#...#"),
+    "N": ("#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#", "#...#"),
+    "O": (".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
+    "P": ("####.", "#...#", "#...#", "####.", "#....", "#....", "#...."),
+    "Q": (".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"),
+    "R": ("####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"),
+    "S": (".####", "#....", "#....", ".###.", "....#", "....#", "####."),
+    "T": ("#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."),
+    "U": ("#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
+    "V": ("#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."),
+    "W": ("#...#", "#...#", "#...#", "#...#", "#.#.#", "##.##", "#...#"),
+    "X": ("#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"),
+    "Y": ("#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."),
+    "Z": ("#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"),
 }
+
+DIGITS = {
+    "0": (".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."),
+    "1": ("..#..", ".##..", "..#..", "..#..", "..#..", "..#..", "#####"),
+    "2": (".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"),
+    "3": ("####.", "....#", "....#", ".###.", "....#", "....#", "####."),
+    "4": ("#...#", "#...#", "#...#", "#####", "....#", "....#", "....#"),
+    "5": ("#####", "#....", "####.", "....#", "....#", "#...#", ".###."),
+    "6": (".###.", "#....", "####.", "#...#", "#...#", "#...#", ".###."),
+    "7": ("#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."),
+    "8": (".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."),
+    "9": (".###.", "#...#", "#...#", ".####", "....#", "....#", ".###."),
+}
+
+# Tile numbers, mirrored by the CH_* constants in src/text.inc
+PUNCT = {
+    37: ("(.)", (".....", ".....", ".....", ".....", ".....", ".##..", ".##..")),
+    38: ("(,)", (".....", ".....", ".....", ".....", ".##..", ".##..", ".#...")),
+    39: ("(!)", ("..#..", "..#..", "..#..", "..#..", "..#..", ".....", "..#..")),
+    40: ("(?)", (".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#..")),
+    41: ("(')", ("..#..", "..#..", ".....", ".....", ".....", ".....", ".....")),
+    42: ("(-)", (".....", ".....", ".....", "#####", ".....", ".....", ".....")),
+    43: ("(:)", (".....", "..#..", "..#..", ".....", "..#..", "..#..", ".....")),
+    44: ("(/)", ("....#", "....#", "...#.", "..#..", ".#...", "#....", "#....")),
+    45: ("cur", ("#....", "##...", "###..", "####.", "###..", "##...", "#....")),
+    46: ("adv", (".....", ".....", "#####", ".###.", "..#..", ".....", ".....")),
+}
+
+FONT_BG = 3         # opaque box background baked into every glyph cell
+FONT_INK = 1
+FONT_TRIM = 2
 
 
 def build_hud_font() -> Canvas:
-    """One 8x8 tile per character; 128 tiles wide enough for the whole set."""
+    """The 2bpp BG3 page: text, gauge pieces, and dialogue window edges."""
     page = Canvas(8 * 16, 8 * 8)           # 16x8 tiles = 128 tiles
 
-    def put(tile_index: int, rows: list[str], color: int = 1) -> None:
-        tx, ty = (tile_index % 16) * 8, (tile_index // 16) * 8
+    def cell(tile_index: int) -> tuple[int, int]:
+        return (tile_index % 16) * 8, (tile_index // 16) * 8
+
+    def fill(tile_index: int, colour: int) -> None:
+        tx, ty = cell(tile_index)
+        for y in range(8):
+            for x in range(8):
+                page.set(tx + x, ty + y, colour)
+
+    def glyph(tile_index: int, rows: tuple[str, ...]) -> None:
+        fill(tile_index, FONT_BG)
+        tx, ty = cell(tile_index)
         for y, row in enumerate(rows):
             for x, ch in enumerate(row):
                 if ch == "#":
-                    page.set(tx + x + 1, ty + y + 1, color)
+                    page.set(tx + x + 1, ty + y, FONT_INK)
 
-    # Tiles 1..26 are A..Z; only the letters the HUD actually shows are drawn.
+    fill(0, FONT_BG)                                    # space
     for letter, rows in GLYPHS.items():
-        put(1 + ord(letter) - ord("A"), list(rows))
+        glyph(1 + ord(letter) - ord("A"), rows)
+    for d, rows in DIGITS.items():
+        glyph(27 + int(d), rows)
+    for idx, (_name, rows) in PUNCT.items():
+        glyph(idx, rows)
 
-    # Digits 0-9 at tiles 27..36, drawn as simple 5x6 forms.
-    digits = {
-        "0": ("####", "#..#", "#..#", "#..#", "#..#", "####"),
-        "1": ("..#.", ".##.", "..#.", "..#.", "..#.", "####"),
-        "2": ("####", "...#", "####", "#...", "#...", "####"),
-        "3": ("####", "...#", "####", "...#", "...#", "####"),
-        "4": ("#..#", "#..#", "####", "...#", "...#", "...#"),
-        "5": ("####", "#...", "####", "...#", "...#", "####"),
-        "6": ("####", "#...", "####", "#..#", "#..#", "####"),
-        "7": ("####", "...#", "...#", "..#.", ".#..", ".#.."),
-        "8": ("####", "#..#", "####", "#..#", "#..#", "####"),
-        "9": ("####", "#..#", "####", "...#", "...#", "####"),
-    }
-    for d, rows in digits.items():
-        put(27 + int(d), list(rows))
-
-    put(37, ["...#", "...#", "..#.", ".#..", "#...", "#..."])   # '/'
-
-    # Gauge pieces: left cap, full, half, empty, right cap.
+    # --- HP gauge: left cap, full, half, empty, right cap (tiles 48-52) ---
     def bar(tile_index: int, fill_cols: int, cap: str | None = None) -> None:
-        tx, ty = (tile_index % 16) * 8, (tile_index // 16) * 8
-        for y in range(2, 7):
+        fill(tile_index, FONT_BG)
+        tx, ty = cell(tile_index)
+        for y in range(2, 6):
             for x in range(8):
-                page.set(tx + x, ty + y, 2)
-        for y in range(3, 6):
+                page.set(tx + x, ty + y, FONT_TRIM)
+        for y in range(3, 5):
             for x in range(fill_cols):
-                page.set(tx + x, ty + y, 1)
-        for x in range(8):
-            page.set(tx + x, ty + 1, 3)
-            page.set(tx + x, ty + 7, 3)
+                page.set(tx + x, ty + y, FONT_INK)
         if cap == "L":
-            for y in range(1, 8):
-                page.set(tx, ty + y, 3)
+            for y in range(1, 7):
+                page.set(tx + 1, ty + y, FONT_INK)
         elif cap == "R":
-            for y in range(1, 8):
-                page.set(tx + 7, ty + y, 3)
+            for y in range(1, 7):
+                page.set(tx + 6, ty + y, FONT_INK)
 
-    bar(40, 0, "L")
-    bar(41, 8)
-    bar(42, 4)
-    bar(43, 0)
-    bar(44, 0, "R")
+    bar(48, 0, "L")
+    bar(49, 8)
+    bar(50, 4)
+    bar(51, 0)
+    bar(52, 0, "R")
+
+    # --- dialogue window edges (tiles 56-64), a 3x3 nine-patch ---
+    def window(tile_index: int, left: bool, right: bool,
+               top: bool, bottom: bool) -> None:
+        fill(tile_index, FONT_BG)
+        tx, ty = cell(tile_index)
+        if top:
+            for x in range(8):
+                page.set(tx + x, ty + 1, FONT_TRIM)
+        if bottom:
+            for x in range(8):
+                page.set(tx + x, ty + 6, FONT_TRIM)
+        if left:
+            for y in range(8):
+                page.set(tx + 1, ty + y, FONT_TRIM)
+        if right:
+            for y in range(8):
+                page.set(tx + 6, ty + y, FONT_TRIM)
+
+    window(56, True, False, True, False)    # top-left
+    window(57, False, False, True, False)   # top
+    window(58, False, True, True, False)    # top-right
+    window(59, True, False, False, False)   # left
+    window(60, False, False, False, False)  # interior (plain fill)
+    window(61, False, True, False, False)   # right
+    window(62, True, False, False, True)    # bottom-left
+    window(63, False, False, False, True)   # bottom
+    window(64, False, True, False, True)    # bottom-right
+
+    # Tile 127 is left untouched -- an all-zero, fully transparent cell.
+    # Every glyph carries an opaque background, so something has to mean
+    # "nothing here" for the rows outside the dialogue box.
     return page
 
 
@@ -703,6 +985,18 @@ def main() -> int:
     write_bin(GEN / "collmap.bin", coll)
     write_bin(GEN / "bgpal.bin", palette_bytes(BG_GROUND) + bytes(256 - 32))
 
+    #--- Station of Awakening ----------------------------------------------
+    dive, dive_coll = build_dive_platform()
+    write_png(dive, BG_DIVE, SRC / "dive_preview.png", transparent0=False)
+    dive_chr, dive_map, dive_n = dedupe_tilemap(dive)
+    if dive_n > 512:
+        raise SystemExit(f"the platform needs {dive_n} characters; BG1 holds "
+                         f"512. Simplify the glass.")
+    write_bin(GEN / "divechr.bin", dive_chr)
+    write_bin(GEN / "divemap.bin", dive_map)
+    write_bin(GEN / "divecoll.bin", dive_coll)
+    write_bin(GEN / "divepal.bin", palette_bytes(BG_DIVE) + bytes(256 - 32))
+
     #--- Sora ---------------------------------------------------------------
     sheet = build_sora()
     write_png(sheet, OBJ_SORA, SRC / "sora.png")
@@ -715,7 +1009,7 @@ def main() -> int:
 
     obj_pal = (palette_bytes(OBJ_SORA) + palette_bytes(OBJ_HEART) +
                palette_bytes(OBJ_SCENE) + palette_bytes(OBJ_FX) +
-               palette_bytes(OBJ_SHADOW))
+               palette_bytes(OBJ_SHADOW) + palette_bytes(OBJ_DIVE))
     obj_pal += bytes(256 - len(obj_pal))
     write_bin(GEN / "objpal.bin", obj_pal)
 
@@ -727,6 +1021,8 @@ def main() -> int:
     # where all sixteen ground colours live.
     write_bin(GEN / "hudpal.bin", palette_bytes(HUD_PAL, 4))
 
+    print(f"platform  {dive_n:3d} unique characters, "
+          f"{len(dive_chr):5d} bytes chr")
     print(f"ground    {nchars:3d} unique characters, "
           f"{len(bg_chr):5d} bytes chr, {len(bg_map)} bytes map")
     print(f"sora      {len(sheet.px[0])//32}x{len(sheet.px)//32} cels, "

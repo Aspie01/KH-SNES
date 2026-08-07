@@ -29,8 +29,16 @@ RAM_INC = 1
 .globalzp playerIdx, soraFrameCur, hitStopTimer, shakeTimer
 .globalzp hudDirty, rngState, curActor
 
+;--- dialogue ----------------------------------------------------------------
+.globalzp txtState, txtMode, txtPtr, txtCol, txtRow, txtDelay, txtDirty
+.globalzp txtChoice, txtResult, txtHold
+
+;--- scene / script ----------------------------------------------------------
+.globalzp sceneId, diveStage, weaponTaken, weaponGiven, scriptWait
+.globalzp pendActor, pendWeapon, collPtr
+
 ;--- buffers (BSS) -----------------------------------------------------------
-.global oamBuf, oamHigh, sortIdx, sortCount, hudRow
+.global oamBuf, oamHigh, sortIdx, sortCount, hudRow, txtBuf
 
 ;--- actor arrays (structure-of-arrays; index with X) ------------------------
 .global actType, actX, actY, actVX, actVY

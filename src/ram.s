@@ -44,6 +44,30 @@ hitStopTimer: .res 1            ; freeze frames on a connect
 shakeTimer:   .res 1
 hudDirty:     .res 1            ; HUD row needs re-uploading
 rngState:     .res 2
+
+; Dialogue box state.
+txtState:     .res 1            ; 0 closed, 1 revealing, 2 waiting
+txtMode:      .res 1            ; 0 message, 1 yes/no prompt
+txtPtr:       .res 3            ; current character in the script
+txtCol:       .res 2
+txtRow:       .res 2
+txtDelay:     .res 1
+txtDirty:     .res 1
+txtChoice:    .res 1            ; highlighted option
+txtResult:    .res 1            ; option confirmed by the last prompt
+txtHold:      .res 1            ; debounce so one press is not read twice
+
+; Scene and script progression.
+sceneId:      .res 1
+diveStage:    .res 1
+weaponTaken:  .res 1
+weaponGiven:  .res 1
+scriptWait:   .res 1
+pendActor:    .res 1            ; actor an open prompt refers to
+pendWeapon:   .res 1
+; Collision map of the scene currently loaded, as a long pointer so the
+; walkability test does not have to know which scene it is in.
+collPtr:      .res 3
 curActor:     .res 2            ; actor being updated, survives calls that use tmp*
 
 .segment "BSS"
@@ -60,6 +84,9 @@ sortCount:    .res 2
 
 ; One 32-entry row of the BG3 tilemap, holding the HP/MP gauges.
 hudRow:       .res 64
+
+; The dialogue box: seven 32-entry rows of the BG3 tilemap.
+txtBuf:       .res 7 * 32 * 2
 
 actType:      .res MAX_ACTORS
 actX:         .res MAX_ACTORS * 2       ; world pixels, Q12.4 signed

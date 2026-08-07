@@ -17,12 +17,15 @@
 .import UpdateCamera
 .import ReadPad
 .import HudInit
+.import TextInit, TextUpdate
+.import DiveInit, DiveUpdate
 
 .import bgChr, bgChrEnd
 .import objChr, objChrEnd
 .import hudChr, hudChrEnd
 .import bgPal, objPal, hudPal
-.import bg1Map
+.import bg1Map, collMap
+.import diveChr, diveChrEnd, diveMap, diveColl, divePal
 
 .export Reset, IrqHandler, WaitVBlank
 
@@ -95,12 +98,14 @@
     CLEAR_WRAM                  ; inline: it erases its own return address
     jsr ClearVram
     jsr ClearCgram
-    jsr LoadGraphics
+    lda #SCENE_DIVE
+    jsr LoadScene
     jsr SetupPpu
 
     jsr ClearOamBuffer
-    jsr InitWorld
     jsr HudInit
+    jsr TextInit
+    jsr DiveInit
     jsr UpdateCamera
     jsr BuildOam
 
@@ -114,6 +119,8 @@
 MainLoop:
     jsr WaitVBlank              ; the NMI just uploaded the previous frame
     jsr ReadPad
+    jsr TextUpdate
+    jsr SceneUpdate
     jsr UpdateWorld
     jsr UpdateCamera
     jsr BuildOam
@@ -231,22 +238,57 @@ MainLoop:
 .endproc
 
 ;-----------------------------------------------------------------------------
-; LoadGraphics -- upload tiles, palettes and the ground tilemap.  Must run
-; during forced blank.  A8/I16.
+; LoadScene -- upload the tiles, tilemap, palette and collision map for one
+; scene.  Must run during forced blank.  In (A8/I16): A = scene id.
 ;-----------------------------------------------------------------------------
-.proc LoadGraphics
+.proc LoadScene
     .a8
     .i16
-    DMA_VRAM VRAM_BG1_CHR, bgChr,  (bgChrEnd  - bgChr)
+    sta sceneId
+    lda #$8F
+    sta INIDISP                 ; forced blank: VRAM is only writable now
+
+    ; Sprites and font are the same in every scene.
     DMA_VRAM VRAM_BG3_CHR, hudChr, (hudChrEnd - hudChr)
     DMA_VRAM VRAM_OBJ_CHR, objChr, (objChrEnd - objChr)
-    DMA_VRAM VRAM_BG1_MAP, bg1Map, 4096         ; 64x32 entries, 2 bytes each
-
-    DMA_CGRAM 0,   bgPal,  256                  ; BG palettes 0-7
     DMA_CGRAM 128, objPal, 256                  ; OBJ palettes 0-7
-    ; BG3 is 2bpp, so its palette 4 is CGRAM colours 16-19 -- past the
-    ; sixteen the ground occupies in BG palette 0.
-    DMA_CGRAM 16,  hudPal, 8
+
+    ; Each branch is longer than a short branch can clear, so the dispatch
+    ; hops over a jmp rather than branching to the far label directly.
+    lda sceneId
+    beq :+
+    jmp @island
+
+    ;--- Station of Awakening ---
+:
+    DMA_VRAM VRAM_BG1_CHR, diveChr, (diveChrEnd - diveChr)
+    DMA_VRAM VRAM_BG1_MAP, diveMap, 4096
+    DMA_CGRAM 0, divePal, 256
+    lda #<diveColl
+    sta collPtr
+    lda #>diveColl
+    sta collPtr+1
+    lda #^diveColl
+    sta collPtr+2
+    jmp @common
+
+    ;--- Destiny Islands ---
+@island:
+    DMA_VRAM VRAM_BG1_CHR, bgChr,  (bgChrEnd - bgChr)
+    DMA_VRAM VRAM_BG1_MAP, bg1Map, 4096         ; 64x32 entries, 2 bytes each
+    DMA_CGRAM 0, bgPal, 256
+    lda #<collMap
+    sta collPtr
+    lda #>collMap
+    sta collPtr+1
+    lda #^collMap
+    sta collPtr+2
+
+@common:
+    ; The scene's BG palette covers CGRAM 0-127, so the HUD's four colours
+    ; have to land after it.  BG3 is 2bpp, so its palette 4 is colours 16-19 --
+    ; clear of the sixteen the ground occupies in BG palette 0.
+    DMA_CGRAM 16, hudPal, 8
     rts
 .endproc
 
@@ -279,6 +321,20 @@ MainLoop:
     sta CGWSEL
     lda #CGADSUB_VAL
     sta CGADSUB
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; SceneUpdate -- run the script that owns the current scene.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc SceneUpdate
+    .a8
+    .i16
+    lda sceneId
+    bne @island
+    jsr DiveUpdate
+    rts
+@island:
     rts
 .endproc
 

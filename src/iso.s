@@ -24,8 +24,6 @@
 .include "ram.inc"
 .include "macros.inc"
 
-.import collMap
-
 .export UpdateCamera, TileWalkable, TryMoveActor, IsoToWorld
 
 .segment "CODE"
@@ -177,11 +175,11 @@
     asl a                       ; j * MAP_W (MAP_W is 16)
     clc
     adc tmp4
-    tax
+    tay
 
     sep #$20
     .a8
-    lda f:collMap,x
+    lda [collPtr],y
     rep #$20
     .a16
     and #$00FF

@@ -14,7 +14,8 @@ CFG     := kh.cfg
 BUILD   := build
 
 SRCS    := src/main.s src/nmi.s src/pad.s src/iso.s src/oam.s \
-           src/world.s src/hud.s src/ram.s src/header.s src/gfxdata.s
+           src/world.s src/hud.s src/text.s src/dive.s \
+           src/ram.s src/header.s src/gfxdata.s
 OBJS    := $(patsubst src/%.s,$(BUILD)/%.o,$(SRCS))
 
 ASFLAGS := --cpu 65816 -I src -g
@@ -22,7 +23,9 @@ ASFLAGS := --cpu 65816 -I src -g
 GEN     := assets/gen/bgchr.bin assets/gen/bg1map.bin assets/gen/collmap.bin \
            assets/gen/bgpal.bin assets/gen/objchr.bin assets/gen/objpal.bin \
            assets/gen/sorachr.bin assets/gen/hudchr.bin \
-           assets/gen/hudpal.bin
+           assets/gen/hudpal.bin assets/gen/divechr.bin \
+           assets/gen/divemap.bin assets/gen/divecoll.bin \
+           assets/gen/divepal.bin
 
 ASSET_SRC := tools/build_assets.py tools/pixel.py assets/island.txt
 

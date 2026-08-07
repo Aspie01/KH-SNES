@@ -9,6 +9,7 @@
 
 .import TryMoveActor, IsoToWorld
 .import HudUpdate
+.import TextBusy
 .import soraChr
 
 .export InitWorld, UpdateWorld, SpawnActor
@@ -231,6 +232,14 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     .a8
     .i16
     stx curActor
+
+    ; A dialogue box takes control away from the player entirely.
+    jsr TextBusy
+    bcc :+
+    ldx curActor
+    jsr ClearVelocity
+    rts
+:   ldx curActor
 
     lda actState,x
     cmp #ST_ATTACK
@@ -1099,9 +1108,14 @@ drawFlip:   .byte 0, 0, 0, 0, 0, 1, 1, 1
 
 ;                    -      Sora        Heartless    Palm        BigRock      Rock        Slash
 typeTile:   .byte $00, TILE_SORA,  TILE_HEART0, TILE_PALM,  TILE_ROCKBIG, TILE_ROCK,  TILE_SLASH0
+            .byte TILE_PEDESTAL, TILE_SWORD, TILE_SHIELD, TILE_STAFF
 typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_FX
+            .byte PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE
 typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LARGE|AF_SHADOW, AF_SHADOW, $00
+            ; the weapons hover, so they cast no shadow of their own
+            .byte AF_LARGE|AF_SHADOW, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK
 typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
+            .byte $00, $00, $00, $00
 
 ; type, isometric i, isometric j -- terminated by $FF
 spawnTable:

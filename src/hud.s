@@ -10,27 +10,13 @@
 .include "game.inc"
 .include "ram.inc"
 .include "macros.inc"
+.include "text.inc"
 
 .export HudInit, HudUpdate
 
-; BG3 tilemap entry: vhopppcc cccccccc.  Bit 13 is the priority bit that lifts
-; the tile onto the high BG3 layer; bits 12-10 pick the palette, and 4 is the
-; one loaded with the HUD's own colours.
-HUD_ATTR     = $3000
-
-; Font tile numbers, matching the order tools/art_hud.py emits.
-CH_BLANK     = 0
-CH_A         = 1                ; letters run A..Z from here
-CH_0         = 27               ; digits run 0..9 from here
-CH_SLASH     = 37
-CH_BAR_L     = 40               ; gauge end cap, left
-CH_BAR_FULL  = 41
-CH_BAR_HALF  = 42
-CH_BAR_EMPTY = 43
-CH_BAR_R     = 44               ; gauge end cap, right
-
 CH_H         = CH_A + 'H' - 'A'
 CH_P         = CH_A + 'P' - 'A'
+HUD_ATTR     = TXT_ATTR
 
 HP_BAR_X     = 5                ; column of the first gauge cell
 HP_BAR_CELLS = 10               ; each cell is worth two HP
@@ -50,7 +36,7 @@ HP_BAR_CELLS = 10               ; each cell is worth two HP
 
     rep #$20
     .a16
-    lda #(HUD_ATTR | CH_BLANK)
+    lda #(HUD_ATTR | CH_CLEAR)
     ldx #0
 @clear:
     sta VMDATAL                 ; a 16-bit store feeds $2118 then $2119
@@ -88,7 +74,7 @@ HP_BAR_CELLS = 10               ; each cell is worth two HP
     sta tmp4                    ; remaining HP
 
     ;--- blank the row ---
-    lda #(HUD_ATTR | CH_BLANK)
+    lda #(HUD_ATTR | CH_CLEAR)
     ldx #0
 @blank:
     sta hudRow,x

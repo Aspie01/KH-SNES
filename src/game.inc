@@ -34,17 +34,19 @@ CAM_MAX_Y    = WORLD_H - SCREEN_H       ; 32
 ;-----------------------------------------------------------------------------
 ; VRAM map (word addresses)
 ;-----------------------------------------------------------------------------
-VRAM_BG1_CHR = $0000            ; 256 tiles, 4bpp -> $0000-$0FFF
-VRAM_BG3_CHR = $1000            ; 128 tiles, 2bpp -> $1000-$13FF
-VRAM_BG1_MAP = $1400            ; 64x32 tilemap  -> $1400-$1BFF
-VRAM_BG3_MAP = $1C00            ; 32x32 tilemap  -> $1C00-$1FFF
+; BG1 gets 512 characters: the stained-glass platform needs far more unique
+; tiles than the island's terrain, which folds down to a few dozen.
+VRAM_BG1_CHR = $0000            ; 512 tiles, 4bpp -> $0000-$1FFF
+VRAM_BG3_CHR = $2000            ; 128 tiles, 2bpp -> $2000-$23FF
+VRAM_BG1_MAP = $2400            ; 64x32 tilemap  -> $2400-$2BFF
+VRAM_BG3_MAP = $2C00            ; 32x32 tilemap  -> $2C00-$2FFF
 VRAM_OBJ_CHR = $4000            ; 256 tiles, 4bpp -> $4000-$4FFF
 
 ; Register values derived from the layout above.
-BG1SC_VAL    = $15              ; base $1400/$400 = 5, size 1 (64x32)
-BG3SC_VAL    = $1C              ; base $1C00/$400 = 7, size 0 (32x32)
+BG1SC_VAL    = $25              ; base $2400/$400 = 9, size 1 (64x32)
+BG3SC_VAL    = $2C              ; base $2C00/$400 = 11, size 0 (32x32)
 BG12NBA_VAL  = $00              ; BG1 chars at $0000
-BG34NBA_VAL  = $01              ; BG3 chars at $1000
+BG34NBA_VAL  = $02              ; BG3 chars at $2000
 OBSEL_VAL    = $62              ; size mode 3 (16x16 / 32x32), base $4000
 BGMODE_VAL   = $09              ; mode 1, BG3 priority high (HUD over everything)
 TM_VAL       = $15              ; main screen: BG1 + BG3 + OBJ
@@ -61,14 +63,18 @@ TILE_SORA    = $00              ; 32x32, streamed one frame at a time
 TILE_PALM    = $04              ; 32x32, resident
 TILE_ROCKBIG = $08              ; 32x32, resident
 TILE_SHADOWBIG = $0C            ; 32x32 ground shadow
-TILE_HEART0  = $40              ; 16x16 Shadow Heartless, 4 frames
-TILE_HEART1  = $42
-TILE_HEART2  = $44
-TILE_HEART3  = $46
-TILE_SHADOW  = $48              ; 16x16 ground shadow
-TILE_SLASH0  = $4A              ; 16x16 keyblade arc
-TILE_SLASH1  = $4C
-TILE_ROCK    = $4E              ; 16x16
+TILE_PEDESTAL = $40             ; 32x32, Station of Awakening
+TILE_SWORD   = $44              ; 32x32 Dream Sword
+TILE_SHIELD  = $48              ; 32x32 Dream Shield
+TILE_STAFF   = $4C              ; 32x32 Dream Rod
+TILE_HEART0  = $C0              ; 16x16 Shadow Heartless, 4 frames
+TILE_HEART1  = $C2
+TILE_HEART2  = $C4
+TILE_HEART3  = $C6
+TILE_SHADOW  = $C8              ; 16x16 ground shadow
+TILE_SLASH0  = $CA              ; 16x16 keyblade arc
+TILE_SLASH1  = $CC
+TILE_ROCK    = $CE              ; 16x16
 
 ; Sora's streaming window: 4 tile rows of 4 tiles at VRAM_OBJ_CHR.
 SORA_FRAME_BYTES = 512          ; 32x32 4bpp
@@ -85,6 +91,7 @@ PAL_OBJ_FX     = 3
 ; Colour math on the OBJ layer only affects sprites using palettes 4-7, so
 ; the ground shadow lives up here to get real translucency.
 PAL_OBJ_SHADOW = 4
+PAL_OBJ_DIVE   = 5
 
 ;-----------------------------------------------------------------------------
 ; Actors
@@ -98,12 +105,33 @@ ACT_PALM     = 3
 ACT_ROCKBIG  = 4
 ACT_ROCK     = 5
 ACT_SLASH    = 6                ; transient keyblade arc
+ACT_PEDESTAL = 7                ; Station of Awakening dais
+ACT_SWORD    = 8                ; the three dream weapons hovering above them
+ACT_SHIELD   = 9
+ACT_STAFF    = 10
+
+; Scenes
+SCENE_DIVE   = 0                ; Station of Awakening
+SCENE_ISLAND = 1                ; Destiny Islands
+
+; Which dream weapon was taken / surrendered
+WEAPON_NONE  = 0
+WEAPON_SWORD = 1
+WEAPON_SHIELD = 2
+WEAPON_STAFF = 3
+
+; Dive script progression
+DIVE_INTRO   = 0                ; the voice speaks
+DIVE_PICK    = 1                ; choose a power to take
+DIVE_DROP    = 2                ; choose a power to give up
+DIVE_FIGHT   = 3                ; the first Shadows appear
 
 ; actFlags bits
 AF_LARGE     = $01              ; 32x32 sprite (otherwise 16x16)
 AF_SHADOW    = $02              ; drop a ground shadow
 AF_SOLID     = $04              ; blocks movement
 AF_HFLIP     = $08              ; mirror horizontally when drawn
+AF_TALK      = $10              ; can be interacted with by pressing A
 
 ; actState values for Sora
 ST_IDLE      = 0

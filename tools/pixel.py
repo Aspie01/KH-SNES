@@ -104,11 +104,54 @@ OBJ_FX = [
 # darkening of whatever ground is underneath rather than a black blob.
 OBJ_SHADOW = [(0, 0, 0)] * 16
 
+# 2bpp, so only four entries.  Index 3 is the opaque box background baked
+# into every glyph cell, which is what lets text sit inside a dialogue window
+# on a single-layer BG.
 HUD_PAL = [
     (0, 0, 0),          # 0  transparent
-    (248, 248, 248),    # 1  text / gauge fill
-    (96, 104, 136),     # 2  gauge empty
-    (24, 24, 40),       # 3  outline
+    (248, 248, 248),    # 1  ink
+    (144, 176, 232),    # 2  trim / window edge
+    (24, 28, 56),       # 3  box background
+]
+
+# Station of Awakening: the stained-glass platform the game opens on.
+BG_DIVE = [
+    (0, 0, 0),          # 0  the void around the platform
+    (20, 20, 56),       # 1  glass, deepest
+    (44, 52, 112),      # 2  glass, mid blue
+    (96, 112, 192),     # 3  glass, light blue
+    (240, 208, 96),     # 4  gold leading
+    (176, 136, 48),     # 5  gold, shadowed
+    (216, 64, 72),      # 6  red
+    (144, 32, 52),      # 7  red, deep
+    (248, 228, 128),    # 8  pale yellow
+    (255, 216, 176),    # 9  skin
+    (36, 28, 48),       # 10 hair / dark leading
+    (248, 248, 248),    # 11 white
+    (88, 160, 96),      # 12 green
+    (140, 88, 176),     # 13 violet
+    (72, 156, 168),     # 14 teal
+    (12, 12, 28),       # 15 outline
+]
+
+# Pedestals and the three dream weapons.
+OBJ_DIVE = [
+    (0, 0, 0),          # 0  transparent
+    (16, 16, 36),       # 1  outline
+    (152, 160, 200),    # 2  stone light
+    (104, 112, 160),    # 3  stone mid
+    (64, 72, 112),      # 4  stone dark
+    (232, 236, 248),    # 5  blade / metal light
+    (168, 176, 208),    # 6  metal mid
+    (112, 120, 152),    # 7  metal dark
+    (240, 208, 96),     # 8  gold
+    (176, 136, 48),     # 9  gold dark
+    (216, 64, 72),      # 10 red
+    (144, 32, 52),      # 11 red dark
+    (96, 144, 224),     # 12 blue
+    (56, 88, 168),      # 13 blue dark
+    (248, 236, 160),    # 14 glow
+    (120, 88, 56),      # 15 wood
 ]
 
 

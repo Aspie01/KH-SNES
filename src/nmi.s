@@ -15,6 +15,7 @@
 .include "game.inc"
 .include "ram.inc"
 .include "macros.inc"
+.include "text.inc"
 
 .export NmiHandler
 
@@ -119,7 +120,7 @@
     ;--- HUD gauge row ------------------------------------------------------
 @hud:
     lda hudDirty
-    beq @done
+    beq @text
     stz hudDirty
 
     lda #$80
@@ -135,6 +136,29 @@
     lda #^hudRow
     sta A1B0
     ldx #64
+    stx DAS0L
+    lda #$01
+    sta MDMAEN
+
+    ;--- dialogue window ----------------------------------------------------
+@text:
+    lda txtDirty
+    beq @done
+    stz txtDirty
+
+    lda #$80
+    sta VMAIN
+    ldx #(VRAM_BG3_MAP + BOX_ROW * 32)
+    stx VMADDL
+    lda #$01
+    sta DMAP0
+    lda #<VMDATAL
+    sta BBAD0
+    ldx #.loword(txtBuf)
+    stx A1T0L
+    lda #^txtBuf
+    sta A1B0
+    ldx #(BOX_ROWS * 32 * 2)
     stx DAS0L
     lda #$01
     sta MDMAEN

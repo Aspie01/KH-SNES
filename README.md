@@ -4,13 +4,19 @@ An isometric 2.5D demake of Kingdom Hearts for the Super Nintendo. This builds
 a real `.sfc` ROM that boots in any SNES emulator or on a flash cart — not a
 SNES-styled game running on a modern engine.
 
+![Station of Awakening](docs/screenshot-dive.png)
+
+The game opens where it should: the **Dive to the Heart**. Sora stands on a
+stained-glass platform, a voice speaks, and three pedestals offer the Dream
+Sword, Shield and Rod. Walking up to one describes its power and asks whether
+you want it; take one, give one up, and the first Shadows appear.
+
 ![Destiny Islands](docs/screenshot.png)
 
-Current state: a playable **Destiny Islands vertical slice**. Sora walks the
-island in eight directions with correct depth sorting against palms and rocks,
-translucent shadows, a camera that follows and clamps to the world, Shadow
-Heartless that hunt him, and a Keyblade swing that knocks them back and kills
-them.
+The second scene is **Destiny Islands**, currently a movement and combat
+sandbox: Sora walks the island in eight directions with depth sorting against
+palms and rocks, translucent shadows, and a Keyblade swing. It is not yet the
+real island opening -- see `docs/DESTINY_ISLANDS.md` for what that needs.
 
 ## Build
 
@@ -37,8 +43,9 @@ make run                 # same thing
 
 | Button | Action |
 | --- | --- |
-| D-pad | Move (eight directions) |
-| B | Swing the Keyblade |
+| D-pad | Move (eight directions); pick an option in a prompt |
+| A | Talk / examine a pedestal; advance and confirm dialogue |
+| B | Swing the Keyblade; also advances dialogue |
 
 ## Testing without a screen
 
@@ -112,11 +119,13 @@ j = (2 * world_y - a) >> 5
 
 ```
 src/
-  main.s        reset, hardware bring-up, frame loop
-  nmi.s         vblank: OAM, scroll, sprite streaming, HUD upload
+  main.s        reset, hardware bring-up, frame loop, scene loading
+  nmi.s         vblank: OAM, scroll, sprite streaming, HUD and text upload
   iso.s         isometric projection, camera, ground collision
   oam.s         depth sort and sprite table construction
   world.s       actors, Sora, Heartless, combat
+  dive.s        Station of Awakening: script, pedestals, weapon choice
+  text.s        dialogue window, typewriter reveal, yes/no prompts
   hud.s         HP gauge on BG3
   pad.s         controller input
   ram.s         storage; game.inc / ram.inc / snes.inc  declarations
@@ -142,8 +151,23 @@ assets/
 | Tilemap, collision, palettes | `$83` | 4.8 KiB |
 | Sora animation sheet | `$84` | 15 KiB |
 
-VRAM is fully mapped: BG1 characters at `$0000`, HUD font at `$1000`, ground
-tilemap at `$1400`, HUD tilemap at `$1C00`, sprite page at `$4000`.
+VRAM is fully mapped: BG1 characters at `$0000` (512 tiles -- the stained
+glass needs 299 of them where the island's terrain folds to 56), the 2bpp font
+at `$2000`, the ground tilemap at `$2400`, the BG3 tilemap at `$2C00`, and the
+sprite page at `$4000`.
+
+## Scenes and dialogue
+
+`LoadScene` swaps BG characters, tilemap, palette and collision map during
+forced blank, so a scene is just a set of four binaries plus a script. The
+collision map is reached through a long pointer, which is why the walkability
+test does not care which scene it is in.
+
+Dialogue scripts are plain bytes in ROM: anything from 32 up is a character,
+below that are control codes (`SC_NL` newline, `SC_PAGE` wait-and-clear,
+`SC_END`). A message can be opened as a plain box or as a yes/no prompt whose
+answer lands in `txtResult`. Writing a new scene is mostly writing a table of
+spawns and a few strings -- see `src/dive.s`.
 
 ## Editing the island
 
@@ -164,13 +188,16 @@ The slice is deliberately bounded by one constraint: a 64×32 tilemap is 512×25
 pixels, which is exactly one screen of isometric ground, so the world currently
 fits in VRAM with no streaming. In rough order:
 
-1. **Tilemap streaming** — upload columns and rows as the camera crosses tile
+1. **Finish the Dive** — the platform shattering between stations, the second
+   and third stations, and the Darkside fight that ends the sequence.
+2. **The real Destiny Islands opening** — Kairi, Riku, Tidus, Selphie and Wakka
+   as talkable NPCs, Kairi's raft-material lists, and Riku's race. The content
+   is written up in `docs/DESTINY_ISLANDS.md`; the blocker is multi-level
+   terrain, since the rope and the bridge are not on the ground plane.
+3. **Tilemap streaming** — upload columns and rows as the camera crosses tile
    boundaries, which lifts the world-size ceiling entirely.
-2. **Combat depth** — three-hit ground combo, lock-on targeting, MP and a magic
+4. **Combat depth** — three-hit ground combo, lock-on targeting, MP and a magic
    slot, Heartless that telegraph and dodge.
-3. **Party members** — Donald and Goofy as followers with their own AI.
-4. **More worlds** — the map format and asset pipeline are already per-world;
-   Traverse Town is the natural second.
 5. **Audio** — SPC700 driver, which is a self-contained project of its own.
 
 ## A note on the art
