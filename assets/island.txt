@@ -1,0 +1,31 @@
+# Destiny Islands -- the play space, 16x16 isometric tiles.
+#
+# Row index is j, column index is i.  On screen +i runs down-right and +j runs
+# down-left, so this square grid renders as a diamond.
+#
+#   ~  deep water     (blocked)
+#   -  shallow water  (blocked)
+#   .  sand           (walkable)
+#   ,  grass          (walkable)
+#   =  wood dock      (walkable)
+#   #  cliff rock     (blocked)
+#   T  grass, blocked -- a palm stands here
+#   R  grass, blocked -- a boulder stands here
+#   r  sand,  blocked -- a small rock stands here
+#
+~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~
+~~~---------~~~~
+~~--.......--~~~
+~~-..,T,,,..-~~~
+~~-.,,,,,,T.-~~~
+~~-.,,R,,,,.-~~~
+~~-.T,,,,,,.-~~~
+~~-.,,,,R,,.-~~~
+~~-..,,T,,,.-~~~
+~~--...r...--~~~
+~~~--.....--~~~~
+~~~~--===--~~~~~
+~~~~~~=~~~~~~~~~
+~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~

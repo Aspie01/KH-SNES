@@ -1,0 +1,20 @@
+# build output
+build/
+*.o
+*.sfc
+*.smc
+*.map
+*.lbl
+
+# generated asset intermediates
+assets/gen/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# emulator / editor droppings
+*.srm
+*.state*
+.DS_Store
