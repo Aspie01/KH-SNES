@@ -80,6 +80,7 @@ shakeX:       .res 1
 fadeTimer:    .res 1
 coldataAmt:   .res 1            ; fixed colour-math colour, 0-31
 deadFlag:     .res 1            ; 0 alive, 1 just died, 2 GAME OVER showing
+fallTimer:    .res 1
 curActor:     .res 2            ; actor being updated, survives calls that use tmp*
 
 .segment "BSS"

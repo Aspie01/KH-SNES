@@ -273,6 +273,13 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     plx
     bra @next
 @notOrb:
+    cmp #ACT_MOTE
+    bne @notMote
+    phx
+    jsr UpdateMote
+    plx
+    bra @next
+@notMote:
     cmp #ACT_SLASH
     bne @next
     phx
@@ -305,11 +312,17 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 
     lda actState,x
     cmp #ST_DEAD
-    beq @dying
-    cmp #ST_ATTACK
+    bne :+
+    jmp @dying
+:   cmp #ST_FALL
+    bne :+
+    jmp @falling
+:   cmp #ST_ATTACK
     beq @attacking
     cmp #ST_HURT
-    beq @hurt
+    bne :+
+    jmp @hurt
+:
 
     ;--- free movement ---
     rep #$20
@@ -368,6 +381,24 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     lda #ST_IDLE
     sta actState,x
 @atk_done:
+    rts
+
+    ;--- the scene is carrying him: no control, and a slow tumble ---
+@falling:
+    jsr ClearVelocity
+    ldx curActor
+    lda actAnimT,x
+    beq @turn
+    dec a
+    sta actAnimT,x
+    rts
+@turn:
+    lda #8
+    sta actAnimT,x
+    lda actDir,x
+    inc a
+    and #$07
+    sta actDir,x                ; UpdateSoraFrame will stream the new facing
     rts
 
     ;--- out of HP: no control, and the screen goes down with him ---
@@ -1275,6 +1306,64 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 .endproc
 
 ;-----------------------------------------------------------------------------
+; UpdateMote -- In (A8/I16): X = actor index.
+;
+; The specks of light that streak past Sora while he falls.  They are pure
+; decoration: no collision, no ground, they just drift on their velocity until
+; the timer runs out.
+;-----------------------------------------------------------------------------
+.proc UpdateMote
+    .a8
+    .i16
+    stx curActor
+    lda actTimer,x
+    bne @alive
+    stz actType,x
+    rts
+@alive:
+    dec a
+    sta actTimer,x
+
+    ; Flicker between the two streak cels so the fall reads as motion even
+    ; where a mote's own drift is slow.
+    lda actAnimT,x
+    bne @tick
+    lda #3
+    sta actAnimT,x
+    lda actAnim,x
+    eor #$01
+    sta actAnim,x
+    asl a
+    clc
+    adc #TILE_STREAK
+    sta actTile,x
+    bra @move
+@tick:
+    dec a
+    sta actAnimT,x
+
+@move:
+    rep #$30
+    .a16
+    .i16
+    lda curActor
+    asl a
+    tax
+    lda actX,x
+    clc
+    adc actVX,x
+    sta actX,x
+    lda actY,x
+    clc
+    adc actVY,x
+    sta actY,x
+    sep #$20
+    .a8
+    ldx curActor
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
 ; OrbHitPlayer -- In (A8/I16): X = orb index.
 ;-----------------------------------------------------------------------------
 .proc OrbHitPlayer
@@ -1880,9 +1969,11 @@ drawFlip:   .byte 0, 0, 0, 0, 0, 1, 1, 1
 typeTile:   .byte $00, TILE_SORA,  TILE_HEART0, TILE_PALM,  TILE_ROCKBIG, TILE_ROCK,  TILE_SLASH0
             .byte TILE_PEDESTAL, TILE_SWORD, TILE_SHIELD, TILE_STAFF, TILE_DARKSIDE
             .byte TILE_ORB
+            .byte TILE_STREAK
 typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_FX
             .byte PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_HEART
             .byte PAL_OBJ_HEART
+            .byte PAL_OBJ_FX
 typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LARGE|AF_SHADOW, AF_SHADOW, $00
             ; the weapons hover, so they cast no shadow of their own
             .byte AF_LARGE|AF_SHADOW, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK
@@ -1890,8 +1981,11 @@ typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LAR
             ; its own -- only its shadow.  Orbs float, so no shadow either.
             .byte AF_SHADOW
             .byte $00
+            ; motes are pure light, so no shadow
+            .byte $00
 typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
             .byte $00, $00, $00, $00, DS_MAX_HP
+            .byte $00
             .byte $00
 
 ; type, isometric i, isometric j -- terminated by $FF

@@ -159,12 +159,21 @@ REACH_Y = 260
 :   cmp #DIVE_S2_FIGHT
     bne :+
     jmp WatchShadows
+:   cmp #DIVE_SHATTER2
+    bne :+
+    jmp Shatter                 ; the same effect, one station further down
+:   cmp #DIVE_S3_INTRO
+    bne :+
+    jmp BeginBoss               ; the third station's line has been dismissed
 :   cmp #DIVE_BOSS
     bne :+
     jmp WatchBoss
 :   cmp #DIVE_DONE
     bne :+
-    jmp BeginFade               ; the victory line has been dismissed
+    jmp BeginFall               ; the victory line has been dismissed
+:   cmp #DIVE_FALL
+    bne :+
+    jmp Fall
 :   cmp #DIVE_FADE
     bne :+
     jmp FadeOut
@@ -241,6 +250,12 @@ REACH_Y = 260
     sta screenBright
     sta INIDISP
 
+    ; Which station the glass drops him onto depends on which one broke.
+    lda diveStage
+    cmp #DIVE_SHATTER2
+    beq @third
+
+    ;--- station one -> station two ---
     lda #SCENE_DIVE2
     jsr LoadScene
     jsr ClearActors
@@ -260,10 +275,33 @@ REACH_Y = 260
     lda #TM_MESSAGE
     jsr TextOpen
     rts
+
+    ;--- station two -> station three, where the shadow is waiting ---
+@third:
+    lda #SCENE_DIVE3
+    jsr LoadScene
+    jsr ClearActors
+    jsr SpawnStation3
+
+    lda #$0F
+    sta screenBright
+    lda #DIVE_S3_INTRO
+    sta diveStage
+
+    lda #<scriptStation3
+    sta txtPtr
+    lda #>scriptStation3
+    sta txtPtr+1
+    lda #^scriptStation3
+    sta txtPtr+2
+    lda #TM_MESSAGE
+    jsr TextOpen
+    rts
 .endproc
 
 ;-----------------------------------------------------------------------------
-; WatchShadows -- once the last Shadow is gone, Darkside rises.  A8/I16.
+; WatchShadows -- once the last Shadow is gone the floor gives out again and
+; the dive carries on down to the third station.  A8/I16.
 ;-----------------------------------------------------------------------------
 .proc WatchShadows
     .a8
@@ -272,6 +310,28 @@ REACH_Y = 260
     jsr CountType
     bne @out
 
+    lda #DIVE_SHATTER2
+    sta diveStage
+    lda #SHATTER_LEN
+    sta shatterTimer
+    lda #<scriptFloorGoes
+    sta txtPtr
+    lda #>scriptFloorGoes
+    sta txtPtr+1
+    lda #^scriptFloorGoes
+    sta txtPtr+2
+    lda #TM_MESSAGE
+    jsr TextOpen
+@out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; BeginBoss -- Darkside rises out of the third station's floor.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc BeginBoss
+    .a8
+    .i16
     jsr SpawnBoss
     lda #DIVE_BOSS
     sta diveStage
@@ -283,7 +343,6 @@ REACH_Y = 260
     sta txtPtr+2
     lda #TM_MESSAGE
     jsr TextOpen
-@out:
     rts
 .endproc
 
@@ -362,6 +421,13 @@ REACH_Y = 260
     jsr LoadScene
     jsr ClearActors
 
+    ; The fall switches BG1 off; a death cannot happen during it, but coming
+    ; back from one must not inherit a half-dismantled screen either.
+    lda #TM_VAL
+    sta TM
+    lda #TS_VAL
+    sta TS
+
     lda sceneId
     cmp #SCENE_ISLAND
     bne :+
@@ -369,13 +435,11 @@ REACH_Y = 260
     lda #DIVE_ARRIVED
     sta diveStage
     jmp @done
-:   cmp #SCENE_DIVE2
-    bne @station1
+:   cmp #SCENE_DIVE3
+    bne :+
 
-    ; Station two: retry the boss directly rather than the Shadows again.
-    lda diveStage
-    cmp #DIVE_BOSS
-    bne @shadows
+    ; Station three: the boss again, on his own -- the retry starts from the
+    ; fight, not from the line that introduced it.
     rep #$20
     .a16
     lda #.loword(soraOnlySpawns)
@@ -384,8 +448,11 @@ REACH_Y = 260
     .a8
     jsr SpawnFromTable
     jsr SpawnBoss
+    lda #DIVE_BOSS
+    sta diveStage
     jmp @done
-@shadows:
+:   cmp #SCENE_DIVE2
+    bne @station1
     jsr SpawnStation2
     lda #DIVE_S2_FIGHT
     sta diveStage
@@ -404,6 +471,127 @@ REACH_Y = 260
 
 @done:
     jsr HudUpdate
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; BeginFall -- the last station goes with the shadow, and Sora drops.  A8/I16.
+;
+; No art is needed for the void: switching BG1 off on both the main screen and
+; the sub screen leaves the backdrop, and the backdrop is black.  Because BG1
+; is also the colour-math operand, dropping it from the sub screen is what
+; keeps the ground shadow from showing the vanished glass through itself.
+;-----------------------------------------------------------------------------
+.proc BeginFall
+    .a8
+    .i16
+    lda #DIVE_FALL
+    sta diveStage
+    lda #FALL_LEN
+    sta fallTimer
+    stz shakeX
+    stz mosaicAmt
+
+    lda #(TM_VAL & $FE)         ; every layer except BG1
+    sta TM
+    stz TS
+
+    ; Hand Sora over to the scene: no input, and a slow tumble.
+    lda playerIdx
+    rep #$20
+    .a16
+    and #$00FF
+    tax
+    sep #$20
+    .a8
+    lda #ST_FALL
+    sta actState,x
+    stz actAnim,x
+    stz actAnimT,x
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; Fall -- specks of light stream up past him for FALL_LEN frames, then the
+; light itself takes over.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc Fall
+    .a8
+    .i16
+    lda fallTimer
+    beq @done
+    dec fallTimer
+
+    lda fallTimer
+    and #$03
+    bne @out                    ; a new mote every fourth frame
+    jsr SpawnMote
+@out:
+    rts
+
+@done:
+    jmp BeginFade               ; BG1 stays off until the screen is white
+.endproc
+
+;-----------------------------------------------------------------------------
+; SpawnMote -- one speck of light, off to one side of Sora and below the
+; bottom of the screen, travelling up.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc SpawnMote
+    .a8
+    .i16
+    lda playerIdx
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    sta tmp0
+    lda actY,x
+    sta tmp1
+    sep #$20
+    .a8
+
+    ; Walk the spread table in step so successive motes do not stack up.  One
+    ; mote every fourth frame means frameCount/4 visits all eight offsets.
+    lda frameCount
+    lsr a
+    lsr a
+    and #$07
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda tmp0
+    clc
+    adc moteOfsX,x
+    sta tmp0
+    lda tmp1
+    clc
+    adc moteOfsY,x
+    sta tmp1
+    sep #$20
+    .a8
+
+    lda #ACT_MOTE
+    jsr SpawnActor
+    bcc @out                    ; the table is full; just skip this one
+    lda #MOTE_LIFE
+    sta actTimer,x
+
+    rep #$20
+    .a16
+    txa
+    and #$00FF
+    asl a
+    tax
+    lda #.loword(-MOTE_RISE)
+    sta actVY,x
+    sep #$20
+    .a8
+@out:
     rts
 .endproc
 
@@ -469,6 +657,13 @@ REACH_Y = 260
     jsr ClearActors
     jsr InitWorld
 
+    ; BG1 has been off since the fall started.  Bring it back now, hidden
+    ; inside the white, so the island is already there when the light drains.
+    lda #TM_VAL
+    sta TM
+    lda #TS_VAL
+    sta TS
+
     lda #$0F
     sta screenBright
     rts
@@ -494,7 +689,7 @@ REACH_Y = 260
 .endproc
 
 ;-----------------------------------------------------------------------------
-; SpawnStation2 / SpawnBoss -- A8/I16.
+; SpawnStation2 / SpawnStation3 / SpawnBoss -- A8/I16.
 ;-----------------------------------------------------------------------------
 .proc SpawnStation2
     .a8
@@ -502,6 +697,22 @@ REACH_Y = 260
     rep #$20
     .a16
     lda #.loword(station2Spawns)
+    sta tmp8
+    sep #$20
+    .a8
+    jsr SpawnFromTable
+    jsr HudUpdate
+    rts
+.endproc
+
+; The third station starts empty: the shadow only rises once the voice has
+; finished speaking.
+.proc SpawnStation3
+    .a8
+    .i16
+    rep #$20
+    .a16
+    lda #.loword(soraOnlySpawns)
     sta tmp8
     sep #$20
     .a8
@@ -744,10 +955,19 @@ diveSpawns:
     .byte ACT_STAFF,    10, 10
     .byte $FF
 
-; Used when retrying the boss: he comes back alone, the Shadows stay cleared.
+; The third station, and the boss retry: Sora on his own.
 soraOnlySpawns:
     .byte ACT_SORA,    8, 10
     .byte $FF
+
+; Where each speck of light starts, relative to Sora, in Q12.4.  X spreads
+; across the screen; Y is below its bottom edge, so they rise into view.
+moteOfsX:
+    .word .loword(-1600), 1200, .loword(-640), 1760
+    .word .loword(-1120), 480, .loword(-1840), 960
+moteOfsY:
+    .word 2080, 2320, 1920, 2560
+    .word 2160, 2400, 2000, 2240
 
 ; Station two: Sora lands alone, and three Shadows are already waiting.
 station2Spawns:
@@ -785,6 +1005,16 @@ scriptStation2:
     .byte "THE LIGHT, THE GREATER", SC_NL
     .byte "YOUR SHADOW BECOMES.", SC_END
 
+scriptFloorGoes:
+    .byte "DON'T BE AFRAID.", SC_NL
+    .byte SC_NL
+    .byte "AND DON'T FORGET...", SC_END
+
+scriptStation3:
+    .byte "THIS IS THE FURTHEST", SC_NL
+    .byte "DOWN THE LIGHT REACHES.", SC_PAGE
+    .byte "BEHIND YOU.", SC_END
+
 scriptBoss:
     .byte "BUT DON'T BE AFRAID.", SC_PAGE
     .byte "YOUR SHADOW HAS RISEN.", SC_NL
@@ -805,9 +1035,12 @@ scriptWake:
     .byte "ARE YOU DREAMING AGAIN?", SC_END
 
 scriptVictory:
-    .byte "THE DOOR IS OPENING.", SC_PAGE
-    .byte "YOUR ADVENTURE BEGINS", SC_NL
-    .byte "AT DAWN.", SC_END
+    .byte "YOU HOLD THE MIGHTIEST", SC_NL
+    .byte "WEAPON OF ALL.", SC_PAGE
+    .byte "SO DON'T FORGET:", SC_NL
+    .byte SC_NL
+    .byte "YOU ARE THE ONE WHO WILL", SC_NL
+    .byte "OPEN THE DOOR.", SC_END
 
 scriptChosen:
     .byte "YOU HAVE CHOSEN.", SC_NL

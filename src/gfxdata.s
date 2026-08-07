@@ -12,6 +12,7 @@
 .export bgPal, objPal, hudPal, bg1Map, collMap, soraChr
 .export diveChr, diveChrEnd, diveMap, diveColl, divePal
 .export dive2Chr, dive2ChrEnd, dive2Map, dive2Coll
+.export dive3Chr, dive3ChrEnd, dive3Map, dive3Coll
 
 .segment "GFXBG"
 bgChr:      .incbin "assets/gen/bgchr.bin"
@@ -45,3 +46,9 @@ dive2Chr:   .incbin "assets/gen/dive2chr.bin"
 dive2ChrEnd:
 dive2Map:   .incbin "assets/gen/dive2map.bin"
 dive2Coll:  .incbin "assets/gen/dive2coll.bin"
+
+.segment "GFXDIVE3"
+dive3Chr:   .incbin "assets/gen/dive3chr.bin"
+dive3ChrEnd:
+dive3Map:   .incbin "assets/gen/dive3map.bin"
+dive3Coll:  .incbin "assets/gen/dive3coll.bin"

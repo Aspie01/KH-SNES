@@ -71,6 +71,7 @@ TILE_STAFF   = $4C              ; 32x32 Dream Rod
 ; lower-left quadrant of the sprite page.
 TILE_DARKSIDE = $80
 TILE_ORB     = $88              ; 16x16 dark orb, 2 frames
+TILE_STREAK  = $8C              ; 16x16 light mote, 2 frames
 TILE_HEART0  = $C8              ; 16x16 Shadow Heartless, 4 frames
 TILE_HEART1  = $CA
 TILE_HEART2  = $CC
@@ -114,12 +115,14 @@ ACT_SWORD    = 8                ; the three dream weapons hovering above them
 ACT_SHIELD   = 9
 ACT_STAFF    = 10
 ACT_DARKSIDE = 11               ; the boss that ends the Dive
+ACT_MOTE     = 13               ; rising light during the fall
 ACT_ORB      = 12               ; dark orb fired from its chest
 
 ; Scenes
 SCENE_DIVE   = 0                ; Station of Awakening
 SCENE_DIVE2  = 1                ; the second Station of Awakening
-SCENE_ISLAND = 2                ; Destiny Islands
+SCENE_DIVE3  = 2                ; the third, where Darkside rises
+SCENE_ISLAND = 3                ; Destiny Islands
 
 ; Which dream weapon was taken / surrendered
 WEAPON_NONE  = 0
@@ -127,19 +130,26 @@ WEAPON_SWORD = 1
 WEAPON_SHIELD = 2
 WEAPON_STAFF = 3
 
-; Dive script progression
-DIVE_INTRO   = 0                ; the voice speaks
-DIVE_PICK    = 1                ; choose a power to take
-DIVE_DROP    = 2                ; choose a power to give up
-DIVE_SHATTER = 3                ; the platform breaks up underfoot
-DIVE_S2_INTRO = 4               ; landed on the second station
+; Dive script progression.  Three Stations of Awakening: the weapon choice,
+; the first Shadows, then the boss.
+DIVE_INTRO    = 0               ; the voice speaks
+DIVE_PICK     = 1               ; choose a power to take
+DIVE_DROP     = 2               ; choose a power to give up
+DIVE_SHATTER  = 3               ; station one comes apart
+DIVE_S2_INTRO = 4
 DIVE_S2_FIGHT = 5               ; the first Shadows
-DIVE_BOSS    = 6                ; Darkside rises
-DIVE_DONE    = 7                ; Darkside beaten, victory line showing
-DIVE_FADE    = 8                ; the light takes him off the platform
-DIVE_ARRIVED = 9                ; awake on Destiny Islands
+DIVE_SHATTER2 = 6               ; station two comes apart
+DIVE_S3_INTRO = 7
+DIVE_BOSS     = 8               ; Darkside
+DIVE_DONE     = 9               ; beaten; victory line showing
+DIVE_FALL     = 10              ; falling away from the platform
+DIVE_FADE     = 11              ; the light resolves into Destiny Islands
+DIVE_ARRIVED  = 12
 
 FADE_LEN     = 64               ; frames; the scene swaps at the halfway point
+FALL_LEN     = 170              ; frames of descent before the light takes over
+MOTE_LIFE    = 40               ; frames one speck of light lasts
+MOTE_RISE    = 96               ; Q12.4 per frame, upward -- 6 px a frame
 
 ; Boss tuning
 DS_MAX_HP    = 36
@@ -182,6 +192,7 @@ ST_WALK      = 1
 ST_ATTACK    = 2
 ST_HURT      = 3
 ST_DEAD      = 4                ; out of HP; no control until the retry
+ST_FALL      = 5                ; carried by the scene, not the player
 
 ; Facing directions.  Only N, NE, E, SE, S are drawn; W, SW, NW reuse the
 ; eastern art mirrored, which is how the sprite budget stays sane.

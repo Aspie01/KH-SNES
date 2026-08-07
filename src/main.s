@@ -27,6 +27,7 @@
 .import bg1Map, collMap
 .import diveChr, diveChrEnd, diveMap, diveColl, divePal
 .import dive2Chr, dive2ChrEnd, dive2Map, dive2Coll
+.import dive3Chr, dive3ChrEnd, dive3Map, dive3Coll
 
 .export Reset, IrqHandler, WaitVBlank, LoadScene
 
@@ -263,11 +264,15 @@ MainLoop:
     lda sceneId
     cmp #SCENE_DIVE2
     beq @toDive2
+    cmp #SCENE_DIVE3
+    beq @toDive3
     cmp #SCENE_ISLAND
     beq @toIsland
     jmp @dive1
 @toDive2:
     jmp @dive2
+@toDive3:
+    jmp @dive3
 @toIsland:
     jmp @island
 
@@ -294,6 +299,19 @@ MainLoop:
     lda #>dive2Coll
     sta collPtr+1
     lda #^dive2Coll
+    sta collPtr+2
+    jmp @common
+
+    ;--- Station of Awakening, third platform ---
+@dive3:
+    DMA_VRAM VRAM_BG1_CHR, dive3Chr, (dive3ChrEnd - dive3Chr)
+    DMA_VRAM VRAM_BG1_MAP, dive3Map, 4096
+    DMA_CGRAM 0, divePal, 256
+    lda #<dive3Coll
+    sta collPtr
+    lda #>dive3Coll
+    sta collPtr+1
+    lda #^dive3Coll
     sta collPtr+2
     jmp @common
 

@@ -23,7 +23,7 @@
         .byte "KINGDOM HEARTS SNES  "       ; $FFC0 title, exactly 21 bytes
         .byte $30               ; $FFD5 map mode: LoROM + FastROM
         .byte $00               ; $FFD6 cartridge type: ROM only
-        .byte $08               ; $FFD7 ROM size: 2^8 KiB = 256 KiB
+        .byte $09               ; $FFD7 ROM size: 2^9 KiB = 512 KiB
         .byte $00               ; $FFD8 RAM size: none
         .byte $01               ; $FFD9 country: USA / NTSC
         .byte $00               ; $FFDA developer ID

@@ -601,6 +601,10 @@ WEDGE_COLOURS = (G_MID, G_DEEP, G_TEAL, G_DEEP, G_VIOLET, G_DEEP,
 WEDGE_COLOURS_2 = (G_TEAL, G_DEEP, G_LIGHT, G_DEEP, G_MID, G_DEEP,
                    G_TEAL, G_DEEP, G_LIGHT, G_DEEP, G_MID, G_DEEP)
 
+# The third: warmer, rose and violet, for the platform the boss rises on.
+WEDGE_COLOURS_3 = (G_RED, G_DEEP, G_VIOLET, G_DEEP, G_GOLD_D, G_DEEP,
+                   G_RED, G_DEEP, G_VIOLET, G_DEEP, G_GOLD_D, G_DEEP)
+
 
 def dive_medallion(r: float, ang: float, nx: float, ny: float,
                    station: int = 1) -> int | None:
@@ -613,14 +617,18 @@ def dive_medallion(r: float, ang: float, nx: float, ny: float,
     # Pale radiating backdrop.
     base = G_PALE if int((ang / (2 * math.pi)) * 24) % 2 == 0 else G_WHITE
     # Station two dresses the same figure differently: fair hair, blue gown.
-    hair = G_HAIR if station == 1 else G_GOLD
-    hair_hi = G_HAIR if station == 1 else G_PALE
-    bow = G_RED if station == 1 else G_LIGHT
-    bodice_a = G_MID if station == 1 else G_LIGHT
-    bodice_b = G_DEEP if station == 1 else G_MID
-    skirt_a = G_PALE if station == 1 else G_WHITE
-    skirt_b = G_GOLD if station == 1 else G_LIGHT
-    sleeve = G_RED_D if station == 1 else G_WHITE
+    if station == 1:
+        hair, hair_hi, bow = G_HAIR, G_HAIR, G_RED
+        bodice_a, bodice_b = G_MID, G_DEEP
+        skirt_a, skirt_b, sleeve = G_PALE, G_GOLD, G_RED_D
+    elif station == 2:
+        hair, hair_hi, bow = G_GOLD, G_PALE, G_LIGHT
+        bodice_a, bodice_b = G_LIGHT, G_MID
+        skirt_a, skirt_b, sleeve = G_WHITE, G_LIGHT, G_WHITE
+    else:
+        hair, hair_hi, bow = G_PALE, G_WHITE, G_RED_D
+        bodice_a, bodice_b = G_RED, G_RED_D
+        skirt_a, skirt_b, sleeve = G_PALE, G_RED, G_WHITE
 
     # --- head: an elliptical face set inside a rounder mass of hair ---
     hx, hy = nx, ny + 0.42
@@ -683,7 +691,9 @@ def build_dive_platform(station: int = 1) -> tuple[Canvas, bytes]:
                 c = G_GOLD
             elif r > 0.60:
                 # ring of stained-glass wedges
-                wedges = WEDGE_COLOURS if station == 1 else WEDGE_COLOURS_2
+                wedges = (WEDGE_COLOURS if station == 1 else
+                          WEDGE_COLOURS_2 if station == 2 else
+                          WEDGE_COLOURS_3)
                 seg = int(ang / (2 * math.pi) * len(wedges))
                 c = wedges[seg % len(wedges)]
                 if abs((ang % (2 * math.pi / len(wedges)))) < 0.035:
@@ -895,6 +905,19 @@ def draw_orb(frame: int) -> Canvas:
     return c
 
 
+def draw_streak(frame: int) -> Canvas:
+    """A rising mote of light, to give the fall something to measure against."""
+    c = Canvas(16, 16)
+    F_CORE, F_IN, F_MID, F_OUT = 1, 2, 3, 4
+    h = 6 if frame == 0 else 4
+    c.rect(7, 8 - h, 8, 8 + h, F_MID)
+    c.rect(7, 8 - h + 2, 8, 8 + h - 2, F_IN)
+    c.vline(7, 8 - h + 4, 8 + h - 4, F_CORE)
+    c.set(6, 8, F_OUT)
+    c.set(9, 8, F_OUT)
+    return c
+
+
 def build_obj_page() -> Canvas:
     """Assemble the 128x128 sprite page (a 16x16 grid of 8x8 tiles).
 
@@ -917,6 +940,8 @@ def build_obj_page() -> Canvas:
     # rows 8-11, cols 8-15: the boss's projectiles
     page.blit(draw_orb(0), 64, 64)          # $88
     page.blit(draw_orb(1), 80, 64)          # $8A
+    page.blit(draw_streak(0), 96, 64)       # $8C
+    page.blit(draw_streak(1), 112, 64)      # $8E
     # row 12, cols 8-15: the Shadow's four cels
     for f in range(4):                      # $C8 $CA $CC $CE
         page.blit(draw_heartless(f), 64 + f * 16, 96)
@@ -1139,6 +1164,15 @@ def main() -> int:
     write_bin(GEN / "dive2map.bin", d2_map)
     write_bin(GEN / "dive2coll.bin", dive2_coll)
 
+    dive3, dive3_coll = build_dive_platform(station=3)
+    write_png(dive3, BG_DIVE, SRC / "dive3_preview.png", transparent0=False)
+    d3_chr, d3_map, d3_n = dedupe_tilemap(dive3)
+    if d3_n > 512:
+        raise SystemExit(f"station three needs {d3_n} characters; BG1 holds 512.")
+    write_bin(GEN / "dive3chr.bin", d3_chr)
+    write_bin(GEN / "dive3map.bin", d3_map)
+    write_bin(GEN / "dive3coll.bin", dive3_coll)
+
     #--- Sora ---------------------------------------------------------------
     sheet = build_sora()
     write_png(sheet, OBJ_SORA, SRC / "sora.png")
@@ -1167,6 +1201,8 @@ def main() -> int:
           f"{len(dive_chr):5d} bytes chr")
     print(f"station2  {d2_n:3d} unique characters, "
           f"{len(d2_chr):5d} bytes chr")
+    print(f"station3  {d3_n:3d} unique characters, "
+          f"{len(d3_chr):5d} bytes chr")
     print(f"ground    {nchars:3d} unique characters, "
           f"{len(bg_chr):5d} bytes chr, {len(bg_map)} bytes map")
     print(f"sora      {len(sheet.px[0])//32}x{len(sheet.px)//32} cels, "
