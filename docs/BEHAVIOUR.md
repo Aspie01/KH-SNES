@@ -6,6 +6,12 @@ disposable; this is not. It was extracted from
 for any port — if the DS build disagrees with a number here, the DS build is
 wrong.
 
+> **Audited, and it was wrong in places.** An independent pass checked this
+> document against the assembly and found 41 errors and omissions. The outright
+> errors are corrected below; the rest, with citations, is in
+> `docs/BEHAVIOUR-AUDIT.md`. **Read both.** Five corrections were re-verified by
+> hand and are marked **[corrected]** where they appear.
+
 **Units.** Positions and velocities are **Q12.4** fixed point: 16 pixels of
 world per unit of 16, so `256` means 16 px and `1` means 1/16 px. Every range
 below is Q12.4 unless it says frames or pixels. Times are **frames at 60 Hz**,
@@ -89,7 +95,20 @@ decides which:
 | `PICK` | 224 × 224 | walked into — the raft materials, mushrooms, coconuts, the egg, the bottle |
 | `SWING` | 544 × 544 | answered with the Keyblade — fish, palms still carrying coconuts |
 | `PROP` | 416 × 416 | examined — the chalk drawings, the door in the Secret Place |
-| `TOUCH` | 160 × 160 | a Heartless reaching Sora, and a boss fist landing |
+| `TOUCH` | **320 × 160** | a Heartless reaching Sora — **[corrected]**, see below |
+| `TOUCH` | 160 × 160 | Darkside's fist only. The Guard Armor's uses 448 × 384 |
+| `REACH` | 448 × 448 | the three dream weapons in the Dive |
+| attack centre | 256 cardinal / 176 diagonal | the offset the swing arc is centred at, ahead of his facing |
+
+**[corrected] The Heartless touch box is asymmetric and twice as wide as it
+looks.** `HeartlessTouchTest` halves `abs(dx)` with a bare `lsr a` before
+comparing it to `TOUCH_X`, so the effective box is 320 × 160. Worse, a Shadow
+whose facing bucket comes back "stand still" — both axes inside the 208 deadzone
+— skips its move *and* its touch test entirely, so it can never damage Sora
+point-blank or from directly north or south. The only geometry that connects is
+`208 <= abs(dx) <= 319` with `abs(dy) <= 159`. A Shadow closing vertically parks
+at `abs(dy) ~ 207` and stands there. Reproduce that exactly or the night plays
+like a different game.
 
 ---
 
@@ -143,11 +162,25 @@ States and timings:
 | Dark orbs | 40 (chest gathers) | fires 3, then 30 | rest |
 | Arm sweep | 26 | 16 | rest |
 
-- The **slam** marks where Sora is standing at the end of the wind-up and lands
-  there a beat later. Anyone inside `TOUCH` of the mark is hit, and **a Shadow
-  crawls out of the impact**.
-- **Orbs** live 110 frames and travel at speed 40 along one of the eight
-  facings.
+- **[corrected] The slam marks its target on ENTRY to the wind-up**, not at the
+  end: `AimAtPlayer` runs 44 frames before impact, so the mark is stale for the
+  whole telegraph. This inverts the dodge — the player escapes by leaving the
+  spot they occupied when the wind-up *started*, not by outrunning a tracking
+  fist. The Guard Armor is the same, 40 frames early. Getting this backwards
+  makes both fights feel wrong in a way that is hard to name, which is why it is
+  called out here.
+- Anyone inside `TOUCH` of the mark is hit, and **a Shadow crawls out of the
+  impact**. Those crater Shadows are uncapped: `SHADOW_MAX` is enforced only by
+  the night's own spawner, which does not run during the boss.
+- **[corrected] Orbs** live 110 frames and travel at `dirVel * 2` — 48 on a
+  cardinal, 34 on a diagonal. `ORB_SPEED = 40` is a dead constant.
+- The three orbs are fired at `facing-1`, `facing`, `facing+1` mod 8, aimed from
+  a point 40 px above the boss's feet.
+- **Flinch is invulnerability.** `HurtBoss` refuses damage while the flinch timer
+  runs, so a boss takes at most 1 damage per 11 frames, which floors both fights
+  at roughly 684 frames. A Shadow's 14-frame recoil is *not* invulnerable.
+- Both bosses vanish the instant they hit 0 HP. There is no death state; the
+  scene scripts detect the win by counting the type and finding none.
 - The **sweep** is the punish for standing underneath, and it is checked
   *before* the normal alternation: 704 × 448, wide and shallow, 44 px either
   side and 28 px out from its feet. Its wind-up is shorter than the fist's on
@@ -305,8 +338,9 @@ island fragment and the shop interiors keep the void around them off screen.
 | The island fragment | pinned at 128, 24 — lower, to keep Darkside's head clear of the HUD |
 
 Screen shake is a signed byte added to the horizontal scroll, normally zero,
-alternating sign on a frame-count bit: ±3 for a shatter or a boss landing, ±2
-for something smaller.
+alternating sign on `frameCount & 2` — a **4-frame period**. **[corrected]** The
+amplitudes are: the Dive's platform shatter ±2, the night's island tearing ±3,
+the Guard Armor landing ±3, Donald and Goofy landing ±2.
 
 **This is the part most likely to need new work on the DS.** A hard snap is fine
 for a locked overhead view; an orbiting camera wants easing, and easing wants a
@@ -358,3 +392,38 @@ Any divergence is either a port bug or a deliberate change, and if it is
 deliberate it belongs in this file. The SNES side already has the harness for
 step 1 (`tools/playtest.sh`) and a way to read machine state for step 2 (save
 states parse to WRAM, and the linker map gives every symbol's address).
+
+
+---
+
+## 11. Dead constants — do not implement these
+
+Each has exactly one reference across all 21 sources: its own definition. A
+reimplementer reading `game.inc` will otherwise wire them up and wonder why
+nothing changes.
+
+| Constant | What actually happens |
+| --- | --- |
+| `ORB_SPEED = 40` | orbs use `dirVel * 2` |
+| `LINE_X` / `LINE_Y = 448` | the race reuses `TAG_X`/`TAG_Y` for both legs |
+| `KNOCKBACK = 3` | both knockback sites use `asl a`, i.e. × 2 |
+| `AF_SOLID = $04` | no actor blocks movement; nothing tests this bit |
+| `shakeTimer`, `scriptWait` | dead RAM, written at most and never read |
+
+Two further things that look like systems and are not: **the dream weapon choice
+has no mechanical consequence** — `weaponTaken` and `weaponGiven` are each
+written once and read nowhere — and **the raft's name only selects a
+confirmation line**. Do not invent stat effects for either.
+
+## 12. Two latent bugs, inherited unless fixed
+
+Both are unreachable in the SNES build and become reachable in a port that adds
+a damage source where there is not one today.
+
+1. **The Dive does not sweep Darkside's crater Shadows** (the night's script
+   does). A survivor persists into the 170-frame fall, where `DamageSora` tests
+   only for `ST_DEAD` and not `ST_FALL` — so a hit knocks Sora out of the fall
+   and hands control back mid-air, or kills him and retries the boss.
+2. **A death on the island restarts the scene without the day's item table**, so
+   the remaining collectables are destroyed permanently and the day cannot be
+   completed. Unreachable only because nothing damages Sora during the two days.
