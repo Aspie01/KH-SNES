@@ -216,15 +216,25 @@ KH_TEST(ds_screen_divergence_is_explicit) {
 }
 
 KH_TEST(map_size_is_per_scene) {
-    // The SNES was locked to one map size by its tilemap.  These are the two
-    // known sizes; M3 makes the camera clamp read them from the loaded scene.
+    // The SNES was locked to one map size by its tilemap.  These are the sizes
+    // that exist; M3 makes the camera clamp read them from the loaded scene.
     CHECK_EQ(ORACLE_MAP_W, 32);
     CHECK_EQ(ORACLE_MAP_H, 16);
     CHECK_EQ(DS_ISLAND_W, 64);
     CHECK_EQ(DS_ISLAND_H, 32);
+    CHECK_EQ(DS_DISTRICT_W, 48);
+    CHECK_EQ(DS_DISTRICT_H, 32);
     CHECK(DS_ISLAND_W * DS_ISLAND_H <= MAP_MAX_CELLS);
+    CHECK(DS_DISTRICT_W * DS_DISTRICT_H <= MAP_MAX_CELLS);
 
-    // Four times the area, and wider than one DS background -- so it streams.
+    // Four times the area for the island, three for a district -- and both are
+    // wider than one DS background, so both stream.
     CHECK_EQ(DS_ISLAND_W * DS_ISLAND_H, 4 * ORACLE_MAP_W * ORACLE_MAP_H);
+    CHECK_EQ(DS_DISTRICT_W * DS_DISTRICT_H, 3 * ORACLE_MAP_W * ORACLE_MAP_H);
     CHECK(DS_ISLAND_W > DS_BG_MAX_TILES);
+    CHECK(DS_DISTRICT_W > DS_BG_MAX_TILES);
+
+    // The island is the biggest thing authored, so it is what the ceiling is
+    // for.  If a district ever exceeds it, MAP_MAX_* is what has to move.
+    CHECK(DS_DISTRICT_W <= DS_ISLAND_W);
 }

@@ -123,8 +123,11 @@ TERRAIN = {
     #--- Traverse Town ------------------------------------------------------
     "c": (COBBLE_L, COBBLE_M, COBBLE_D, True, 0),    # cobbles
     "p": (PAVE_L, PAVE_M, PAVE_D, True, 0),          # paving, under a lamp
-    "s": (COBBLE_L, COBBLE_M, COBBLE_D, True, 1),    # a step up
-    "q": (COBBLE_L, COBBLE_M, COBBLE_D, True, 2),    # a raised walkway
+    # Warm stone, not cobbles: a raised walkway in the same colours as the
+    # square around it reads as flat ground with an inexplicable seam, because
+    # the only difference is the 16 px face at its southern edge.
+    "s": (PAVE_L, PAVE_M, PAVE_D, True, 1),          # a step up
+    "q": (PAVE_L, PAVE_M, PAVE_D, True, 2),          # a raised walkway
     "w": (PLASTER_L, PLASTER_L, PLASTER_D, False, 3),   # a building
     "e": (PLASTER_L, PLASTER_L, PLASTER_D, False, 3),   # ...with a lit window
     "o": (BEAM_L, BEAM_L, BEAM_D, False, 3),         # a roof over the street
@@ -157,7 +160,7 @@ GROUP = {"~": "water", "-": "water", ".": "sand", "r": "sand",
          "B": "wood", "L": "wood", "P": "wood", "H": "wood",
          "W": "water", "C": "cave", "b": "grass", "Y": "grass",
          "M": "wood", "K": "grass", "F": "rock", "*": "void",
-         "c": "cobble", "s": "cobble", "q": "cobble", "p": "pave",
+         "c": "cobble", "s": "pave", "q": "pave", "p": "pave",
          "w": "plaster", "e": "plaster", "o": "beam", "d": "door",
          "x": "beam", "l": "cobble", "n": "plaster", "v": "water"}
 
@@ -262,7 +265,7 @@ def draw_tile(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
                 c.set(x, y, ROCK_D)
         c.set(3, 11, ROCK_D)
         c.set(12, 5, ROCK_D)
-    elif code in "cslq":
+    elif code in "cl":
         # Cobbles: staggered courses, small enough that the eye reads texture
         # rather than a grid.
         for y in range(1, 16, 3):
@@ -278,8 +281,9 @@ def draw_tile(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
             c.ellipse(8, 11, 7.0, 4.0, PAVE_M)
             c.ellipse(8, 11, 4.4, 2.4, PAVE_L)
             c.ellipse(8, 12, 2.4, 1.2, OUTLINE)
-    elif code == "p":
-        # Flagstones, larger and warmer -- this is the paving a lamp lights.
+    elif code in "psq":
+        # Flagstones, larger and warmer -- the paving a lamp lights, and the
+        # raised walkways, which are built of the same stone.
         c.rect(0, 0, 15, 15, PAVE_M)
         for y in (0, 8):
             for x in (0, 8):
@@ -2060,7 +2064,7 @@ def load_grid(name: str = "island.txt", subdir: str = "") -> Grid:
     return Grid(rows, name)
 
 
-def build_ds_scene(stem: str, grid) -> None:
+def build_ds_scene(stem: str, grid, palette=None) -> None:
     """Emit one DS scene: characters, a row-major tilemap, collision, height.
 
     Not the full M2 backend -- no DS palette encoding and no header generation
@@ -2075,7 +2079,7 @@ def build_ds_scene(stem: str, grid) -> None:
     write_bin(out / f"{stem}map.bin", tilemap)
     write_bin(out / f"{stem}coll.bin", coll)
     write_bin(out / f"{stem}height.bin", hmap)
-    write_png(world, BG_GROUND, SRC / f"ds_{stem}_preview.png")
+    write_png(world, palette or BG_GROUND, SRC / f"ds_{stem}_preview.png")
     walkable = sum(coll)
     cw, chh = world.w // 8, world.h // 8
     streams = "streams" if max(grid.w, grid.h) > DS_BG_TILES else "fits one BG"
@@ -2227,8 +2231,14 @@ def main() -> int:
     # Larger than anything the SNES can address, so they live beside the frozen
     # maps rather than replacing them: the SNES build and the oracle keep using
     # assets/*.txt untouched, which is what holds its ROM byte-identical.
-    for stem, fname in (("island", "island.txt"),):
-        build_ds_scene(stem, load_grid(fname, subdir="ds"))
+    # The palette is per-scene: the town reuses the island's sixteen slots with
+    # different colours in them, so a preview drawn with the wrong one is
+    # unreadable even though the emitted indices are right.
+    for stem, fname, pal in (("island", "island.txt", BG_GROUND),
+                             ("town1", "town1.txt", BG_TOWN),
+                             ("town2", "town2.txt", BG_TOWN),
+                             ("town3", "town3.txt", BG_TOWN)):
+        build_ds_scene(stem, load_grid(fname, subdir="ds"), pal)
     return 0
 
 

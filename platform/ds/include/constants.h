@@ -40,6 +40,12 @@ constexpr int ORACLE_MAP_H = 16;        // MAP_H  therefore the trace fixtures
 constexpr int DS_ISLAND_W = 64;         // assets/ds/island.txt
 constexpr int DS_ISLAND_H = 32;
 
+// The three districts are all one size, because Traverse Town is one place cut
+// into three by doors and a district that read as larger than its neighbours
+// would read as a different town.  assets/ds/town{1,2,3}.txt.
+constexpr int DS_DISTRICT_W = 48;
+constexpr int DS_DISTRICT_H = 32;
+
 // Nothing may be larger than this; the collision and height buffers are sized
 // from it and a scene loader must reject anything that does not fit.
 constexpr int MAP_MAX_W = 64;
@@ -47,6 +53,8 @@ constexpr int MAP_MAX_H = 32;
 constexpr int MAP_MAX_CELLS = MAP_MAX_W * MAP_MAX_H;
 
 static_assert(DS_ISLAND_W <= MAP_MAX_W && DS_ISLAND_H <= MAP_MAX_H,
+              "raise MAP_MAX_* before authoring a map bigger than the buffers");
+static_assert(DS_DISTRICT_W <= MAP_MAX_W && DS_DISTRICT_H <= MAP_MAX_H,
               "raise MAP_MAX_* before authoring a map bigger than the buffers");
 
 // A single DS 2D background holds 64x64 characters, which is 32x32 of our

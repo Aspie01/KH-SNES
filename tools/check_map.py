@@ -202,6 +202,116 @@ DS_ISLAND_NEAR = {
 }
 
 
+# ---------------------------------------------------------------------------
+# The Nintendo DS districts: 48x32, three times the area.  A district is walled
+# on all four sides, so unlike the island every one of these maps has exactly
+# one way in and out and the whole map hangs off it -- a door in the wrong
+# column is not a cosmetic mistake, it is a district with no exit.  The
+# expansion also added +2 walkways, which the one-step rule can only admit
+# through the +1 steps beneath them, and alleys behind those walkways that are
+# reachable only round their southern end.  Both are checked from both sides.
+# ---------------------------------------------------------------------------
+DS_TOWN1 = {
+    "Sora": (20, 20),
+    "Cid (outside the Accessory Shop)": (17, 6),
+    "a townsman": (10, 15),
+    "a townswoman": (30, 20),
+    "the Accessory Shop door": (16, 4),
+    "the Accessory Shop landing": (16, 5),
+    "the door to the Second District": (24, 4),
+    "the landing from the Second District": (24, 5),
+    # The north-east walkway is +2, so it is only enterable over the +1 steps.
+    "the step up to the walkway (west)": (34, 13),
+    "the step up to the walkway (east)": (39, 13),
+    "the walkway (west end)": (30, 10),
+    "the walkway (east end)": (43, 10),
+    # The strip between the walkway's building and the east wall, which is
+    # walled off to the north and only opens at its southern end.
+    "the alley behind the walkway": (44, 8),
+}
+
+DS_TOWN2 = {
+    "Sora": (28, 5),
+    "the door back to the First District": (28, 4),
+    "the landing from the First District": (28, 5),
+    "the door to the Third District": (5, 4),
+    "the landing from the Third District": (5, 5),
+    "the Hotel door": (24, 4),
+    "the Hotel landing": (24, 5),
+    # The eight places the Heartless come up.  The fountain is much larger than
+    # it was, so every one of these had to be re-placed off it.
+    "shadow spot 1": (8, 12),
+    "shadow spot 2": (28, 12),
+    "shadow spot 3": (10, 21),
+    "shadow spot 4": (20, 22),
+    "shadow spot 5": (7, 16),
+    "shadow spot 6": (30, 17),
+    "shadow spot 7": (18, 26),
+    "shadow spot 8": (36, 20),
+    "the step up to the walkway (west)": (36, 15),
+    "the step up to the walkway (east)": (41, 15),
+    "the walkway (north end)": (33, 9),
+    "the walkway (south end)": (43, 14),
+    "the alley behind the walkway": (44, 6),
+}
+
+DS_TOWN3 = {
+    "Sora": (23, 5),
+    "the door back to the Second District": (23, 4),
+    "the landing from the Second District": (23, 5),
+    "Donald": (20, 20),
+    "Goofy": (26, 20),
+    # The Guard Armor drops into the middle of the floor, which the two
+    # walkways look down on, so this tile has to stay clear of both of them.
+    "the Guard Armor": (23, 18),
+    "the west step up (near)": (8, 12),
+    "the west step up (far)": (15, 12),
+    "the east step up (near)": (32, 12),
+    "the east step up (far)": (39, 12),
+    "the west walkway": (5, 10),
+    "the east walkway": (42, 10),
+    "the west alley": (3, 6),
+    "the east alley": (44, 6),
+    "the corridor down from the door": (23, 11),
+}
+
+# Lamp posts and crates stand on their own blocked tiles, so like the palms
+# they are checked for a walkable neighbour.  So is the fountain rim, which
+# Sora has to be able to stand at without being able to stand on.
+DS_TOWN1_NEAR = {
+    "lamp (north-west)": (9, 9),
+    "lamp (north-east)": (20, 9),
+    "lamp (south-west)": (9, 22),
+    "lamp (south-east)": (20, 22),
+    "lamp (below the walkway)": (35, 24),
+    "crates (by the shop row)": (3, 6),
+    "crates (south-west)": (4, 26),
+    "crates (south-east)": (43, 26),
+}
+
+DS_TOWN2_NEAR = {
+    "lamp (north-west)": (8, 9),
+    "lamp (north-east)": (28, 9),
+    "lamp (south-west)": (8, 25),
+    "lamp (south-east)": (30, 25),
+    "lamp (below the walkway)": (39, 22),
+    "the fountain rim (north)": (18, 13),
+    "the fountain rim (south)": (18, 20),
+    "crates (by the Third District door)": (4, 6),
+    "crates (the south wall)": (27, 27),
+    "crates (south-east)": (43, 26),
+}
+
+DS_TOWN3_NEAR = {
+    "lamp (north-west)": (6, 16),
+    "lamp (north-east)": (41, 16),
+    "lamp (south-west)": (6, 25),
+    "lamp (south-east)": (41, 25),
+    "crates (south-west)": (4, 26),
+    "crates (south-east)": (43, 26),
+}
+
+
 def check(label: str, grid, spawn: tuple[int, int],
           reach: dict, adjacent: dict) -> int:
     """Flood-fill one map with the engine's rule and check every spawn point.
@@ -271,6 +381,11 @@ def main() -> int:
     # ...and the DS worlds, which are a different size and live beside them.
     bad |= check("ds/island", load_grid("island.txt", subdir="ds"),
                  DS_ISLAND_SPAWN, DS_ISLAND, DS_ISLAND_NEAR)
+    for name, reach, near in (("town1", DS_TOWN1, DS_TOWN1_NEAR),
+                              ("town2", DS_TOWN2, DS_TOWN2_NEAR),
+                              ("town3", DS_TOWN3, DS_TOWN3_NEAR)):
+        bad |= check(f"ds/{name}", load_grid(f"{name}.txt", subdir="ds"),
+                     reach["Sora"], reach, near)
     return bad
 
 

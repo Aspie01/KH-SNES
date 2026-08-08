@@ -1,0 +1,40 @@
+# Traverse Town, Third District -- Nintendo DS.  48 x 32 tiles = 768 x 512 px.
+# Three times the area of the SNES district.  Wider than one DS 2D background
+# (32x32 of these tiles), so the ground streams.  See docs/WORLD_SIZES.md.
+#
+# c cobbles      p paving under a lamp   l lamp post   d doorway
+# s step +1      q raised walkway +2     x crates
+# w building +3  e ...with a lit window  o roof +3
+# n low parapet / fountain rim           v water
+oooooooooooooooooooooooooooooooooooooooooooooooo
+oooooooooooooooooooooooooooooooooooooooooooooooo
+oooooooooooooooooooooooooooooooooooooooooooooooo
+oooooooooooooooooooooooooooooooooooooooooooooooo
+wwwwwwwwwwwwwwwwwwwwewwdwwwewwwwwwwwwwwwwwwwwwww
+wwwccwwwwwwwwwwwwwwccccccccccwwwwwwwwwwwwwwccwww
+wwwccwwwwwwwwwwwwwwccccccccccwwwwwwwwwwwwwwccwww
+wwwccwwwewwwwwwewwwccccccccccwwwewwwwwwewwwccwww
+wwwccqqqqqqqqqqqqqqccccccccccqqqqqqqqqqqqqqccwww
+wwwccqqqqqqqqqqqqqqccccccccccqqqqqqqqqqqqqqccwww
+wwwccqqqqqqqqqqqqqqccccccccccqqqqqqqqqqqqqqccwww
+wwwccqqqqqqqqqqqqqqccccccccccqqqqqqqqqqqqqqccwww
+wwwcccccssccccssccccccccccccccccssccccsscccccwww
+wwwccccccccccccccccccccccccccccccccccccccccccwww
+wwwccccccccccccccccccccccccccccccccccccccccccwww
+wwwcccpccccccccccccccccccccccccccccccccccpcccwww
+wwwccplpccccccccccccccccccccccccccccccccplpccwww
+wwwcccpccccccccccccccccccccccccccccccccccpcccwww
+wwwccccccccccccccccccccccccccccccccccccccccccwww
+wwwccccccccccccccccccccccccccccccccccccccccccwww
+wwwccccccccccccccccccccccccccccccccccccccccccwww
+wwwccccccccccccccccccccccccccccccccccccccccccwww
+wwwccccccccccccccccccccccccccccccccccccccccccwww
+wwwccccccccccccccccccccccccccccccccccccccccccwww
+wwwcccpccccccccccccccccccccccccccccccccccpcccwww
+wwwccplpccccccccccccccccccccccccccccccccplpccwww
+wwwxxxpccccccccccccccccccccccccccccccccccpxxxwww
+wwwxxxccccccccccccccccccccccccccccccccccccxxxwww
+wwwcccccccnnnnnnnccccccccccccccnnnnnnncccccccwww
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
