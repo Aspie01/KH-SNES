@@ -1275,25 +1275,32 @@ def draw_bottle() -> Canvas:
 
 
 def draw_door() -> Canvas:
-    """The door at the back of the Secret Place.  No handle, no keyhole."""
+    """The door at the back of the Secret Place.  No handle, no keyhole.
+
+    Hung flat on the cliff face, so what has to read at a glance is "door" and
+    not "furniture": everything runs vertically, the surround is the same stone
+    as the wall it is set into, and the only horizontals are the two rails.
+    """
     c = Canvas(32, 32)
-    W, D, T = I_SELPHIE, I_OUT, I_YELLOW
-    # frame
-    c.rect(6, 4, 25, 31, T)
-    c.rect(7, 5, 24, 31, D)
-    # the door itself, arched
-    c.rect(8, 8, 23, 31, W)
-    c.ellipse(16, 8, 8.0, 4.0, W)
-    c.rect(15, 6, 16, 31, D)                # the seam down the middle
-    for y in range(11, 30, 6):              # planking
-        c.hline(9, 22, y, D)
-    for y in range(10, 30, 6):
-        c.hline(9, 22, y, T)
-    # hinges, and nothing at all where a handle would be
-    c.rect(9, 13, 10, 15, T)
-    c.rect(9, 23, 10, 25, T)
-    c.rect(21, 13, 22, 15, T)
-    c.rect(21, 23, 22, 25, T)
+    WOOD, DARK, RAIL, STONE = I_SELPHIE, I_OUT, I_YELLOW, I_RIKU
+
+    # A stone surround, arched over the top, set into the rock.
+    c.rect(5, 5, 26, 31, STONE)
+    c.ellipse(16, 6, 11.0, 5.0, STONE)
+    c.rect(7, 7, 24, 31, DARK)              # the recess it sits in
+    c.ellipse(16, 8, 9.0, 4.0, DARK)
+
+    # The door: boards standing on end.
+    c.rect(8, 9, 23, 31, WOOD)
+    c.ellipse(16, 9, 8.0, 3.5, WOOD)
+    for x in range(11, 23, 4):
+        c.vline(x, 8, 31, DARK)             # the seams between boards
+        c.vline(x + 1, 8, 31, RAIL)
+    # Two cross rails, and nothing whatever where a handle would be.
+    c.hline(8, 23, 15, RAIL)
+    c.hline(8, 23, 16, DARK)
+    c.hline(8, 23, 25, RAIL)
+    c.hline(8, 23, 26, DARK)
     c.outline(I_OUT)
     return c
 

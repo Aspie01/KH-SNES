@@ -241,10 +241,15 @@ DSS_SWEEP_HIT = 6
 
 DS_SWEEP_WIND = 26              ; shorter telegraph than the fist: it is the
 DS_SWEEP_HOLD = 16              ; punish for standing underneath
-SWEEP_X      = 704              ; Q12.4 -- 44 px either side of the arm
-SWEEP_Y      = 640
-DS_HURT_X    = 576              ; Q12.4, generous: the body is 64 px wide
-DS_HURT_Y    = 512
+; The sweep is the punish for standing underneath, so it is wide and shallow:
+; 44 px either side of the arm, 28 px out from its feet.
+SWEEP_X      = 704
+SWEEP_Y      = 448
+; Seen from above, the boss's 64 px body reads as a mass around its feet -- and
+; the hurt box has to be deeper than the sweep is, or there is nowhere to stand
+; that can reach it without being swept.
+DS_HURT_X    = 576              ; 36 px: the body is 64 px wide
+DS_HURT_Y    = 640              ; 40 px, which a swing from 56 px out reaches
 SHATTER_LEN  = 96               ; frames the platform takes to come apart
 
 ; actFlags bits

@@ -725,9 +725,12 @@ REACH_Y = 448
     .i16
     rep #$20
     .a16
-    lda #16                     ; tile (16,4): the far side of the platform
+    ; Tile (16,7).  It has to stand this far down the platform: the sprite is
+    ; 64 px tall above its feet and the HUD owns the top 24 px of the screen,
+    ; so any higher and the head is behind the gauge whenever Sora backs off.
+    lda #16
     sta tmp0
-    lda #4
+    lda #7
     sta tmp1
     jsr TileToWorld
     lda tmp0
