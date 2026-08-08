@@ -13,6 +13,8 @@
 .include "macros.inc"
 .include "text.inc"
 
+.import NightStageLabel
+
 .export HudInit, HudUpdate
 
 CH_H         = CH_A + 'H' - 'A'
@@ -175,6 +177,8 @@ RACE_COUNT     = 6              ; where the countdown digit sits
     sep #$20
     .a8
     lda sceneId
+    cmp #SCENE_NIGHT
+    beq @nightrow
     cmp #SCENE_ISLAND
     bne @bossgauge
     lda questState
@@ -184,9 +188,13 @@ RACE_COUNT     = 6              ; where the countdown digit sits
     jsr DrawRace
     bra @flag
 @list:
-    cmp #Q_NIGHT
+    cmp #Q_DAYOUT
     bcs @flag                   ; the day is turning over
     jsr DrawQuest
+    bra @flag
+
+@nightrow:
+    jsr DrawNight
     bra @flag
 
 @bossgauge:
@@ -305,6 +313,31 @@ RACE_COUNT     = 6              ; where the countdown digit sits
     lda itemCount + IT_WATER
     ldx #D2_WATER
     jsr PutDigit
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; DrawNight -- the one thing worth doing, while the island falls.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc DrawNight
+    .a8
+    .i16
+    jsr NightStageLabel
+    cmp #$FF
+    beq @out                    ; mid-conversation: leave the row empty
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda nightLines,x
+    sta tmp7
+    lda #BOSS_ROW
+    sta tmp8
+    sep #$20
+    .a8
+    jmp PutLabel
+@out:
     rts
 .endproc
 
@@ -446,6 +479,14 @@ raceOut:
     TXTSTR "RACE   TAG THE PAOPU TREE"
 raceBack:
     TXTSTR "RACE   BACK TO KAIRI"
+
+; The night, indexed by what NightStageLabel returns.
+nightLines:
+    .word .loword(nightRiku), .loword(nightCave)
+nightRiku:
+    TXTSTR "FIND RIKU"
+nightCave:
+    TXTSTR "THE SECRET PLACE"
 
 bossName:
     .byte CH_A + 'D' - 'A', CH_A + 'A' - 'A', CH_A + 'R' - 'A'

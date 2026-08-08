@@ -15,7 +15,7 @@ BUILD   := build
 
 SRCS    := src/main.s src/nmi.s src/pad.s src/grid.s src/oam.s \
            src/world.s src/hud.s src/text.s src/dive.s src/island.s \
-           src/ram.s src/header.s src/gfxdata.s
+           src/night.s src/ram.s src/header.s src/gfxdata.s
 OBJS    := $(patsubst src/%.s,$(BUILD)/%.o,$(SRCS))
 
 ASFLAGS := --cpu 65816 -I src -g
@@ -30,9 +30,13 @@ GEN     := assets/gen/bgchr.bin assets/gen/bg1map.bin assets/gen/collmap.bin \
            assets/gen/dive3chr.bin assets/gen/dive3map.bin \
            assets/gen/dive3coll.bin assets/gen/obj2chr.bin \
            assets/gen/heightmap.bin \
-           assets/gen/islepal.bin
+           assets/gen/islepal.bin assets/gen/nightpal.bin \
+           assets/gen/nightobjpal.bin assets/gen/fragchr.bin \
+           assets/gen/fragmap.bin assets/gen/fragcoll.bin \
+           assets/gen/fragheight.bin
 
-ASSET_SRC := tools/build_assets.py tools/pixel.py assets/island.txt
+ASSET_SRC := tools/build_assets.py tools/pixel.py assets/island.txt \
+             assets/fragment.txt
 
 .PHONY: all assets run clean
 

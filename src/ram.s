@@ -50,6 +50,7 @@ hitStopTimer: .res 1            ; freeze frames on a connect
 shakeTimer:   .res 1
 hudDirty:     .res 1            ; HUD row needs re-uploading
 rngState:     .res 2
+heartTile:    .res 1            ; sprite base a Shadow draws from, per scene
 
 ; Dialogue box state.
 txtState:     .res 1            ; 0 closed, 1 revealing, 2 waiting
@@ -83,6 +84,11 @@ stepZ:        .res 2
 ; Screen-wide effects, written by the NMI so they land in vblank.
 screenBright: .res 1            ; INIDISP value
 mosaicAmt:    .res 1            ; MOSAIC value
+; The colour-math registers are shadowed here and written by the NMI, so a
+; lightning flash can swap the unit between "translucent shadows" and "add
+; white to everything" without tearing a seam across the frame.
+cgwselVal:    .res 1
+cgadsubVal:   .res 1
 shatterTimer: .res 1
 bossHP:       .res 1            ; mirrored for the gauge
 shakeX:       .res 1
@@ -103,6 +109,15 @@ raftName:     .res 1            ; RAFT_*, once it has one
 ; One slot per collectable, indexed by (actor type - ACT_LOG), so a pickup
 ; tallies itself without a lookup.
 itemCount:    .res 8
+
+; The night the island falls
+nightStage:   .res 1            ; N_INTRO .. N_OVER
+nightTimer:   .res 1            ; frames left in whatever the stage is waiting on
+spawnTimer:   .res 1            ; frames until the next Shadow arrives
+flashTimer:   .res 1            ; lightning: counts down through a flash
+flashWait:    .res 2            ; ...and then to the next one
+keyGot:       .res 1            ; 0 until the Keyblade comes; nothing connects
+saidNoUse:    .res 1            ; the line about the sword, said once
 curActor:     .res 2            ; actor being updated, survives calls that use tmp*
 
 .segment "BSS"

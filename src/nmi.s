@@ -56,6 +56,13 @@
     lda coldataAmt
     ora #$80
     sta COLDATA
+    ; The colour-math unit is shadowed in RAM so a lightning flash can switch
+    ; it between translucent shadows and add-white without tearing a seam
+    ; across the frame it changes on.
+    lda cgwselVal
+    sta CGWSEL
+    lda cgadsubVal
+    sta CGADSUB
 
     ;--- sprite table -------------------------------------------------------
     lda oamDirty

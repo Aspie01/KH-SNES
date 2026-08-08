@@ -59,6 +59,34 @@ OBJ_SORA = [
     (240, 200, 96),     # 15 keyblade gold
 ]
 
+# The same ground after dark, entry for entry against BG_GROUND: the island at
+# night is one palette upload, not a second tileset.
+#
+# Written out rather than derived, because a single darkening curve does not
+# work.  Desaturating everything toward blue -- which is what night vision
+# really does -- collapses sand and rock into the same grey, and the west cliff
+# stops reading as a cliff.  So the sand is kept warm and the rock kept cool,
+# far enough apart to tell at a glance, and the surf stays bright because it is
+# the one thing a storm actually lights up.
+BG_NIGHT = [
+    (8, 10, 26),        # 0  the sea at night -- and the void it falls into
+    (104, 92, 96),      # 1  sand light, warm so it does not read as stone
+    (80, 70, 78),       # 2  sand mid
+    (58, 50, 62),       # 3  sand dark
+    (56, 84, 68),       # 4  grass light
+    (40, 62, 54),       # 5  grass mid
+    (26, 44, 42),       # 6  grass dark
+    (56, 96, 146),      # 7  water light
+    (26, 58, 110),      # 8  water mid
+    (14, 32, 74),       # 9  water deep
+    (78, 58, 52),       # 10 wood light
+    (48, 34, 34),       # 11 wood dark
+    (76, 84, 110),      # 12 rock light, cool against the warm sand
+    (46, 52, 76),       # 13 rock dark
+    (152, 170, 210),    # 14 moonlight on the surf
+    (16, 16, 30),       # 15 outline
+]
+
 OBJ_HEART = [
     (0, 0, 0),          # 0  transparent
     (6, 6, 12),         # 1  outline
@@ -94,6 +122,15 @@ OBJ_SCENE = [
     (64, 128, 56),      # 12 leaf spine
     (0, 0, 0), (0, 0, 0), (0, 0, 0),
 ]
+
+# The palms and the rocks, after dark.  Without this the one tree still
+# standing on the fragment is the brightest thing on the screen.
+def _dim(rgb: tuple[int, int, int], keep: float = 0.42) -> tuple[int, int, int]:
+    r, g, b = rgb
+    return (int(r * keep), int(g * keep), int(b * keep + 18))
+
+
+OBJ_SCENE_NIGHT = [OBJ_SCENE[0]] + [_dim(c) for c in OBJ_SCENE[1:]]
 
 OBJ_FX = [
     (0, 0, 0),          # 0  transparent
@@ -181,6 +218,17 @@ OBJ_ISLE = [
     (96, 176, 88),      # 14 green
     (192, 60, 64),      # 15 red
 ]
+
+# OBJ palette 1 while the island is falling.  Riku and Kairi are the only
+# islanders left out there, so the three colours the others took -- Tidus's
+# blond, Selphie's brown, Wakka's orange -- are given over to the Heartless,
+# and the Shadows are drawn against those indices instead of their own page.
+OBJ_NIGHT = list(OBJ_ISLE)
+OBJ_NIGHT[6] = (34, 28, 54)         # Heartless body
+OBJ_NIGHT[7] = (74, 66, 112)        # ...and its highlight
+OBJ_NIGHT[8] = (255, 232, 80)       # eyes
+
+
 
 
 # ---------------------------------------------------------------------------

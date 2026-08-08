@@ -10,12 +10,13 @@
 
 .export bgChr, bgChrEnd, hudChr, hudChrEnd
 .export objChr, objChrEnd, obj2Chr, obj2ChrEnd
-.export bgPal, objPal, hudPal, islePal
+.export bgPal, objPal, hudPal, islePal, nightPal, nightObjPal
 .export bg1Map, collMap, heightMap, flatHeights
 .export soraChr
 .export diveChr, diveChrEnd, diveMap, diveColl, divePal
 .export dive2Chr, dive2ChrEnd, dive2Map, dive2Coll
 .export dive3Chr, dive3ChrEnd, dive3Map, dive3Coll
+.export fragChr, fragChrEnd, fragMap, fragColl, fragHeight
 
 .segment "GFXBG"
 bgChr:      .incbin "assets/gen/bgchr.bin"
@@ -39,6 +40,11 @@ bgPal:      .incbin "assets/gen/bgpal.bin"
 objPal:     .incbin "assets/gen/objpal.bin"
 hudPal:     .incbin "assets/gen/hudpal.bin"
 islePal:    .incbin "assets/gen/islepal.bin"
+; The island after dark is the same characters and the same tilemap with one
+; different palette, so the night costs a hundred and sixty bytes of CGRAM
+; data and nothing else.
+nightPal:   .incbin "assets/gen/nightpal.bin"
+nightObjPal: .incbin "assets/gen/nightobjpal.bin"
 
 .segment "GFXSORA"
 soraChr:    .incbin "assets/gen/sorachr.bin"
@@ -61,3 +67,10 @@ dive3Chr:   .incbin "assets/gen/dive3chr.bin"
 dive3ChrEnd:
 dive3Map:   .incbin "assets/gen/dive3map.bin"
 dive3Coll:  .incbin "assets/gen/dive3coll.bin"
+
+.segment "GFXFRAG"
+fragChr:    .incbin "assets/gen/fragchr.bin"
+fragChrEnd:
+fragMap:    .incbin "assets/gen/fragmap.bin"
+fragColl:   .incbin "assets/gen/fragcoll.bin"
+fragHeight: .incbin "assets/gen/fragheight.bin"

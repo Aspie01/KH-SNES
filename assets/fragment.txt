@@ -1,0 +1,28 @@
+# The last piece of Destiny Islands -- 32x16 tiles, same codes as island.txt.
+#
+# When the island comes apart this is what is left: one round scrap of it with
+# its own ring of shallows still clinging on, and nothing whatever around that.
+#
+#   *  the dark      (blocked) -- palette index 0, so it costs one character
+#
+# The camera is pinned on this map rather than following Sora, so the land is
+# laid out to fill exactly one screen: x 128..384, y 64..240.  Darkside rises
+# at (15,7), which is as high as a 64 px sprite can stand and still keep its
+# head clear of the HUD.
+#
+********************************
+********************************
+********************************
+********************************
+***********----------***********
+**********--........--**********
+*********--..,,,,,T..--*********
+*********-..,,,,,,,,..-*********
+********--..,,,,,,,,..--********
+********-..,,,,,,,,,..--********
+********--..,,,,,,,,..--********
+*********-..,,,,,,,,..-*********
+*********--..,,,,,,..--*********
+**********--........--**********
+***********----------***********
+********************************

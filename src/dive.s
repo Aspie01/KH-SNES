@@ -13,7 +13,9 @@
 .include "text.inc"
 
 .import SpawnActor, TileToWorld, ClearActors, CountType, InitWorld
+.import SpawnTable
 .import IslandInit
+.import NightRestart
 .import LoadScene
 .import TextOpen, TextBusy, TextClose
 .import HudUpdate
@@ -49,7 +51,7 @@ REACH_Y = 448
     sta tmp8
     sep #$20
     .a8
-    jsr SpawnFromTable
+    jsr SpawnTable
     jsr HudUpdate               ; the player exists now, so the gauge can fill
     ; open on the voice
     lda #<scriptIntro
@@ -64,61 +66,6 @@ REACH_Y = 448
 .endproc
 
 
-;-----------------------------------------------------------------------------
-; SpawnFromTable -- walk a table of (type, tile i, tile j) triples
-; until $FF.  In (A8/I16): tmp8 = the table's address in this bank.
-;-----------------------------------------------------------------------------
-.proc SpawnFromTable
-    .a8
-    .i16
-    ldy #0
-@loop:
-    lda (tmp8),y
-    cmp #$FF
-    beq @done
-    sta tmp6                    ; type
-    iny
-    lda (tmp8),y
-    sta tmp4                    ; i
-    iny
-    lda (tmp8),y
-    sta tmp5                    ; j
-    iny
-    sty tmp7                    ; SpawnActor clobbers Y, so park the cursor
-
-    rep #$20
-    .a16
-    lda tmp4
-    and #$00FF
-    sta tmp0
-    lda tmp5
-    and #$00FF
-    sta tmp1
-    jsr TileToWorld
-
-    ; TileToWorld hands back whole pixels; actors are Q12.4.
-    lda tmp0
-    asl a
-    asl a
-    asl a
-    asl a
-    sta tmp0
-    lda tmp1
-    asl a
-    asl a
-    asl a
-    asl a
-    sta tmp1
-    sep #$20
-    .a8
-
-    lda tmp6
-    jsr SpawnActor
-    ldy tmp7
-    bra @loop
-@done:
-    rts
-.endproc
 
 ;-----------------------------------------------------------------------------
 ; DiveUpdate -- one frame of the scene's script.  A8/I16.
@@ -427,7 +374,11 @@ REACH_Y = 448
     sta TS
 
     lda sceneId
-    cmp #SCENE_ISLAND
+    cmp #SCENE_NIGHT
+    bcc :+
+    jsr NightRestart            ; SCENE_NIGHT and SCENE_FRAGMENT
+    jmp @done
+:   cmp #SCENE_ISLAND
     bne :+
     jsr InitWorld
     lda #DIVE_ARRIVED
@@ -444,7 +395,7 @@ REACH_Y = 448
     sta tmp8
     sep #$20
     .a8
-    jsr SpawnFromTable
+    jsr SpawnTable
     jsr SpawnBoss
     lda #DIVE_BOSS
     sta diveStage
@@ -463,7 +414,7 @@ REACH_Y = 448
     sta tmp8
     sep #$20
     .a8
-    jsr SpawnFromTable
+    jsr SpawnTable
     lda #DIVE_PICK
     sta diveStage
 
@@ -607,9 +558,9 @@ REACH_Y = 448
     lda #FADE_LEN
     sta fadeTimer
     stz coldataAmt
-    stz CGWSEL                  ; second operand is the fixed colour
+    stz cgwselVal               ; second operand is the fixed colour
     lda #$3F                    ; add, no halving, backdrop + OBJ + every BG
-    sta CGADSUB
+    sta cgadsubVal
     rts
 .endproc
 
@@ -670,9 +621,9 @@ REACH_Y = 448
 @finish:
     stz coldataAmt
     lda #CGWSEL_VAL             ; back to the shadow set-up
-    sta CGWSEL
+    sta cgwselVal
     lda #CGADSUB_VAL
-    sta CGADSUB
+    sta cgadsubVal
 
     lda #DIVE_ARRIVED
     sta diveStage
@@ -699,7 +650,7 @@ REACH_Y = 448
     sta tmp8
     sep #$20
     .a8
-    jsr SpawnFromTable
+    jsr SpawnTable
     jsr HudUpdate
     rts
 .endproc
@@ -715,7 +666,7 @@ REACH_Y = 448
     sta tmp8
     sep #$20
     .a8
-    jsr SpawnFromTable
+    jsr SpawnTable
     jsr HudUpdate
     rts
 .endproc

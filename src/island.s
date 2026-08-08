@@ -26,6 +26,8 @@
 .import TextOpen, TextBusy
 .import HudUpdate
 .import SpawnActor, TileToWorld, ClearActors, InitWorld
+.import SpawnTable, PlayerPos, NearPlayer
+.import NightBegin
 .import SetActorZ
 
 .export IslandInit, IslandUpdate, UpdateRiku
@@ -54,64 +56,10 @@
     sta tmp8
     sep #$20
     .a8
-    jsr SpawnItems
+    jsr SpawnTable
     rts
 .endproc
 
-;-----------------------------------------------------------------------------
-; SpawnItems -- walk a table of (type, tile i, tile j) triples until
-; $FF.  In (A8/I16): tmp8 = the table's address in this bank.
-;-----------------------------------------------------------------------------
-.proc SpawnItems
-    .a8
-    .i16
-    ldy #0
-@loop:
-    lda (tmp8),y
-    cmp #$FF
-    beq @done
-    sta tmp6                    ; type
-    iny
-    lda (tmp8),y
-    sta tmp4                    ; i
-    iny
-    lda (tmp8),y
-    sta tmp5                    ; j
-    iny
-    sty tmp7                    ; SpawnActor clobbers Y, so park the cursor
-
-    rep #$20
-    .a16
-    lda tmp4
-    and #$00FF
-    sta tmp0
-    lda tmp5
-    and #$00FF
-    sta tmp1
-    jsr TileToWorld
-    ; TileToWorld hands back whole pixels; actors are Q12.4.
-    lda tmp0
-    asl a
-    asl a
-    asl a
-    asl a
-    sta tmp0
-    lda tmp1
-    asl a
-    asl a
-    asl a
-    asl a
-    sta tmp1
-    sep #$20
-    .a8
-
-    lda tmp6
-    jsr SpawnActor
-    ldy tmp7
-    bra @loop
-@done:
-    rts
-.endproc
 
 ;-----------------------------------------------------------------------------
 ; IslandUpdate -- one frame of the errand.  A8/I16.
@@ -121,12 +69,12 @@
     .i16
     ; The day change runs on its own and ignores everything else.
     lda questState
-    cmp #Q_NIGHT
+    cmp #Q_DAYOUT
     bne :+
-    jmp NightFade
-:   cmp #Q_MORNING
+    jmp DayOut
+:   cmp #Q_DAYIN
     bne :+
-    jmp MorningFade
+    jmp DayIn
 :
     jsr TextBusy
     bcc @free
@@ -147,6 +95,9 @@
 :   cmp #Q_NAMING
     bne :+
     jmp TakeName
+:   cmp #Q_DUSK
+    bne :+
+    jmp Dusk
 :
     ; Day one finished and its last line dismissed: turn in for the night.
     lda questState
@@ -155,7 +106,7 @@
     lda questDay
     cmp #1
     bne @play
-    jmp BeginNight
+    jmp EndOfDay
 
 @play:
     ; Once the raft has a name there is nothing left to gather, and during the
@@ -201,12 +152,29 @@
 ;=============================================================================
 
 ;-----------------------------------------------------------------------------
-; BeginNight -- A8/I16.
+; Dusk -- the last evening.  Everything is on the raft, so the light simply
+; goes, and what comes up is not the morning.  A8/I16.
 ;-----------------------------------------------------------------------------
-.proc BeginNight
+.proc Dusk
     .a8
     .i16
-    lda #Q_NIGHT
+    lda dayTimer
+    beq @gone
+    dec dayTimer
+    lsr a
+    sta screenBright            ; DAY_FADE/2 down to 0
+    rts
+@gone:
+    jmp NightBegin
+.endproc
+
+;-----------------------------------------------------------------------------
+; EndOfDay -- A8/I16.
+;-----------------------------------------------------------------------------
+.proc EndOfDay
+    .a8
+    .i16
+    lda #Q_DAYOUT
     sta questState
     lda #DAY_FADE
     sta dayTimer
@@ -214,9 +182,9 @@
 .endproc
 
 ;-----------------------------------------------------------------------------
-; NightFade -- dim to black, then rebuild the island for the morning.  A8/I16.
+; DayOut -- dim to black, then rebuild the island for the morning.  A8/I16.
 ;-----------------------------------------------------------------------------
-.proc NightFade
+.proc DayOut
     .a8
     .i16
     lda dayTimer
@@ -239,13 +207,13 @@
     sta tmp8
     sep #$20
     .a8
-    jsr SpawnItems
+    jsr SpawnTable
 
     lda #2
     sta questDay
     stz questState              ; Q_IDLE: Kairi has a new list
     jsr HudUpdate
-    lda #Q_MORNING
+    lda #Q_DAYIN
     sta questState
     lda #DAY_FADE
     sta dayTimer
@@ -254,9 +222,9 @@
 .endproc
 
 ;-----------------------------------------------------------------------------
-; MorningFade -- and back up into day two.  A8/I16.
+; DayIn -- and back up into day two.  A8/I16.
 ;-----------------------------------------------------------------------------
-.proc MorningFade
+.proc DayIn
     .a8
     .i16
     lda dayTimer
@@ -284,26 +252,6 @@
 ; Finding things near Sora
 ;=============================================================================
 
-;-----------------------------------------------------------------------------
-; PlayerPos -- Sora's world position into tmp0/tmp1.  A8/I16.
-;-----------------------------------------------------------------------------
-.proc PlayerPos
-    .a8
-    .i16
-    lda playerIdx
-    rep #$20
-    .a16
-    and #$00FF
-    asl a
-    tax
-    lda actX,x
-    sta tmp0
-    lda actY,x
-    sta tmp1
-    sep #$20
-    .a8
-    rts
-.endproc
 
 ;-----------------------------------------------------------------------------
 ; PlayerZ -- the deck Sora is standing on, into tmp4.  A8/I16.
@@ -323,55 +271,6 @@
     rts
 .endproc
 
-;-----------------------------------------------------------------------------
-; NearPlayer -- is this actor within tmp2 by tmp3 of Sora?
-; In (A8/I16): X = actor index, tmp0/tmp1 = Sora's position,
-;              tmp2 = X range, tmp3 = Y range (both Q12.4)
-; Out: carry set on a hit.  X is preserved.
-;-----------------------------------------------------------------------------
-.proc NearPlayer
-    .a8
-    .i16
-    phx
-    txa
-    rep #$20
-    .a16
-    and #$00FF
-    asl a
-    tax
-
-    lda actX,x
-    sec
-    sbc tmp0
-    bpl :+
-    eor #$FFFF
-    inc a
-:
-    cmp tmp2
-    bcs @miss
-
-    lda actY,x
-    sec
-    sbc tmp1
-    bpl :+
-    eor #$FFFF
-    inc a
-:   cmp tmp3
-    bcs @miss
-
-    sep #$20
-    .a8
-    plx
-    sec
-    rts
-
-@miss:
-    sep #$20
-    .a8
-    plx
-    clc
-    rts
-.endproc
 
 ;-----------------------------------------------------------------------------
 ; CheckPickups -- walk into a collectable and it is yours.
@@ -728,6 +627,13 @@
     jmp @say
 
 @allset:
+    ; The raft has a name and everything is on it.  There is nothing left to
+    ; do on the island, so this line is the last of the day -- dismissing it
+    ; puts the light out.
+    lda #Q_DUSK
+    sta questState
+    lda #DAY_FADE
+    sta dayTimer
     rep #$20
     .a16
     lda #.loword(scriptAllSet)

@@ -34,6 +34,10 @@ RAM_INC = 1
 ;--- gameplay ----------------------------------------------------------------
 .globalzp playerIdx, soraFrameCur, hitStopTimer, shakeTimer
 .globalzp hudDirty, rngState, curActor
+; Which sprite base a Shadow is drawn from.  The Dive has a palette to itself;
+; the night shares OBJ palette 1 with Riku and Kairi and uses a second cut of
+; the same art, so the base is per-scene rather than a constant.
+.globalzp heartTile
 
 ;--- dialogue ----------------------------------------------------------------
 .globalzp txtState, txtMode, txtPtr, txtCol, txtRow, txtDelay, txtDirty
@@ -43,10 +47,15 @@ RAM_INC = 1
 .globalzp sceneId, diveStage, weaponTaken, weaponGiven, scriptWait
 .globalzp pendActor, pendWeapon, collPtr, heightPtr, stepZ
 .globalzp screenBright, mosaicAmt, shatterTimer, bossHP, shakeX
+.globalzp cgwselVal, cgadsubVal
 .globalzp fadeTimer, coldataAmt, deadFlag, fallTimer
 .globalzp questState, questDay, dayTimer, pendTalk
 .globalzp raceLeg, rikuWp, raceWon, raftName
 .globalzp itemCount
+
+;--- the night the island falls ----------------------------------------------
+.globalzp nightStage, nightTimer, spawnTimer, flashTimer, flashWait
+.globalzp keyGot, saidNoUse
 
 ;--- buffers (BSS) -----------------------------------------------------------
 .global oamBuf, oamHigh, sortIdx, sortCount, hudRow, txtBuf

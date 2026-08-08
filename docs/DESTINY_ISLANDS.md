@@ -55,8 +55,8 @@ Each of these needs something the combat slice does not have:
 - **A race mode** with a course and an opponent running a fixed path. *Done* —
   see the race below.
 
-Shadow Heartless do **not** belong in these scenes. They arrive on the night
-the island falls, which is a later state of the same map.
+Shadow Heartless do **not** belong in the two days. They arrive on the night
+the island falls, which is a later state of the same map -- see below.
 
 ## Raised ground
 
@@ -165,3 +165,83 @@ That three-way choice is why the dialogue box's prompt is no longer hardwired
 to yes/no. `txtMode` doubles as a menu id, so a scene asks for a list of
 choices by opening the box with `TM_RAFT` instead of `TM_PROMPT`, and the
 cursor wraps over however many the list holds.
+
+## The night it falls
+
+Once the raft has a name and everything is on it there is nothing left to do,
+so Kairi's last line is the last line of the day: dismissing it puts the light
+out, and what comes up is not the morning.
+
+The whole scene runs on the same tileset, the same tilemap and the same
+collision map the two days use. What makes it night is **one palette upload** --
+`nightpal.bin` over CGRAM 0-127, plus a pair of OBJ palettes. The only new
+ground in the game is the fragment at the end.
+
+`nightStage` holds the sequence:
+
+| | |
+| --- | --- |
+| `N_INTRO` | the storm; the raft is already gone, and so are the other two |
+| `N_SEEK` | Shadows are arriving. A wooden sword goes straight through them, so the only thing to do is find Riku |
+| `N_RIKU` | he has said his piece, and the dark is coming up round him |
+| `N_KEY` | the Keyblade arrives, and the Shadows become killable |
+| `N_KAIRI` | the Secret Place, and who is standing in it |
+| `N_DOOR` | the door comes off the rock and she goes with it |
+| `N_TEAR` | the island comes apart |
+| `N_BOSS` | Darkside, on the last piece of it |
+| `N_END` | beaten; the dark takes the rest |
+| `N_OVER` | the card |
+
+Riku is out past the raised bridge where he always sits; Kairi is in the Secret
+Place with her back to the door. The chalk is still on the wall, which is the
+point of its having been there for two days.
+
+### The storm
+
+Lightning is eight frames of additive white through the colour-math unit -- the
+same path the whiteout at the end of the Dive takes -- with two strikes to a
+flash and a random 150-277 frame gap between them. To make that possible
+without tearing a seam across the frame it lands on, `CGWSEL` and `CGADSUB` are
+now shadowed in RAM and written by the NMI, so the unit can be switched between
+"translucent shadows" and "add white to everything" in vblank.
+
+### The Shadows
+
+They keep arriving up to six at a time, from ten spawn spots spread over the
+island so one never appears in Sora's face. `tools/check_map.py` holds the same
+ten and fails the build if a map edit strands one.
+
+OBJ palette 1 is the problem the night has to solve: it belongs to the
+islanders, and the Heartless need it too. Riku and Kairi are the only islanders
+still out there, so the three colours the others were using -- Tidus's blond,
+Selphie's brown, Wakka's orange -- are given over to the Shadows, and a second
+cut of the same Shadow art is drawn against those indices. Which cut a Shadow
+uses is `heartTile`, set per scene by `LoadScene`.
+
+Two things here are deliberately not faithful:
+
+- **The Shadows cannot hurt Sora before the Keyblade.** In the source they can.
+  Here there would be no way to answer them, and a death loop in a corridor
+  with one exit is not tension, it is a wall.
+- **He keeps the drawn Keyblade in his hand throughout.** A second thirty-cel
+  sheet of him holding a wooden sword is not worth 15 KiB of ROM.
+
+### The last piece of it
+
+`assets/fragment.txt` is a second 32x16 map in the same terrain codes plus one
+new one: `*`, the dark, which is palette index 0 and therefore folds to a single
+character. One round scrap of island with its ring of shallows still clinging
+on, laid out to fill exactly one screen so the camera can be pinned on it the
+way the Dive's is.
+
+Darkside rises at `(15,7)` -- as far up the scrap as a 64-pixel sprite can
+stand and still keep its head clear of the HUD.
+
+### The ending
+
+Subtractive colour math on BG1, the sprites and the backdrop, ramped to full
+over sixty-two frames. BG3 is left out so the closing line stays readable.
+
+The SNES only applies OBJ colour math to palettes 4-7, so Sora -- on palette 0
+-- does not darken with the world. That was not the plan, but it is the right
+picture: everything goes, and he is left standing in it holding the Keyblade.

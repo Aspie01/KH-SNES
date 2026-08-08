@@ -16,8 +16,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pixel import (                                    # noqa: E402
-    BG_DIVE, BG_GROUND, HUD_PAL, OBJ_DIVE, OBJ_FX, OBJ_HEART, OBJ_ISLE,
-    OBJ_SCENE, OBJ_SHADOW, OBJ_SORA,
+    BG_DIVE, BG_GROUND, BG_NIGHT, HUD_PAL, OBJ_DIVE, OBJ_FX, OBJ_HEART,
+    OBJ_ISLE, OBJ_NIGHT, OBJ_SCENE, OBJ_SCENE_NIGHT, OBJ_SHADOW,
+    OBJ_SORA,
     Canvas, GEN, ROOT, SRC, cut_tiles, encode_2bpp_page, encode_4bpp_page,
     palette_bytes, tile_4bpp, write_bin, write_png,
 )
@@ -66,6 +67,9 @@ TERRAIN = {
     "M": (WOOD_L, WOOD_L, WOOD_D, True, 2),      # the leaning trunk
     "K": (GRASS_L, GRASS_M, GRASS_D, True, 3),   # its leafy top
     "F": (ROCK_L, ROCK_L, OUTLINE, False, 3),    # cliff with the waterfall
+    # Nothing at all: the dark the island falls into.  Index 0 is the
+    # backdrop colour, so a void tile costs one character and no palette.
+    "*": (0, 0, 0, False, 0),
 }
 
 
@@ -89,7 +93,7 @@ GROUP = {"~": "water", "-": "water", ".": "sand", "r": "sand",
          ",": "grass", "T": "grass", "R": "grass", "=": "wood", "#": "rock",
          "B": "wood", "L": "wood", "P": "wood", "H": "wood",
          "W": "water", "C": "cave", "b": "grass", "Y": "grass",
-         "M": "wood", "K": "grass", "F": "rock"}
+         "M": "wood", "K": "grass", "F": "rock", "*": "void"}
 
 # What the side of a raised block is made of.  The leafy top of the climbing
 # tree is grass, but what holds it up is a trunk; a bridge has nothing under
@@ -97,8 +101,9 @@ GROUP = {"~": "water", "-": "water", ".": "sand", "r": "sand",
 FACE = {"B": "water", "L": "wood", "P": "wood", "H": "wood", "M": "wood",
         "K": "wood", "#": "rock", "F": "rock"}
 
-# Tiles whose whole shape is the drawing, so a border would only fight it.
-NO_RIM = "K"
+# Tiles whose whole shape is the drawing, so a border would only fight it,
+# and the void, which has no shape at all.
+NO_RIM = "K*"
 
 # Speckle is per-tile rather than per-cell so that every sand tile is the same
 # four characters.  Two phases, alternating on (i + j), is enough to break up
@@ -670,8 +675,16 @@ def draw_rock() -> Canvas:
 H_OUT, H_BODY, H_HI, H_EYE, H_EYE_RIM, H_ANT, H_UNDER = 1, 2, 3, 4, 5, 6, 7
 
 
-def draw_heartless(frame: int) -> Canvas:
+# Which indices a Shadow is drawn against.  The Dive has a palette all to
+# itself; on the night the island falls, OBJ palette 1 is shared with Riku and
+# Kairi, so the same shapes are cut from three borrowed colours instead of six.
+HEART_PAL = (H_OUT, H_BODY, H_HI, H_EYE, H_EYE_RIM, H_ANT, H_UNDER)
+HEART_PAL_NIGHT = (1, 6, 7, 8, 8, 7, 1)
+
+
+def draw_heartless(frame: int, pal: tuple[int, ...] = HEART_PAL) -> Canvas:
     """A Shadow: crouched, twitching antennae, two yellow eyes."""
+    H_OUT, H_BODY, H_HI, H_EYE, H_EYE_RIM, H_ANT, H_UNDER = pal
     c = Canvas(16, 16)
     crouch = [0, 1, 0, -1][frame]
     by = 12 + crouch
@@ -1305,6 +1318,63 @@ def draw_door() -> Canvas:
     return c
 
 
+def draw_door_open() -> Canvas:
+    """The same door, standing open.  What is behind it is not a room."""
+    c = Canvas(32, 32)
+    STONE, RECESS, DEEP, GLOW = I_RIKU, I_OUT, I_NAVY, I_PURPLE
+
+    c.rect(5, 5, 26, 31, STONE)
+    c.ellipse(16, 6, 11.0, 5.0, STONE)
+    c.rect(7, 7, 24, 31, RECESS)
+    c.ellipse(16, 8, 9.0, 4.0, RECESS)
+
+    # The opening: dark that has depth to it rather than a flat hole.
+    c.rect(9, 10, 22, 31, DEEP)
+    c.ellipse(16, 10, 7.0, 3.0, DEEP)
+    c.rect(12, 14, 19, 31, RECESS)
+    for k, y in enumerate(range(12, 32, 3)):
+        w = 6 - k // 2
+        c.hline(16 - w, 16 + w - 1, y, GLOW if k % 2 else DEEP)
+    # ...and it is coming out.
+    for (gx, gy) in ((11, 13), (20, 17), (13, 22), (19, 26), (16, 30)):
+        c.set(gx, gy, GLOW)
+    c.outline(I_OUT)
+    return c
+
+
+def draw_dark_pool(frame: int) -> Canvas:
+    """A column of darkness standing on the ground, two cels of it.
+
+    This is what takes Riku, and later what comes out of the door after Kairi.
+    """
+    c = Canvas(32, 32)
+    sway = 2 if frame else -2
+    # The pool it stands in.
+    c.ellipse(16, 29, 11.0, 3.4, I_NAVY)
+    c.ellipse(16, 29, 8.0, 2.2, I_OUT)
+    # The column, narrowing as it rises and leaning with the cel.
+    for y in range(6, 29):
+        t = (28 - y) / 22.0                      # 1 at the base, 0 at the top
+        half = int(3 + 6 * t)
+        lean = int(sway * (1.0 - t))
+        c.hline(16 + lean - half, 16 + lean + half - 1, y, I_OUT)
+        if half > 3:
+            c.hline(16 + lean - half + 2, 16 + lean + half - 3, y, I_NAVY)
+    # Violet edges, so it is not just a silhouette.
+    for k, y in enumerate(range(7, 28, 3)):
+        t = (28 - y) / 22.0
+        half = int(3 + 6 * t)
+        lean = int(sway * (1.0 - t))
+        col = I_PURPLE if (k + frame) % 2 == 0 else I_NAVY
+        c.set(16 + lean - half, y, col)
+        c.set(16 + lean + half - 1, y, col)
+    # Wisps torn off the top.
+    for (wx, wy) in (((13, 5), (20, 8), (16, 2)) if frame else
+                     ((19, 5), (12, 8), (17, 2))):
+        c.set(wx + sway // 2, wy, I_PURPLE)
+    return c
+
+
 def chalk(c: Canvas, pts, col: int = I_WHITE) -> None:
     """Join a run of points with straight chalk strokes."""
     for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
@@ -1385,6 +1455,10 @@ def build_obj_page2() -> Canvas:
     page.blit(draw_bottle(), 0, 64)         # $80
     page.blit(draw_faces(), 32, 64)         # $84
     page.blit(draw_scribbles(), 64, 64)     # $88
+    page.blit(draw_door_open(), 96, 64)     # $8C
+    # rows 12-15: the darkness itself, two cels
+    page.blit(draw_dark_pool(0), 0, 96)     # $C0
+    page.blit(draw_dark_pool(1), 32, 96)    # $C4
     return page
 
 
@@ -1412,6 +1486,9 @@ def build_obj_page() -> Canvas:
     page.blit(draw_orb(1), 80, 64)          # $8A
     page.blit(draw_streak(0), 96, 64)       # $8C
     page.blit(draw_streak(1), 112, 64)      # $8E
+    # rows 10-11, cols 8-15: the Shadow again, cut from the night palette
+    for f in range(4):                      # $A8 $AA $AC $AE
+        page.blit(draw_heartless(f, HEART_PAL_NIGHT), 64 + f * 16, 80)
     # row 12, cols 8-15: the Shadow's four cels
     for f in range(4):                      # $C8 $CA $CC $CE
         page.blit(draw_heartless(f), 64 + f * 16, 96)
@@ -1581,21 +1658,21 @@ def build_hud_font() -> Canvas:
 # Driver
 # ---------------------------------------------------------------------------
 
-def load_grid() -> list[str]:
-    text = (ROOT / "assets" / "island.txt").read_text().splitlines()
+def load_grid(name: str = "island.txt") -> list[str]:
+    text = (ROOT / "assets" / name).read_text().splitlines()
     # A comment is "#" alone or "# ...".  Terrain codes include "#", so a
     # map row that starts with cliff rock must not be mistaken for one.
     rows = [ln for ln in text
             if ln and not (ln[0] == "#" and ln[1:2] in ("", " "))]
     if len(rows) != MAP_H:
-        raise SystemExit(f"island.txt: expected {MAP_H} map rows, got {len(rows)}")
+        raise SystemExit(f"{name}: expected {MAP_H} map rows, got {len(rows)}")
     for n, row in enumerate(rows):
         if len(row) != MAP_W:
-            raise SystemExit(f"island.txt row {n}: expected {MAP_W} columns, "
+            raise SystemExit(f"{name} row {n}: expected {MAP_W} columns, "
                              f"got {len(row)}")
         for ch in row:
             if ch not in TERRAIN:
-                raise SystemExit(f"island.txt row {n}: unknown terrain '{ch}'")
+                raise SystemExit(f"{name} row {n}: unknown terrain '{ch}'")
     return rows
 
 
@@ -1616,6 +1693,24 @@ def main() -> int:
     write_bin(GEN / "collmap.bin", coll)
     write_bin(GEN / "heightmap.bin", hmap)
     write_bin(GEN / "bgpal.bin", palette_bytes(BG_GROUND) + bytes(256 - 32))
+    # The same tiles, the same tilemap, one different palette: that is the
+    # whole of the night version of the island.
+    write_bin(GEN / "nightpal.bin", palette_bytes(BG_NIGHT) + bytes(256 - 32))
+    write_png(world, BG_NIGHT, SRC / "night_preview.png", transparent0=False)
+
+    #--- the last piece of it ----------------------------------------------
+    frag_grid = load_grid("fragment.txt")
+    frag, frag_coll, frag_hmap = build_world(frag_grid)
+    write_png(frag, BG_NIGHT, SRC / "fragment_preview.png", transparent0=False)
+    frag_chr, frag_map, frag_n = dedupe_tilemap(frag)
+    if frag_n > 512:
+        raise SystemExit(f"the fragment needs {frag_n} characters; BG1 holds 512.")
+    write_bin(GEN / "fragchr.bin", frag_chr)
+    write_bin(GEN / "fragmap.bin", frag_map)
+    write_bin(GEN / "fragcoll.bin", frag_coll)
+    write_bin(GEN / "fragheight.bin", frag_hmap)
+    print(f"fragment  {frag_n:3d} unique characters, {len(frag_chr):5d} bytes chr, "
+          f"{sum(frag_coll):3d} walkable")
 
     #--- Station of Awakening ----------------------------------------------
     dive, dive_coll = build_dive_platform()
@@ -1666,6 +1761,10 @@ def main() -> int:
                palette_bytes(OBJ_SHADOW) + palette_bytes(OBJ_DIVE))
     obj_pal += bytes(256 - len(obj_pal))
     write_bin(GEN / "objpal.bin", obj_pal)
+    # Loaded over OBJ palette 1 while the island is falling: the Shadows take
+    # the three colours the absent islanders were using.
+    write_bin(GEN / "nightobjpal.bin",
+              palette_bytes(OBJ_NIGHT) + palette_bytes(OBJ_SCENE_NIGHT))
     # Loaded over OBJ palette 1 while the island is up.
     write_bin(GEN / "islepal.bin", palette_bytes(OBJ_ISLE))
 

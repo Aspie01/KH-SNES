@@ -41,6 +41,11 @@ CAM_MAX_Y    = WORLD_H - SCREEN_H       ; 32
 ; camera here instead of following Sora into the void.
 DIVE_CAM_X   = (WORLD_W - SCREEN_W) / 2         ; 128
 DIVE_CAM_Y   = (WORLD_H - SCREEN_H) / 2         ; 16
+; The last piece of the island is laid out to fill exactly one screen, so its
+; camera is pinned too -- and a little lower, to keep Darkside's head clear of
+; the HUD while it stands as far up the fragment as the land allows.
+FRAG_CAM_X   = 128
+FRAG_CAM_Y   = 24
 
 ;-----------------------------------------------------------------------------
 ; VRAM map (word addresses)
@@ -111,6 +116,11 @@ TILE_EGG     = $6E
 TILE_BOTTLE  = $80
 TILE_FACES   = $84              ; 32x32 chalk drawings on the cave wall
 TILE_SCRIBBLE = $88
+TILE_DOOROPEN = $8C             ; 32x32, the night it opens
+TILE_DARK    = $C0              ; 32x32 column of darkness, two cels
+; The Shadow, cut a second time from the colours OBJ palette 1 holds while the
+; island is falling.  Which base a Shadow uses is per-scene, in heartTile.
+TILE_HEART_NIGHT = $A8
 
 ; Sora's streaming window: 4 tile rows of 4 tiles at VRAM_OBJ_CHR.
 SORA_FRAME_BYTES = 512          ; 32x32 4bpp
@@ -176,6 +186,9 @@ ACT_PALMC    = 27               ; a palm still carrying its coconuts
 ACT_DOOR     = 28
 ACT_FACES    = 29               ; the two of them, drawn facing each other
 ACT_SCRIBBLE = 30               ; years of smaller drawings
+; The night the island falls.
+ACT_DOOROPEN = 31               ; the same door, and what is behind it
+ACT_DARK     = 32               ; a column of darkness standing on the ground
 
 ; itemCount slots, which are (actor type - ACT_LOG)
 IT_LOG       = 0
@@ -192,6 +205,8 @@ SCENE_DIVE   = 0                ; Station of Awakening
 SCENE_DIVE2  = 1                ; the second Station of Awakening
 SCENE_DIVE3  = 2                ; the third, where Darkside rises
 SCENE_ISLAND = 3                ; Destiny Islands
+SCENE_NIGHT  = 4                ; ...the night it falls: the same map, after dark
+SCENE_FRAGMENT = 5              ; the last piece of it, in the dark
 
 ; Which dream weapon was taken / surrendered
 WEAPON_NONE  = 0
@@ -294,14 +309,15 @@ WALK_SPEED   = 24               ; 1.5 px/frame
 Q_IDLE       = 0                ; Kairi has not asked yet
 Q_ACTIVE     = 1                ; the list is open
 Q_DONE       = 2                ; everything handed in
-Q_NIGHT      = 3                ; the day is fading out
-Q_MORNING    = 4                ; ...and the next one is fading in
+Q_DAYOUT     = 3                ; day one is fading out
+Q_DAYIN      = 4                ; ...and day two is fading in
 ; Day two ends with the race that decides who names the raft.
 Q_RACE_SET   = 5                ; on your marks, and Kairi counting down
 Q_RACE_RUN   = 6
 Q_RACE_OVER  = 7                ; somebody has crossed the line
 Q_NAMING     = 8                ; picking a name
 Q_NAMED      = 9
+Q_DUSK       = 10               ; the last evening, fading out
 
 COUNT_LEN    = 192              ; frames of countdown, 64 to a number
 ; Riku runs the course at a fixed pace.  He is a little slower than a clean
@@ -330,6 +346,34 @@ PAOPU_X      = CELL_X(27)
 PAOPU_Y      = CELL_Y(7)
 FINISH_X     = CELL_X(12)
 FINISH_Y     = CELL_Y(12)
+
+;-----------------------------------------------------------------------------
+; The night the island falls
+;-----------------------------------------------------------------------------
+N_INTRO      = 0                ; the storm, and the raft already gone
+N_SEEK       = 1                ; Shadows are out; find Riku.  Nothing hurts yet
+N_RIKU       = 2                ; he has said his piece; the dark is taking him
+N_KEY        = 3                ; ...and the Keyblade comes
+N_KAIRI      = 4                ; the Secret Place, and who is standing in it
+N_DOOR       = 5                ; the door goes, and she goes with it
+N_TEAR       = 6                ; the island comes apart
+N_BOSS       = 7                ; Darkside, on the last piece of it
+N_END        = 8                ; beaten; the dark takes the rest
+N_OVER       = 9                ; the card
+
+; Shadows keep arriving for as long as the night lasts.
+SHADOW_MAX   = 6                ; alive at once
+SHADOW_GAP   = 70               ; frames between arrivals
+NIGHT_SPOTS  = 10               ; entries in the spawn-spot table
+DARK_HOLD    = 96               ; frames the column of darkness stands for
+TEAR_LEN     = 120              ; frames the island takes to come apart
+END_FADE     = 62               ; ...and the dark takes the rest over these
+
+; Lightning.  A flash is four frames of additive white through the colour-math
+; unit, which is the same path the whiteout at the end of the Dive uses.
+FLASH_GAP_MIN = 150             ; frames between storms of it
+FLASH_GAP_VAR = 127             ; ...plus a random 0-127
+FLASH_LEN    = 8
 
 RAFT_HIGHWIND  = 1
 RAFT_EXCALIBUR = 2

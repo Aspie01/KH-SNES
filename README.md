@@ -34,7 +34,15 @@ Two days of the island opening are playable. Kairi asks for the raft materials
 and checks them off on the HUD; the day turns over and asks for provisions;
 Riku races him round the island for the right to name the raft. Behind the
 waterfall is the Secret Place, with the chalk drawings and the door that has no
-handle. See `docs/DESTINY_ISLANDS.md`.
+handle.
+
+Then the storm comes. The island at night is **the same tileset, the same
+tilemap and the same collision map with one palette uploaded over the top** —
+lightning, Shadow Heartless arriving out of the dark, a wooden sword that goes
+straight through them, and Riku out past the bridge with his hand held out. The
+Keyblade arrives too late for Kairi. The island tears apart, and what is left of
+it is one scrap of ground with Darkside standing on it. See
+`docs/DESTINY_ISLANDS.md`.
 
 ## Build
 
@@ -162,6 +170,14 @@ three things use it:
   therefore four 32×32 sprites emitted as a block, after every sorted actor so
   it always lands behind them — correct nearly always, since Sora fights at
   its feet.
+- **A night for one palette.** The island after dark reuses every byte of the
+  daytime tileset, tilemap, collision map and height map; what changes is 32
+  bytes of BG palette and 64 of OBJ. The Shadows are the awkward part, because
+  OBJ palette 1 already belongs to the islanders — so they are drawn a second
+  time against the three colours the islanders who went home were using.
+- **Colour math shadowed in RAM.** `CGWSEL`/`CGADSUB` are written by the NMI
+  from two RAM bytes, so lightning can flip the unit between translucent
+  shadows and add-white in vblank instead of tearing a seam mid-frame.
 - **FastROM** in banks `$80+`, LoROM mapping.
 
 ## Layout
@@ -174,6 +190,8 @@ src/
   oam.s         depth sort and sprite table construction
   world.s       actors, Sora, Heartless, combat
   dive.s        Station of Awakening: script, pedestals, weapon choice
+  island.s      Destiny Islands: the two days, the race, the Secret Place
+  night.s       the night it falls, and the last piece of it
   text.s        dialogue window, typewriter reveal, yes/no prompts
   hud.s         HP gauge on BG3
   pad.s         controller input
@@ -183,10 +201,12 @@ tools/
   build_assets.py   all art and map data (original pixel art, drawn in code)
   pixel.py          canvas, palettes, SNES tile/palette encoders
   fixrom.py         internal checksum
+  check_map.py      flood-fills both maps against every spawn point
   playtest.sh       scripted input + screenshots
   recframes.py      frame extraction from a mednafen recording
 assets/
   island.txt        the play space, editable as plain text
+  fragment.txt      what is left of it after the island comes apart
   src/              indexed PNG previews (editable, re-importable)
 ```
 
@@ -229,7 +249,7 @@ and the tileset from it.
 W  waterfall pool C  cave floor      b  bush      T  palm      Y  nut palm
 R  boulder        r  rock            #  cliff     F  cliff with the waterfall
 B  bridge +1      L  step +1         P  deck +2   H  treehouse +2
-M  trunk +2       K  treetop +3
+M  trunk +2       K  treetop +3       *  the dark (fragment.txt only)
 ```
 
 Actor spawns live in `spawnTable` at the bottom of `src/world.s` and in
@@ -243,8 +263,9 @@ by playing.
 The slice is bounded by one constraint: a 64×32 tilemap is 512×256 pixels, so
 the whole world fits in VRAM with no streaming. In rough order:
 
-1. **The night the island falls** — the same map after dark, with the Shadows
-   arriving and the door in the Secret Place finally opening.
+1. **Traverse Town** — the first world after the islands, and the first one
+   that needs somewhere to *put* a world: interiors, doors between rooms, and an
+   inventory that survives a scene change.
 2. **Tilemap streaming** — upload columns and rows as the camera crosses tile
    boundaries, which lifts the world-size ceiling entirely and is what a second
    world would need.

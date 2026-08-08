@@ -46,6 +46,20 @@ REACH = {
     "scribbles": (3, 6),
     # the race
     "paopu landing": (26, 7),
+    # the night the island falls: where the Shadows come up, and where the
+    # three of them are standing when it does
+    "night Riku": (27, 8),
+    "night Kairi": (2, 7),
+    "shadow spot 1": (7, 9),
+    "shadow spot 2": (17, 9),
+    "shadow spot 3": (10, 10),
+    "shadow spot 4": (5, 10),
+    "shadow spot 5": (14, 11),
+    "shadow spot 6": (19, 11),
+    "shadow spot 7": (12, 8),
+    "shadow spot 8": (26, 8),
+    "shadow spot 9": (9, 6),
+    "shadow spot 10": (15, 7),
 }
 
 # Blocked tiles are reached with the keyblade rather than by standing on them,
@@ -63,24 +77,30 @@ ADJACENT = {
 }
 
 
-def main() -> int:
-    grid = load_grid()
+# The last piece of the island is its own map: Sora lands on it and Darkside
+# rises on it, and both have to be standable.
+FRAGMENT = {
+    "Sora": (15, 12),
+    "Darkside": (15, 7),
+}
 
-    def cell(i: int, j: int) -> tuple[bool, int]:
-        light = TERRAIN[grid[j][i]]
-        return light[3], light[4]
 
+def check(label: str, grid: list[str], spawn: tuple[int, int],
+          reach: dict, adjacent: dict) -> int:
+    """Flood-fill one map with the engine's rule and check every spawn point."""
     walkable, height = {}, {}
     for j in range(MAP_H):
         for i in range(MAP_W):
-            walkable[(i, j)], height[(i, j)] = cell(i, j)
+            code = TERRAIN[grid[j][i]]
+            walkable[(i, j)], height[(i, j)] = code[3], code[4]
 
-    if not walkable[SPAWN]:
-        print(f"spawn {SPAWN} is not walkable ('{grid[SPAWN[1]][SPAWN[0]]}')")
+    if not walkable[spawn]:
+        print(f"{label}: spawn {spawn} is not walkable "
+              f"('{grid[spawn[1]][spawn[0]]}')")
         return 1
 
-    seen = {SPAWN}
-    queue = deque([SPAWN])
+    seen = {spawn}
+    queue = deque([spawn])
     while queue:
         i, j = queue.popleft()
         for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -95,11 +115,11 @@ def main() -> int:
             queue.append(n)
 
     bad = []
-    for name, pos in REACH.items():
+    for name, pos in reach.items():
         if pos not in seen:
-            why = ("blocked" if not walkable[pos] else "walled off")
+            why = "blocked" if not walkable[pos] else "walled off"
             bad.append(f"  {name} at {pos} '{grid[pos[1]][pos[0]]}' -- {why}")
-    for name, pos in ADJACENT.items():
+    for name, pos in adjacent.items():
         i, j = pos
         near = [(i + di, j + dj) for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1))]
         near = [n for n in near if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H]
@@ -107,14 +127,21 @@ def main() -> int:
             bad.append(f"  {name} at {pos} -- nothing walkable beside it")
 
     if bad:
-        print("unreachable:")
+        print(f"{label}: unreachable:")
         print("\n".join(bad))
         return 1
 
     total = sum(1 for v in walkable.values() if v)
-    print(f"map ok: {len(seen)} of {total} walkable tiles reachable from "
-          f"{SPAWN}, all {len(REACH) + len(ADJACENT)} spawn points covered")
+    print(f"{label} ok: {len(seen)} of {total} walkable tiles reachable from "
+          f"{spawn}, all {len(reach) + len(adjacent)} spawn points covered")
     return 0
+
+
+def main() -> int:
+    bad = check("island", load_grid(), SPAWN, REACH, ADJACENT)
+    bad |= check("fragment", load_grid("fragment.txt"), FRAGMENT["Sora"],
+                 FRAGMENT, {})
+    return bad
 
 
 if __name__ == "__main__":

@@ -20,11 +20,13 @@
 .import TextInit, TextUpdate
 .import DiveInit, DiveUpdate, GameOverUpdate
 .import IslandUpdate
+.import NightUpdate
 
 .import bgChr, bgChrEnd
 .import objChr, objChrEnd, obj2Chr, obj2ChrEnd
 .import hudChr, hudChrEnd
-.import bgPal, objPal, hudPal, islePal
+.import bgPal, objPal, hudPal, islePal, nightPal, nightObjPal
+.import fragChr, fragChrEnd, fragMap, fragColl, fragHeight
 .import bg1Map, collMap, heightMap, flatHeights
 .import diveChr, diveChrEnd, diveMap, diveColl, divePal
 .import dive2Chr, dive2ChrEnd, dive2Map, dive2Coll
@@ -269,6 +271,15 @@ MainLoop:
     lda #^flatHeights
     sta heightPtr+2
 
+    ; The Shadows have their own palette everywhere except the night, so this
+    ; is the default and the night branch overrides it.
+    lda #TILE_HEART0
+    sta heartTile
+    ; Sora is armed in every scene but the one that takes the Keyblade away
+    ; from him, and that scene says so itself.
+    lda #1
+    sta keyGot
+
     ; A Station of Awakening is narrower than the screen, so the camera is
     ; pinned on it and the void around it never scrolls into view.  The island
     ; is the default: the whole 512x256 is in play.
@@ -292,6 +303,10 @@ MainLoop:
     beq @toDive3
     cmp #SCENE_ISLAND
     beq @toIsland
+    cmp #SCENE_NIGHT
+    beq @toNight
+    cmp #SCENE_FRAGMENT
+    beq @toFrag
     jmp @dive1
 @toDive2:
     jmp @dive2
@@ -299,6 +314,10 @@ MainLoop:
     jmp @dive3
 @toIsland:
     jmp @island
+@toNight:
+    jmp @night
+@toFrag:
+    jmp @fragment
 
     ;--- Station of Awakening, first platform ---
 @dive1:
@@ -368,6 +387,77 @@ MainLoop:
     .a8
     ; The islanders take over OBJ palette 1 for the day.
     DMA_CGRAM (128 + 16), islePal, 32
+    jmp @common
+
+    ;--- the same island, the night it falls -------------------------------
+    ; Same characters, same tilemap, same collision: only the palettes change,
+    ; which is the whole reason the night costs almost nothing.
+@night:
+    DMA_VRAM VRAM_BG1_CHR, bgChr,  (bgChrEnd - bgChr)
+    DMA_VRAM VRAM_BG1_MAP, bg1Map, 4096
+    DMA_CGRAM 0, nightPal, 256
+    lda #<collMap
+    sta collPtr
+    lda #>collMap
+    sta collPtr+1
+    lda #^collMap
+    sta collPtr+2
+    lda #<heightMap
+    sta heightPtr
+    lda #>heightMap
+    sta heightPtr+1
+    lda #^heightMap
+    sta heightPtr+2
+    rep #$20
+    .a16
+    stz camLoX
+    stz camLoY
+    lda #CAM_MAX_X
+    sta camHiX
+    lda #CAM_MAX_Y
+    sta camHiY
+    sep #$20
+    .a8
+    ; Riku and Kairi keep OBJ palette 1; the Shadows are cut from the three
+    ; colours the islanders who are not out here were using.  Palette 2 -- the
+    ; palms and the rocks -- follows it, dimmed, so the scenery is not the
+    ; brightest thing on a night screen.
+    DMA_CGRAM (128 + 16), nightObjPal, 64
+    lda #TILE_HEART_NIGHT
+    sta heartTile
+    jmp @common
+
+    ;--- what is left of it ------------------------------------------------
+@fragment:
+    DMA_VRAM VRAM_BG1_CHR, fragChr, (fragChrEnd - fragChr)
+    DMA_VRAM VRAM_BG1_MAP, fragMap, 4096
+    DMA_CGRAM 0, nightPal, 256
+    lda #<fragColl
+    sta collPtr
+    lda #>fragColl
+    sta collPtr+1
+    lda #^fragColl
+    sta collPtr+2
+    lda #<fragHeight
+    sta heightPtr
+    lda #>fragHeight
+    sta heightPtr+1
+    lda #^fragHeight
+    sta heightPtr+2
+    ; Nobody is left out here but Sora, the thing he is fighting and one tree,
+    ; so OBJ palette 1 goes back to the Heartless and Darkside is drawn as it
+    ; was in the Dive.  The tree keeps the night's dimmed scenery colours.
+    DMA_CGRAM (128 + 32), nightObjPal + 32, 32
+    rep #$20
+    .a16
+    lda #FRAG_CAM_X
+    sta camLoX
+    sta camHiX
+    lda #FRAG_CAM_Y
+    sta camLoY
+    sta camHiY
+    sep #$20
+    .a8
 
 @common:
     ; The scene's BG palette covers CGRAM 0-127, so the HUD's four colours
@@ -403,8 +493,10 @@ MainLoop:
     lda #TS_VAL
     sta TS
     lda #CGWSEL_VAL
+    sta cgwselVal
     sta CGWSEL
     lda #CGADSUB_VAL
+    sta cgadsubVal
     sta CGADSUB
     rts
 .endproc
@@ -426,7 +518,11 @@ MainLoop:
     ; the dive has reached its terminal state.
 @alive:
     lda sceneId
-    cmp #SCENE_ISLAND
+    cmp #SCENE_NIGHT
+    bcc :+
+    jsr NightUpdate             ; SCENE_NIGHT and SCENE_FRAGMENT
+    rts
+:   cmp #SCENE_ISLAND
     bne @dive
     lda diveStage
     cmp #DIVE_ARRIVED

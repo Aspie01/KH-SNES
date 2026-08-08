@@ -14,6 +14,7 @@
 .import soraChr
 
 .export InitWorld, UpdateWorld, SpawnActor, ClearActors, CountType, SetActorZ
+.export SpawnTable, PlayerPos, NearPlayer
 
 ;--- attack tuning -----------------------------------------------------------
 ATK_ACTIVE   = 12               ; timer value on which the swing connects
@@ -182,7 +183,12 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 
     lda tmp3
     sta actTile,x
-    lda tmp4
+    lda tmp2
+    cmp #ACT_SHADOW
+    bne :+
+    lda heartTile               ; which cut of the Shadow this scene loaded
+    sta actTile,x
+:   lda tmp4
     sta actPal,x
     lda tmp5
     sta actFlags,x
@@ -820,6 +826,8 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 @notBoss:
     cmp #ACT_SHADOW
     bne @next
+    ldy keyGot
+    beq @next                   ; a wooden sword goes straight through them
     phx
     jsr HeartlessInRange
     plx
@@ -1758,8 +1766,11 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     sep #$20
     .a8
     ldx curActor
+    lda keyGot
+    beq :+                      ; before the Keyblade they cannot reach him
     jsr TouchPlayer
     ldx curActor
+:
 
 @animate:
     lda actAnimT,x
@@ -1775,11 +1786,12 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     and #$03
     sta actAnim,x
 @tile:
-    ; frames sit two tiles apart in the sprite page
+    ; frames sit two tiles apart in the sprite page, from whichever base this
+    ; scene's copy of the art starts at
     lda actAnim,x
     asl a
     clc
-    adc #TILE_HEART0
+    adc heartTile
     sta actTile,x
     rts
 .endproc
@@ -2045,6 +2057,136 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 .endproc
 
 ;=============================================================================
+; Shared by every scene's script
+;=============================================================================
+
+;-----------------------------------------------------------------------------
+; SpawnTable -- walk a table of (type, tile i, tile j) triples until
+; $FF.  In (A8/I16): tmp8 = the table's address in this bank.
+;-----------------------------------------------------------------------------
+.proc SpawnTable
+    .a8
+    .i16
+    ldy #0
+@loop:
+    lda (tmp8),y
+    cmp #$FF
+    beq @done
+    sta tmp6                    ; type
+    iny
+    lda (tmp8),y
+    sta tmp4                    ; i
+    iny
+    lda (tmp8),y
+    sta tmp5                    ; j
+    iny
+    sty tmp7                    ; SpawnActor clobbers Y, so park the cursor
+
+    rep #$20
+    .a16
+    lda tmp4
+    and #$00FF
+    sta tmp0
+    lda tmp5
+    and #$00FF
+    sta tmp1
+    jsr TileToWorld
+    ; TileToWorld hands back whole pixels; actors are Q12.4.
+    lda tmp0
+    asl a
+    asl a
+    asl a
+    asl a
+    sta tmp0
+    lda tmp1
+    asl a
+    asl a
+    asl a
+    asl a
+    sta tmp1
+    sep #$20
+    .a8
+
+    lda tmp6
+    jsr SpawnActor
+    ldy tmp7
+    bra @loop
+@done:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; PlayerPos -- Sora's world position into tmp0/tmp1.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc PlayerPos
+    .a8
+    .i16
+    lda playerIdx
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    sta tmp0
+    lda actY,x
+    sta tmp1
+    sep #$20
+    .a8
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; NearPlayer -- is this actor within tmp2 by tmp3 of Sora?
+; In (A8/I16): X = actor index, tmp0/tmp1 = Sora's position,
+;              tmp2 = X range, tmp3 = Y range (both Q12.4)
+; Out: carry set on a hit.  X is preserved.
+;-----------------------------------------------------------------------------
+.proc NearPlayer
+    .a8
+    .i16
+    phx
+    txa
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+
+    lda actX,x
+    sec
+    sbc tmp0
+    bpl :+
+    eor #$FFFF
+    inc a
+:
+    cmp tmp2
+    bcs @miss
+
+    lda actY,x
+    sec
+    sbc tmp1
+    bpl :+
+    eor #$FFFF
+    inc a
+:   cmp tmp3
+    bcs @miss
+
+    sep #$20
+    .a8
+    plx
+    sec
+    rts
+
+@miss:
+    sep #$20
+    .a8
+    plx
+    clc
+    rts
+.endproc
+
+;=============================================================================
 ; Tables
 ;=============================================================================
 .segment "RODATA"
@@ -2081,6 +2223,8 @@ typeTile:   .byte $00, TILE_SORA,  TILE_HEART0, TILE_PALM,  TILE_ROCKBIG, TILE_R
             .byte TILE_LOG, TILE_CLOTH, TILE_ROPE, TILE_MUSH, TILE_COCONUT
             .byte TILE_EGG, TILE_BOTTLE, TILE_FISH, TILE_PALM
             .byte TILE_DOOR, TILE_FACES, TILE_SCRIBBLE
+            ; the night
+            .byte TILE_DOOROPEN, TILE_DARK
 typeTileEnd:
 typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_FX
             .byte PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_HEART
@@ -2093,6 +2237,7 @@ typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE
             ; a coconut palm is drawn with the ordinary palm's art
             .byte PAL_OBJ_SCENE
             .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
+            .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE
 typePalEnd:
 typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LARGE|AF_SHADOW, AF_SHADOW, $00
             ; the weapons hover, so they cast no shadow of their own
@@ -2120,6 +2265,10 @@ typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LAR
             .byte AF_LARGE|AF_TALK|AF_PAGE1|AF_FLAT
             .byte AF_LARGE|AF_TALK|AF_PAGE1|AF_FLAT
             .byte AF_LARGE|AF_TALK|AF_PAGE1|AF_FLAT
+            ; the open door hangs on the same wall; the darkness stands on the
+            ; ground and throws no shadow of its own
+            .byte AF_LARGE|AF_TALK|AF_PAGE1|AF_FLAT
+            .byte AF_LARGE|AF_PAGE1
 typeFlagsEnd:
 typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
             .byte $00, $00, $00, $00, DS_MAX_HP
@@ -2129,15 +2278,16 @@ typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
             .byte $00, $00, $00, $00
             .byte $00, $00, $00, $00
             .byte $00, $00, $00, $00
+            .byte $00, $00
 
 typeHPEnd:
 
 ; A type added to game.inc without a row in every table would spawn with
 ; whatever byte happens to follow, so make the assembler check.
-.assert (typeTileEnd  - typeTile)  = (ACT_SCRIBBLE + 1), error, "typeTile"
-.assert (typePalEnd   - typePal)   = (ACT_SCRIBBLE + 1), error, "typePal"
-.assert (typeFlagsEnd - typeFlags) = (ACT_SCRIBBLE + 1), error, "typeFlags"
-.assert (typeHPEnd    - typeHP)    = (ACT_SCRIBBLE + 1), error, "typeHP"
+.assert (typeTileEnd  - typeTile)  = (ACT_DARK + 1), error, "typeTile"
+.assert (typePalEnd   - typePal)   = (ACT_DARK + 1), error, "typePal"
+.assert (typeFlagsEnd - typeFlags) = (ACT_DARK + 1), error, "typeFlags"
+.assert (typeHPEnd    - typeHP)    = (ACT_DARK + 1), error, "typeHP"
 
 ; type, tile i, tile j -- terminated by $FF
 ; Sora wakes on the sand. No Heartless: they arrive the night the island
