@@ -27,6 +27,7 @@
 .import HudUpdate
 .import SpawnActor, TileToWorld, ClearActors, InitWorld
 .import SpawnTable, PlayerPos, NearPlayer
+.import spawnTable, spawnTableEnd
 .import NightBegin
 .import SetActorZ
 
@@ -1213,6 +1214,7 @@ day1Spawns:
     .byte ACT_CLOTH,   12,  4        ; inside the treehouse
     .byte ACT_ROPE,     8,  4        ; the lookout platform, beside Tidus
     .byte $FF
+day1SpawnsEnd:
 
 day2Spawns:
     .byte ACT_FISH,     4, 12        ; the shallows off the west beach
@@ -1224,6 +1226,16 @@ day2Spawns:
     .byte ACT_EGG,     21,  6        ; the nest atop the leaning tree
     .byte ACT_BOTTLE,   4,  7        ; under the waterfall
     .byte $FF
+day2SpawnsEnd:
+
+; The island's own cast is up the whole time, so a day's items have to fit on
+; top of it with room left for the keyblade arc.  Day two was one slot over
+; before MAX_ACTORS went up, and what fell off the end was the bottle.
+ISLAND_CAST = (spawnTableEnd - spawnTable - 1) / 3
+DAY1_ITEMS  = (day1SpawnsEnd - day1Spawns - 1) / 3
+DAY2_ITEMS  = (day2SpawnsEnd - day2Spawns - 1) / 3
+.assert (ISLAND_CAST + DAY1_ITEMS + TRANSIENT_ACTORS) <= MAX_ACTORS, error, "day one does not fit in MAX_ACTORS"
+.assert (ISLAND_CAST + DAY2_ITEMS + TRANSIENT_ACTORS) <= MAX_ACTORS, error, "day two does not fit in MAX_ACTORS"
 
 ; Kairi has four lines a day: rest, the list, that's everything, and a nudge.
 kairiLines:

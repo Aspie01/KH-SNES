@@ -15,6 +15,8 @@
 
 .export InitWorld, UpdateWorld, SpawnActor, ClearActors, CountType, SetActorZ
 .export SpawnTable, PlayerPos, NearPlayer
+; Exported only so the scene scripts can count it against MAX_ACTORS.
+.export spawnTable, spawnTableEnd
 
 ;--- attack tuning -----------------------------------------------------------
 ATK_ACTIVE   = 12               ; timer value on which the swing connects
@@ -2313,3 +2315,4 @@ spawnTable:
     .byte ACT_DOOR,     2,  6
     .byte ACT_SCRIBBLE, 3,  6
     .byte $FF
+spawnTableEnd:

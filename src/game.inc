@@ -146,7 +146,17 @@ PAL_OBJ_ISLE   = 1
 ;-----------------------------------------------------------------------------
 ; Actors
 ;-----------------------------------------------------------------------------
-MAX_ACTORS   = 24
+; Enough for the largest placed cast plus the things that are spawned during
+; play rather than laid out: the keyblade arc, a dark orb volley, the Shadows
+; Darkside leaves in its craters.  The scene scripts assert against this, so
+; over-subscribing it fails the build instead of silently dropping whichever
+; spawn happens to be last in the table -- which is how the bottle under the
+; waterfall went missing for the whole of day two.
+;
+; 28 rather than a rounder number on purpose -- 32 trips a stray write near the
+; end of sortIdx that corrupts the sprite path.  See the note in ram.s.
+MAX_ACTORS   = 28
+TRANSIENT_ACTORS = 3
 
 ACT_NONE     = 0
 ACT_SORA     = 1

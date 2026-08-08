@@ -50,11 +50,15 @@ $(GEN) &: $(ASSET_SRC)
 $(BUILD):
 	mkdir -p $(BUILD)
 
-$(BUILD)/%.o: src/%.s | $(BUILD)
+# Every module includes the shared headers, so a constant change has to force a
+# reassemble -- otherwise editing game.inc silently leaves stale objects linked.
+INCS    := $(wildcard src/*.inc)
+
+$(BUILD)/%.o: src/%.s $(INCS) | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 
 # The data module pulls in every generated binary, so it has to wait for them.
-$(BUILD)/gfxdata.o: src/gfxdata.s $(GEN) | $(BUILD)
+$(BUILD)/gfxdata.o: src/gfxdata.s $(GEN) $(INCS) | $(BUILD)
 	$(AS) $(ASFLAGS) -o $@ $<
 
 $(TARGET): $(OBJS) $(CFG)

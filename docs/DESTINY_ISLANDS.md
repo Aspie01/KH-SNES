@@ -125,6 +125,28 @@ day two's set, and it comes back up on the morning after.
 
 Handing day two's list in is what Riku has been waiting for.
 
+### A note on the actor table
+
+The island's own cast -- Sora, five islanders, the palms and rocks, the three
+things on the cave wall -- is seventeen actors and is up the whole time. Day
+two's eight items go on top of that, which makes twenty-five, and `MAX_ACTORS`
+was twenty-four. `SpawnActor` returns carry clear when the table is full and
+`SpawnTable` does not check it, so the *last* entry in the table silently never
+appeared: the bottle under the waterfall. Water was the one item on the list
+with no way to obtain it, and nothing said so.
+
+`MAX_ACTORS` is now twenty-eight, and `island.s` and `night.s` both assert
+their populations plus a transient reserve against it at assembly time, so
+over-subscribing the table fails the build instead of quietly dropping whatever
+happens to be last.
+
+Twenty-eight rather than something rounder is deliberate. At thirty-two the
+sprite path reliably corrupts Sora's cel and drops actors with no input at all,
+and padding `sortIdx` by four entries fixes thirty-two but breaks
+twenty-eight -- so there is a stray write landing on whatever the BSS layout
+puts just past the end of that array. It has not been found yet. Twenty-eight
+is the layout that has been played through.
+
 Three of these needed terrain that did not exist:
 
 - the **west cliff**, three steps up, with the **waterfall** coming down its

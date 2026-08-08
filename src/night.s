@@ -1027,12 +1027,21 @@ nightSpawns:
     .byte ACT_DOOR,     2,  6
     .byte ACT_SCRIBBLE, 3,  6
     .byte $FF
+nightSpawnsEnd:
 
 ; The last piece of it: Sora, and the one tree still standing on it.
 fragSpawns:
     .byte ACT_SORA,    15, 12
     .byte ACT_PALM,    18,  6
     .byte $FF
+fragSpawnsEnd:
+
+; Six Shadows are out at once on the island, and the boss leaves more of them
+; in its craters on the fragment.
+NIGHT_CAST = (nightSpawnsEnd - nightSpawns - 1) / 3
+FRAG_CAST  = (fragSpawnsEnd - fragSpawns - 1) / 3
+.assert (NIGHT_CAST + SHADOW_MAX + TRANSIENT_ACTORS) <= MAX_ACTORS, error, "the night does not fit in MAX_ACTORS"
+.assert (FRAG_CAST + 1 + SHADOW_MAX + TRANSIENT_ACTORS) <= MAX_ACTORS, error, "the fragment does not fit in MAX_ACTORS"
 
 ; Where the Shadows come up.  Spread over the island so they arrive from
 ; wherever Sora is not, and every one is walkable ground by construction --

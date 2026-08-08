@@ -129,6 +129,14 @@ oamHigh:      .res 32
 
 ; Draw order, rebuilt every frame: word entries holding actor indices, sorted
 ; by world Y descending so slot 0 is the frontmost sprite.
+;
+; Resizing this, or MAX_ACTORS, is not as free as it looks.  At MAX_ACTORS = 32
+; the sprite path reliably corrupts Sora's cel and drops actors while standing
+; still, and padding this array by four entries fixes that but breaks 28
+; instead -- so a stray write is landing on whatever the layout puts just past
+; the end of it.  The writer has not been found.  28 with this sizing is the
+; combination that has been played through, and the asserts in island.s and
+; night.s keep the placed casts inside it.
 sortIdx:      .res MAX_ACTORS * 2
 sortCount:    .res 2
 
