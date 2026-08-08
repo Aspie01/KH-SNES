@@ -8,6 +8,18 @@ isometric view for a locked three-quarter one.
 Nothing here is written yet. What follows is the set of decisions already made,
 so that they are not relitigated, plus the constraints that will actually bite.
 
+**`../../docs/DS_PORT_PROMPT.md` is the agent brief** — the standing constraints
+plus one prompt per milestone, with mechanically checkable exit criteria.
+
+**The toolchain is not installed in the development container and cannot be
+installed there:** no devkitPro on disk, not in apt, `apt.devkitpro.org` returns
+403 to that egress IP, no Docker daemon for the `devkitpro/devkitarm` image, and
+no NDS emulator. apt's `gcc-arm-none-eabi` is a Cortex-M/R toolchain and is not a
+substitute for ARMv5TE. The port is therefore split into a **host tier** — the
+whole simulation, built with the system `g++` and tested against the oracle — and
+a **device tier** that only builds where devkitPro is present. The host tier is
+most of the port and all of the risk; see the brief.
+
 **Read `../../docs/BEHAVIOUR.md` first.** It is the specification — every frame
 count, range and state machine from the SNES build, extracted before any of that
 code is deleted. If this build disagrees with a number in it, this build is

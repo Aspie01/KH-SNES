@@ -8,8 +8,8 @@ modern engine. Two targets share one set of content:
 | **`platform/snes/`** | **Complete and frozen at `b8f2b68`.** A real `.sfc` ROM: LoROM, FastROM, valid header and checksum. Top-down three-quarter view, the A Link to the Past / Secret of Mana angle |
 | **`platform/ds/`** | **In preparation.** The DS has hardware 3D, so the camera the source material actually uses is reachable — which is what forced the SNES version onto a locked view. See `platform/ds/README.md` |
 
-The map data, the dialogue, the asset pipeline and every tuning number are shared
-between them. `docs/BEHAVIOUR.md` is the specification the SNES build was
+`docs/DS_PORT_PROMPT.md` is the porting brief. The map data, the dialogue, the
+asset pipeline and every tuning number are shared between the two targets. `docs/BEHAVIOUR.md` is the specification the SNES build was
 reverse-documented into, and it is the authority for both.
 
 The freeze point is commit `b8f2b686a68470fb650c6edbe41c4d1cb63c899e`, tagged `snes-final` locally.
