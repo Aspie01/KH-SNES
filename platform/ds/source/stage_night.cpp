@@ -188,8 +188,11 @@ StageStep NightMachine::update(SceneView& view, ScreenFx& fx) {
             stage_ = NightStage::End;
             timer_ = END_FADE;
             fx.whiteout = 0;
-            // Whatever it left behind goes with it.  The DIVE's WatchBoss does
-            // NOT do this, which is latent bug 1 in BEHAVIOUR.md §12.
+            // Its crater Shadows go with it -- and ONLY those.  WatchBoss tests
+            // ACT_SHADOW alone, so an orb already in flight survives the sweep
+            // with up to ORB_LIFE frames of travel left and no gate on the boss
+            // being alive.  BEHAVIOUR.md §12 credits the night with a cleanup
+            // the Dive lacks; the cleanup is narrower than it reads.
             return StageStep{SceneAction::SweepCraterShadows};
 
         case NightStage::Over:

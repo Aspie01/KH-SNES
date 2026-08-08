@@ -319,7 +319,12 @@ public:
     // belong to the actor layer.
     void beginRace();
     void setRikuWaypoint(int wp) { rikuWp_ = wp; }
-    void tagPaopu() { if (leg_ == 0) leg_ = 1; }
+    // Only while the race is RUNNING.  RaceRun is what tests the paopu tree on
+    // the SNES, and it only runs at Q_RACE_RUN -- so a player who walks out
+    // there during the 193-frame countdown is not credited then.  He IS credited
+    // on the very first RaceRun frame, because nothing freezes him during the
+    // countdown and RaceRun tests where he is standing rather than where he went.
+    void tagPaopu() { if (state_ == QuestState::RaceRun && leg_ == 0) leg_ = 1; }
     void reachHome();
 
 private:
@@ -342,6 +347,7 @@ private:
     int leg_ = 0;
     int raceWon_ = 0;
     RaftName raft_ = RaftName::None;
+    bool handedOver_ = false;   // Dusk asks for the night exactly once
 };
 
 // ---------------------------------------------------------------------------

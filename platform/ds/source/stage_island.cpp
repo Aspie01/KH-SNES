@@ -10,6 +10,7 @@ void IslandMachine::begin() {
     leg_ = 0;
     raceWon_ = 0;
     raft_ = RaftName::None;
+    handedOver_ = false;
 }
 
 // Dim to black, then rebuild the island for the morning.
@@ -57,7 +58,15 @@ StageStep IslandMachine::dayIn(ScreenFx& fx) {
 // The last evening.  Everything is on the raft, so the light simply goes, and
 // what comes up is not the morning.  Same pre-decrement read as dayOut.
 StageStep IslandMachine::dusk(ScreenFx& fx) {
-    if (dayTimer_ == 0) return StageStep{SceneAction::BeginNight};
+    if (dayTimer_ == 0) {
+        // Once.  Dusk is a terminus, not a state the machine rests in: the SNES
+        // ends it with `jmp NightBegin` and IslandUpdate is never entered again.
+        // Here the caller performs the hand-over, so the machine has to stop
+        // asking or it re-requests the night on every frame until it does.
+        if (handedOver_) return StageStep{};
+        handedOver_ = true;
+        return StageStep{SceneAction::BeginNight};
+    }
     fx.brightness = uint8_t(dayTimer_ >> 1);
     --dayTimer_;
     return StageStep{};

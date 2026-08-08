@@ -8,6 +8,15 @@ It found 41 items. The outright errors have been corrected in `BEHAVIOUR.md`
 itself; everything else is recorded here verbatim, with the file and line of the
 truth, because transcribing it into prose would lose the citations.
 
+Findings **42 onwards** were added later, by the DS port: every milestone that
+reimplements a system re-reads the assembly for it, and what the port finds is
+appended in a dated section at the end rather than folded in — so the order of
+discovery stays legible. Two of them correct findings in the original 41 (42
+corrects 41, 44 corrects 16), two correct earlier *port* findings (52 corrects
+45, 53 corrects 46), and three correct this document's own "must be told" list or
+`BEHAVIOUR.md` directly. If a finding is contradicted by a later one, the later
+one won; the numbering never changes.
+
 **Read this alongside `BEHAVIOUR.md`, not instead of it.** Where the two
 disagree, this document is the later and better-sourced of the two.
 
@@ -123,13 +132,13 @@ Five findings were re-verified by hand before anything was changed:
 
 - The dialogue system gates every scene transition and must be specified: REVEAL_DELAY 1 means one character every 2 frames (text.s:21, 356-360); A or B fast-forwards the whole page in one frame (RevealAll, text.s:482-496); SC_PAGE waits then clears; TextClose masks A and B out of padPressed so the dismissing press cannot start the next interaction (text.s:104-120); txtHold ignores the button that opened the box until it is released (text.s:92-93, 308-317).
 
-- Nearly every scene stage advances only while TextBusy is false. The two documented exceptions are the night's Tear and EndFade, which run THROUGH the box (night.s:180-188). The Dive's Shatter does NOT - it waits for the box (dive.s:77-99). A port must encode which beats ignore dialogue and which wait.
+- Nearly every scene stage advances only while TextBusy is false. The two documented exceptions are the night's Tear and EndFade, which run THROUGH the box (night.s:180-188). **[corrected - there are five, see finding 53.]** The Dive's Shatter does NOT - it waits for the box (dive.s:77-99). A port must encode which beats ignore dialogue and which wait.
 
 - LoadScene has scene-independent side effects that must be replicated: heightPtr defaults to flatHeights, heartTile defaults to TILE_HEART0, camera defaults to the pinned Station bounds, and keyGot is set to 1 (main.s:272-299). The night is the only scene that clears keyGot, and it does so itself after LoadScene (night.s:76).
 
 - Death and retry is entirely undocumented and must be written down: on HP 0, ST_DEAD with a 50-frame dim, then deadFlag=1; SceneUpdate hands to GameOverUpdate ahead of the scene script (main.s:603-607); the card is shown (deadFlag=2), and on the next dismissal RestartScene reloads sceneId and restarts at a per-scene checkpoint (dive.s:324-429). Checkpoints: TOWN* -> TownRestart; NIGHT/FRAGMENT -> NightRestart; ISLAND -> InitWorld + diveStage=DIVE_ARRIVED; DIVE3 -> soraOnly + SpawnBoss + DIVE_BOSS; DIVE2 -> SpawnStation2 + DIVE_S2_FIGHT; DIVE1 -> diveSpawns + DIVE_PICK.
 
-- NightRestart's rewind rules: stage < N_KAIRI rewinds to N_SEEK and CLEARS keyGot; stage >= N_KAIRI rewinds to N_KAIRI, keeps the Keyblade and re-runs OpenTheDoor; on the fragment it re-raises Darkside at N_BOSS (night.s:102-159). Because it re-runs the whole nightSpawns table, Riku reappears on the small island after a death at N_KAIRI or later.
+- NightRestart's rewind rules: stage < N_KAIRI rewinds to N_SEEK and CLEARS keyGot **[corrected - that branch cannot be reached, see finding 56]**; stage >= N_KAIRI rewinds to N_KAIRI, keeps the Keyblade and re-runs OpenTheDoor; on the fragment it re-raises Darkside at N_BOSS (night.s:102-159). Because it re-runs the whole nightSpawns table, Riku reappears on the small island after a death at N_KAIRI or later.
 
 - Every animation rate is an N-then-count-down-to-zero timer, so the visible cel period is N+1 frames, not N. Sora walk: 4 cels x 7 frames (world.s:651-652). Shadow: 4 cels x 11 frames (world.s:1822-1823). Orb: 2 cels x 6. Mote: 2 cels x 4. Falling tumble: facing +1 every 9 frames. Fish and the dark column instead use a bit of a counter: fish cel on (timer & 7) == 0, column cel on (frameCount & 4).
 
@@ -221,5 +230,125 @@ against the document, the document is wrong.
 
 - **Finding 51: the countdown's HUD digit is not evenly divided.** It is
   `(dayTimer + 63) >> 6` (hud.s:479-489), which shows "3" for 63 frames, "2" for
-  64, "1" for 64 and "0" for a single frame. The source comment at hud.s:485
-  describes the intent; the arithmetic gives something else.
+  64, "1" for 64 and "0" for a single frame. The source comment at hud.s:478
+  describes the intent; the arithmetic gives something else. `HudUpdate` is
+  called *after* `dec dayTimer` (island.s:842-843), so the digit is read off the
+  post-decrement value; the "3" the player actually sees first is the one
+  `OfferRace` paints at `dayTimer = 192` (island.s:757), and it stays up for as
+  long as `scriptChallenge` is on screen plus the 63 counting frames.
+
+## Corrections and additions found during §M5's cross-check
+
+A second pass over the island and night machines, run against the assembly with
+every claim re-derived from the code rather than from this document. Three of
+these correct findings written above.
+
+- **Finding 52 corrects finding 45.** Finding 45 ends "this is a property of
+  every timer in the game and not of any one scene." That generalisation is
+  false, and a port that applies it uniformly gets two things wrong.
+
+  The rule that *is* general is narrower: a timer written as `lda t / beq done /
+  dec t` spends a frame reading zero, and on that frame it does nothing but
+  transition — so the beat costs N+1 frames and the last one is empty. `DAY_FADE`,
+  `COUNT_LEN`, `DARK_HOLD`, `TEAR_LEN`, `END_FADE`, `TOWN_GAP` and `FALL_WAIT`
+  are all of that shape. (Note the constants are `DARK_HOLD = 96`,
+  `TEAR_LEN = 120`, `END_FADE = 62`; the *periods* are 97, 121, 63.)
+
+  Two counterexamples:
+
+  1. **`flashTimer` has no +1.** It is the same `lda / beq / dec` shape, but the
+     zero-reading frame is not spent: it falls straight through to `@waiting`,
+     which decrements the gap counter on that same frame (night.s:255, 289-298).
+     The flash is therefore exactly `FLASH_LEN = 8` frames of ramp and the
+     zero-frame is the first frame of the gap. The ramp reads the POST-decrement
+     value, so it is 16, 16, 0, 0, 26, 26, 0, 0 — and the comments at
+     night.s:263-268 name the pre-decrement values for the first two branches
+     and say "frames 4-2" for a branch that runs twice. Only "frames 1-0" is
+     right. Same failure mode as finding 44.
+  2. **Sora's attack timer and `ST_HURT` decrement BEFORE testing** (world.s:440-443
+     and 495-498: `lda actTimer,x / dec a / sta actTimer,x / cmp`). Both still
+     occupy N+1 frames, but for the opposite reason — the frame that *sets* the
+     timer is the spent one and the frame that reaches zero does its work and
+     transitions together. A port that models these with the `lda/beq/dec`
+     shape gets the same duration and the wrong frame for the active hit:
+     `ATK_ACTIVE` is tested against the post-decrement value.
+
+  The distinction is what the DS `dusk()` needed a `handedOver_` flag for: with
+  the first shape you may re-enter the zero-frame branch, with the second you
+  may not.
+
+- **Finding 53 corrects finding 46.** Finding 46 says the day change adds two to
+  the list and makes "four beats in total" that run through an open dialogue box.
+  It is **five**. `Lightning` is called above the `TextBusy` gate as well
+  (night.s:175-178, gate at 189-191), so the storm keeps flashing while any line
+  of the night is on screen — which is most of them. The full list is: the
+  night's `Lightning`, `Tear` and `EndFade`, and the island's `Q_DAYOUT` and
+  `Q_DAYIN` (island.s:72-78, gate at 80-82). Finding 46's citation of
+  island.s:69-76 is off by three lines.
+
+- **Finding 54: `COUNT_LEN = 192` is pinned by 8-bit arithmetic, not by taste.**
+  The HUD digit is `clc / adc #63` with an 8-bit accumulator (hud.s:479-481).
+  192 + 63 = 255 exactly. Raise `COUNT_LEN` to 193 and the add wraps: the
+  countdown opens on "0" and counts *up*. The comment at hud.s:478 says only
+  that 192 is a multiple of 64. A port that widens the arithmetic and then tunes
+  the constant will not reproduce this, and should not want to — but a port that
+  keeps 8-bit fields and raises the constant has a silent bug.
+
+- **Finding 55: the walk-into coconut does not exist.** `ACT_COCONUT = 23`
+  appears exactly once in all 21 sources — at its own definition, game.inc:194.
+  There is no spawner, no `typeFlags` row, no draw case and no table entry. It
+  is nonetheless inside the range `TryPickup` accepts (`ACT_LOG` through
+  `ACT_BOTTLE`, island.s:298-312), so the *only* reason no coconut is walked into
+  is that none is ever placed. Every `IT_NUT` in the game comes from `SwingAt`
+  converting an `ACT_PALMC` to an `ACT_PALM` (island.s:389-394), and there are
+  exactly two `ACT_PALMC` (world.s:2367-2368) against `NEED_NUT = 2`
+  (game.inc:479) — zero slack, as with every other item.
+
+  This matters twice over. **The constant must be kept**: `itemCount` is indexed
+  by `actType - ACT_LOG` (island.s:312, ram.s:109), so `ACT_COCONUT` is what
+  holds slot 4 open for `IT_NUT = 4`; deleting the "unused" type shifts `IT_EGG`
+  and `IT_WATER` down and corrupts the tally. And **BEHAVIOUR.md §2's `PICK` row
+  listed coconuts among the things walked into**, which came from island.s's file
+  header rather than from the code — the same conflation of intent with behaviour
+  as the `SC_PAGE` error in finding 42. A port implementing that row literally
+  places two collectable coconuts, which makes day two completable *twice over*
+  and the two `ACT_PALMC` pointless. §2 is corrected.
+
+- **Finding 56: `NightRestart`'s pre-`N_KAIRI` rewind is unreachable.** The
+  branch at night.s:136-139 rewinds to `N_SEEK` and clears `keyGot`. It can
+  never run. `UpdateShadow` gates its `TouchPlayer` call on `keyGot`
+  (world.s:1809-1811, "before the Keyblade they cannot reach him"), and
+  `DamageSora` is the only writer of `ST_DEAD` anywhere (world.s:2038). On the
+  night island the only Heartless are Shadows, so with `keyGot` clear nothing can
+  damage Sora and there is no death to restart from. `GiveKeyblade` sets
+  `keyGot = 1` and `nightStage = N_KAIRI` three instructions apart
+  (night.s:623-626), so `nightStage < N_KAIRI` and `keyGot == 0` are the same
+  condition — and `RestartScene` does not disturb it, because `LoadScene` only
+  uploads VRAM and does not call `NightBegin` (main.s:305-338; it is `NightBegin`
+  that calls `LoadScene`, not the reverse).
+
+  A port should keep the branch — it is what the ROM does — but must know the
+  trace oracle can never cover it, and must not "fix" the shape of it on the
+  assumption it fires.
+
+- **Finding 57: the night's post-boss sweep takes Shadows only.** `WatchBoss`
+  clears every actor whose type is `ACT_SHADOW` (night.s:871-879) and nothing
+  else. An `ACT_ORB` still in flight when Darkside's HP reaches zero survives
+  into `N_END` and keeps travelling through the fade. Since `EndFade` runs above
+  the dialogue gate and `DamageSora` tests only for `ST_DEAD`, a surviving orb
+  can damage Sora during the closing fade. §12's first latent bug is about the
+  Dive not sweeping at all; this is the narrower one in the scene that *does*
+  sweep.
+
+- **Finding 58: Riku runs the course in exactly 615 frames.** `RIKU_VX` and
+  `RIKU_VY` are both 17 in Q12.4, clamped per axis per frame, and a marker is
+  taken when both axes are within `RIKU_NEAR = 40` (island.s:1099-1151). From
+  `START_RIKU_X/Y = CELL(13,12)` through all twenty `raceWp` entries that is 615
+  frames of `Q_RACE_RUN` — about 10.25 seconds — after which `rikuWp` reaches
+  `RACE_WPS` and `RaceRun` awards him the race. That is the budget Sora has, and
+  the spec never states it.
+
+  Two consequences: `RaceRun` tests Riku *before* Sora (island.s:858-863), so a
+  same-frame tie goes to Riku; and `UpdateRiku` runs from `UpdateWorld`, which is
+  not behind the dialogue gate, while `RaceRun` is — so Riku keeps running while
+  a box is open and his win registers on the frame it closes.

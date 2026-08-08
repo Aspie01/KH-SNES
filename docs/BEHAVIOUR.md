@@ -92,7 +92,7 @@ decides which:
 | Range | Value | Used by |
 | --- | --- | --- |
 | `TALK` | 384 × 384 | press A near a person |
-| `PICK` | 224 × 224 | walked into — the raft materials, mushrooms, coconuts, the egg, the bottle |
+| `PICK` | 224 × 224 | walked into — the raft materials, mushrooms, the egg, the bottle. **Not coconuts**, see below |
 | `SWING` | 544 × 544 | answered with the Keyblade — fish, palms still carrying coconuts |
 | `PROP` | 416 × 416 | examined — the chalk drawings, the door in the Secret Place |
 | `TOUCH` | **320 × 160** | a Heartless reaching Sora — **[corrected]**, see below |
@@ -109,6 +109,18 @@ point-blank or from directly north or south. The only geometry that connects is
 `208 <= abs(dx) <= 319` with `abs(dy) <= 159`. A Shadow closing vertically parks
 at `abs(dy) ~ 207` and stands there. Reproduce that exactly or the night plays
 like a different game.
+
+**[corrected] There is no coconut you can walk into.** `ACT_COCONUT = 23` sits
+inside the walk-into range that `TryPickup` tests (`ACT_LOG..ACT_BOTTLE`,
+island.s:298-312), so one *would* be collectable — but no coconut actor is ever
+spawned. `ACT_COCONUT` appears exactly once in the whole tree, at its own
+definition (game.inc:194). The only source of `IT_NUT` is `SwingAt` turning an
+`ACT_PALMC` into an `ACT_PALM` (island.s:389-394), and the spawn table holds
+exactly two `ACT_PALMC` against `NEED_NUT = 2` (world.s:2367-2368,
+game.inc:479). The constant is nonetheless **load-bearing and must be kept**:
+`itemCount` is indexed by `actType - ACT_LOG`, so `ACT_COCONUT` is what holds
+slot 4 open for `IT_NUT`. A port that "tidies up" the unused type renumbers
+every collectable above it. See audit finding 55.
 
 ---
 
@@ -415,6 +427,12 @@ nothing changes.
 | `KNOCKBACK = 3` | both knockback sites use `asl a`, i.e. × 2 |
 | `AF_SOLID = $04` | no actor blocks movement; nothing tests this bit |
 | `shakeTimer`, `scriptWait` | dead RAM, written at most and never read |
+
+One that belongs on the list by the letter of the rule and **must not be
+removed**: `ACT_COCONUT = 23` also has exactly one reference, its own
+definition, and no coconut actor is ever spawned — but `itemCount` is indexed by
+`actType - ACT_LOG`, so deleting it renumbers `IT_EGG` and `IT_WATER`. Keep the
+constant; do not write a spawner for it. See §2.
 
 Two further things that look like systems and are not: **the dream weapon choice
 has no mechanical consequence** — `weaponTaken` and `weaponGiven` are each
