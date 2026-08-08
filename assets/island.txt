@@ -9,10 +9,13 @@
 #   .  sand           (walkable)
 #   ,  grass          (walkable)
 #   =  wood dock      (walkable)
-#   #  cliff rock     (blocked)
+#   W  waterfall pool (walkable) -- fill the bottle standing here
+#   C  cave floor     (walkable) -- the Secret Place, behind the fall
 #   T  grass, blocked -- a palm stands here
+#   Y  grass, blocked -- a palm with coconuts to knock down
 #   R  grass, blocked -- a boulder stands here
 #   r  sand,  blocked -- a small rock stands here
+#   b  grass, blocked -- a bush
 #
 # Raised, in eight-pixel steps.  A move is allowed only between tiles whose
 # heights differ by at most one, so a deck two steps up can only be reached
@@ -21,17 +24,21 @@
 #   L  wooden step    (walkable, +1)
 #   P  wooden platform deck (walkable, +2)
 #   H  treehouse deck (walkable, +2)
+#   M  leaning trunk  (walkable, +2)
+#   K  treetop        (walkable, +3) -- the seagull nests up here
+#   #  cliff rock     (blocked, +3)
+#   F  cliff rock with the waterfall coming down it (blocked, +3)
 #
 ~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~..T~~
-~~~-----BBB..~~~
+~~~--LMKBBB..~~~
 ~~--.......--~~~
 ~~-..,T,,,..-~~~
-~~-P,,,,,,T.-~~~
-~~-P,,HH,,,.-~~~
-~~-PT,HH,,,.-~~~
-~~-L,,L,R,,.-~~~
-~~-..,,T,,,.-~~~
+~~#P,b,,,,T.-~~~
+~#FPb,HH,,,.-~~~
+~CWPT,HH,,,.-~~~
+~~.L,,L,R,,.-~~~
+~~-..,,Y,Y,.-~~~
 ~~--...r....-~~~
 ~~~--.....B.~~~~
 ~~~~--===--~~~~~

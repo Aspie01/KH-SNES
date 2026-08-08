@@ -38,7 +38,8 @@ RAM_INC = 1
 .globalzp pendActor, pendWeapon, collPtr, heightPtr, stepZ
 .globalzp screenBright, mosaicAmt, shatterTimer, bossHP, shakeX
 .globalzp fadeTimer, coldataAmt, deadFlag, fallTimer
-.globalzp questState, itemLogs, itemCloth, itemRope, pendTalk
+.globalzp questState, questDay, dayTimer, pendTalk
+.globalzp itemCount
 
 ;--- buffers (BSS) -----------------------------------------------------------
 .global oamBuf, oamHigh, sortIdx, sortCount, hudRow, txtBuf

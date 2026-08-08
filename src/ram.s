@@ -87,12 +87,14 @@ coldataAmt:   .res 1            ; fixed colour-math colour, 0-31
 deadFlag:     .res 1            ; 0 alive, 1 just died, 2 GAME OVER showing
 fallTimer:    .res 1
 
-; Destiny Islands, day one
-questState:   .res 1            ; Q_IDLE / Q_ACTIVE / Q_DONE
-itemLogs:     .res 1
-itemCloth:    .res 1
-itemRope:     .res 1
+; Destiny Islands
+questState:   .res 1            ; Q_IDLE / Q_ACTIVE / Q_DONE / the day change
+questDay:     .res 1            ; 1 or 2
+dayTimer:     .res 1            ; frames left in the current half of a fade
 pendTalk:     .res 1            ; islander the A press landed on
+; One slot per collectable, indexed by (actor type - ACT_LOG), so a pickup
+; tallies itself without a lookup.
+itemCount:    .res 8
 curActor:     .res 2            ; actor being updated, survives calls that use tmp*
 
 .segment "BSS"
@@ -107,8 +109,9 @@ oamHigh:      .res 32
 sortIdx:      .res MAX_ACTORS * 2
 sortCount:    .res 2
 
-; Two 32-entry rows of the BG3 tilemap: Sora's gauge, then the boss's.
-hudRow:       .res 128
+; Three 32-entry rows of the BG3 tilemap: Sora's gauge, then either a boss
+; gauge or the day's checklist, which needs two rows of its own on day two.
+hudRow:       .res 192
 
 ; The dialogue box: seven 32-entry rows of the BG3 tilemap.
 txtBuf:       .res 7 * 32 * 2

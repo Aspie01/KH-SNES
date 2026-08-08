@@ -25,17 +25,23 @@ HP_BAR_X       = 5              ; first gauge cell of Sora's row
 HP_BAR_CELLS   = 10             ; 10 cells * 2 = SORA_MAX_HP
 
 BOSS_ROW       = 64             ; byte offset of the second row within hudRow
+QUEST_ROW2     = 128            ; ...and the third, which day two needs
 BOSS_LABEL_X   = 1
 BOSS_BAR_X     = 11
 BOSS_BAR_CELLS = 18             ; 18 cells * 2 = DS_MAX_HP
 
 ; The second row does double duty: a boss gauge in the Dive, and Kairi's
 ; checklist on the island.  Offsets are into the label string, which starts
-; at column QUEST_X.
+; at column QUEST_X.  Day two needs five counts, so it spills onto a third.
 QUEST_X        = 1
 QUEST_LOGS     = 5
 QUEST_CLOTH    = 16
 QUEST_ROPE     = 26
+D2_FISH        = 5
+D2_MUSH        = 21
+D2_NUT         = 5
+D2_EGG         = 14
+D2_WATER       = 25
 
 ; Assemble a run of font tile numbers from a plain string, terminated by $FF.
 ; Only the characters the HUD actually uses are mapped.
@@ -137,14 +143,14 @@ QUEST_ROPE     = 26
     .a16
     .i16
 
-    ;--- blank both rows ---
+    ;--- blank every row ---
     lda #(HUD_ATTR | CH_CLEAR)
     ldx #0
 @blank:
     sta hudRow,x
     inx
     inx
-    cpx #128
+    cpx #192
     bcc @blank
 
     ;--- Sora ---
@@ -189,6 +195,8 @@ QUEST_ROPE     = 26
     bne @bossgauge
     lda questState
     beq @flag                   ; she has not asked yet
+    cmp #Q_NIGHT
+    bcs @flag                   ; ...or the day is turning over
     jsr DrawQuest
     bra @flag
 
@@ -249,44 +257,105 @@ QUEST_ROPE     = 26
 .proc DrawQuest
     .a8
     .i16
-    ldx #0
-@label:
-    lda questLabel,x
-    cmp #$FF
-    beq @counts
+    lda questDay
+    cmp #2
+    beq @day2
+
     rep #$20
     .a16
-    and #$00FF
-    ora #HUD_ATTR
-    sta tmp6
-    txa
-    asl a
-    clc
-    adc #(BOSS_ROW + QUEST_X * 2)
-    tay
-    lda tmp6
-    sta hudRow,y
+    lda #.loword(questLabel)
+    sta tmp7
+    lda #BOSS_ROW
+    sta tmp8
     sep #$20
     .a8
-    inx
-    bra @label
-
-@counts:
-    lda itemLogs
+    jsr PutLabel
+    lda itemCount + IT_LOG
     ldx #QUEST_LOGS
     jsr PutDigit
-    lda itemCloth
+    lda itemCount + IT_CLOTH
     ldx #QUEST_CLOTH
     jsr PutDigit
-    lda itemRope
+    lda itemCount + IT_ROPE
     ldx #QUEST_ROPE
+    jsr PutDigit
+    rts
+
+@day2:
+    rep #$20
+    .a16
+    lda #.loword(quest2Label)
+    sta tmp7
+    lda #BOSS_ROW
+    sta tmp8
+    sep #$20
+    .a8
+    jsr PutLabel
+    lda itemCount + IT_FISH
+    ldx #D2_FISH
+    jsr PutDigit
+    lda itemCount + IT_MUSH
+    ldx #D2_MUSH
+    jsr PutDigit
+
+    rep #$20
+    .a16
+    lda #.loword(quest3Label)
+    sta tmp7
+    lda #QUEST_ROW2
+    sta tmp8
+    sep #$20
+    .a8
+    jsr PutLabel
+    lda itemCount + IT_NUT
+    ldx #D2_NUT
+    jsr PutDigit
+    lda itemCount + IT_EGG
+    ldx #D2_EGG
+    jsr PutDigit
+    lda itemCount + IT_WATER
+    ldx #D2_WATER
     jsr PutDigit
     rts
 .endproc
 
 ;-----------------------------------------------------------------------------
+; PutLabel -- lay a $FF-terminated run of font tiles into a HUD row.
+; In (A8/I16): tmp7 = the run's address in this bank, tmp8 = row byte offset.
+;-----------------------------------------------------------------------------
+.proc PutLabel
+    .a8
+    .i16
+    ldy #0
+@loop:
+    lda (tmp7),y
+    cmp #$FF
+    beq @done
+    rep #$20
+    .a16
+    and #$00FF
+    ora #HUD_ATTR
+    sta tmp6
+    tya
+    asl a
+    clc
+    adc tmp8
+    clc
+    adc #(QUEST_X * 2)
+    tax
+    lda tmp6
+    sta hudRow,x
+    sep #$20
+    .a8
+    iny
+    bra @loop
+@done:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
 ; PutDigit -- one count into the checklist.
-; In (A8/I16): A = value 0-9, X = offset along the label.
+; In (A8/I16): A = value 0-9, X = offset along the label, tmp8 = row.
 ;-----------------------------------------------------------------------------
 .proc PutDigit
     .a8
@@ -301,7 +370,9 @@ QUEST_ROPE     = 26
     txa
     asl a
     clc
-    adc #(BOSS_ROW + QUEST_X * 2)
+    adc tmp8
+    clc
+    adc #(QUEST_X * 2)
     tay
     lda tmp6
     sta hudRow,y
@@ -315,6 +386,10 @@ QUEST_ROPE     = 26
 ; running it through the conversion table at runtime would buy nothing.
 questLabel:
     HUDSTR "LOGS 0/2  CLOTH 0/1  ROPE 0/1"
+quest2Label:
+    HUDSTR "FISH 0/3   MUSHROOMS 0/3"
+quest3Label:
+    HUDSTR "NUTS 0/2  EGG 0/1  WATER 0/1"
 
 bossName:
     .byte CH_A + 'D' - 'A', CH_A + 'A' - 'A', CH_A + 'R' - 'A'

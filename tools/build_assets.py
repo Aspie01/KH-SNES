@@ -53,6 +53,14 @@ TERRAIN = {
     "L": (WOOD_L, WOOD_L, WOOD_D, True, 1),
     "P": (WOOD_L, WOOD_L, WOOD_D, True, 2),
     "H": (WOOD_L, WOOD_L, WOOD_D, True, 2),
+    # Day two's corner of the island
+    "W": (FOAM, WATER_L, WATER_M, True, 0),     # the pool under the fall
+    "C": (ROCK_L, ROCK_D, OUTLINE, True, 0),    # the Secret Place
+    "b": (GRASS_L, GRASS_M, GRASS_D, False, 0),  # a bush
+    "Y": (GRASS_L, GRASS_M, GRASS_D, False, 0),  # a palm carrying coconuts
+    "M": (WOOD_L, WOOD_L, WOOD_D, True, 2),      # the leaning trunk
+    "K": (GRASS_L, GRASS_M, GRASS_D, True, 3),   # its leafy top
+    "F": (ROCK_L, ROCK_D, ROCK_D, False, 3),     # cliff with the waterfall
 }
 
 
@@ -71,7 +79,9 @@ def diamond_span(y: int, h: int = 16, w: int = 32) -> tuple[int, int]:
 # usual way isometric tiling gives itself away.
 GROUP = {"~": "water", "-": "water", ".": "sand", "r": "sand",
          ",": "grass", "T": "grass", "R": "grass", "=": "wood", "#": "rock",
-         "B": "wood", "L": "wood", "P": "wood", "H": "wood"}
+         "B": "wood", "L": "wood", "P": "wood", "H": "wood",
+         "W": "water", "C": "rock", "b": "grass", "Y": "grass",
+         "M": "wood", "K": "grass", "F": "rock"}
 
 SAND_SPECKLE = (((11, 6), SAND_L), ((20, 9), SAND_L), ((15, 11), SAND_L),
                 ((9, 9), SAND_L), ((18, 5), SAND_D), ((13, 10), SAND_D))
@@ -90,7 +100,7 @@ def draw_diamond(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
         for x in range(x0, x1):
             c.set(x, y, mid)
 
-    if code in "~-":
+    if code in "~-W":
         # Drifting highlights so open water is not a flat field.
         if phase == 0:
             c.hline(12, 19, 5, WATER_L)
@@ -98,22 +108,42 @@ def draw_diamond(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
         else:
             c.hline(13, 18, 4, WATER_L)
             c.hline(16, 21, 10, WATER_L)
+    elif code == "W":
+        pass                    # handled with the water above
     elif code in ".r":
         for (tx, ty), col in SAND_SPECKLE:
             c.set(tx, ty, col)
-    elif code in ",TR":
+    elif code in ",TRY":
         for (tx, ty), col in GRASS_SPECKLE:
             c.set(tx, ty, col)
-    elif code in "=BLPH":
+    elif code == "b":
+        # A bush: three overlapping clumps, so it reads as foliage and not
+        # just a darker patch of lawn.
+        for (bx, by, r) in ((12, 8, 3.6), (19, 7, 3.4), (16, 10, 3.8)):
+            c.ellipse(bx, by, r, r * 0.62, GRASS_D)
+            c.ellipse(bx, by - 1, r * 0.6, r * 0.38, GRASS_M)
+        c.set(11, 6, GRASS_L)
+        c.set(20, 5, GRASS_L)
+    elif code in "=BLPHM":
         for y in range(0, 16, 4):
             x0, x1 = diamond_span(y)
             for x in range(x0, x1):
                 c.set(x, y, WOOD_D)
-    elif code == "#":
+    elif code in "#F":
         for y in range(3, 13, 3):
             x0, x1 = diamond_span(y)
             for x in range(x0 + 2, x1 - 2, 3):
                 c.set(x, y, ROCK_D)
+    elif code == "C":
+        # The mouth of the Secret Place: bare rock with a hole in the back of
+        # it that the light does not reach.
+        c.ellipse(16, 7, 7.0, 3.6, OUTLINE)
+        c.ellipse(16, 5, 5.0, 2.0, ROCK_D)
+    elif code == "K":
+        # Fronds, drawn as clumps rather than the flat speckle grass uses.
+        for (cxx, cyy) in ((10, 6), (16, 4), (22, 7), (13, 10), (19, 10)):
+            c.ellipse(cxx, cyy, 3.4, 2.0, GRASS_L)
+            c.ellipse(cxx, cyy + 1, 2.4, 1.2, GRASS_D)
 
     def edge_colour(neighbour: str | None, upper: bool) -> int | None:
         if neighbour is None:
@@ -161,19 +191,47 @@ def draw_column(code: str, phase: int, edges: dict[str, str | None],
     if lift == 0:
         return top
 
+    # Stone gets a stone face; anything else is held up on posts.
+    if GROUP[code] == "rock":
+        dark, light, period = ROCK_D, ROCK_L, 7
+    else:
+        dark, light, period = WOOD_D, WOOD_L, 5
+
     c = Canvas(32, 16 + lift)
     for x in range(32):
         y0 = diamond_bottom(x) + 1
         for y in range(y0, y0 + lift):
-            c.set(x, y, WOOD_D)
-        # A plank line every few columns, and a lip under the deck, so the
-        # support reads as posts rather than a solid slab.
-        if x % 5 == 2:
+            c.set(x, y, dark)
+        # A seam every few columns, and a lip under the top, so the support
+        # reads as posts or strata rather than a solid slab.
+        if x % period == 2:
             for y in range(y0, y0 + lift):
-                c.set(x, y, WOOD_L)
-        c.set(x, y0, WOOD_L if x % 5 == 2 else WOOD_D)
+                c.set(x, y, light)
+        c.set(x, y0, light if x % period == 2 else dark)
         c.set(x, y0 + lift - 1, OUTLINE)
+
+    if code == "F":
+        # The fall itself: a column of white water down the cliff, edged in
+        # blue and breaking into spray where it lands.
+        for x in range(13, 20):
+            y0 = diamond_bottom(x) + 1
+            for y in range(y0 - 1, y0 + lift):
+                if x in (13, 19):
+                    col = WATER_M
+                elif (x * 3 + y * 5) % 7 == 0:
+                    col = WATER_L
+                else:
+                    col = FOAM
+                c.set(x, y, col)
+        base = diamond_bottom(16) + lift
+        c.ellipse(16, base - 1, 6.0, 1.8, FOAM)
+        c.ellipse(16, base, 8.0, 1.4, WATER_L)
     c.blit(top, 0, 0)
+    if code == "F":
+        # ...and over the lip, so the water reads as coming off the top.
+        for x in range(14, 19):
+            for y in range(diamond_bottom(x) - 4, diamond_bottom(x) + 1):
+                c.set(x, y, FOAM if (x + y) % 3 else WATER_L)
     return c
 
 
@@ -1104,6 +1162,69 @@ def draw_rope() -> Canvas:
     return c
 
 
+def draw_fish(frame: int) -> Canvas:
+    """A little reef fish, two frames of tail."""
+    c = Canvas(16, 16)
+    flick = 1 if frame else -1
+    c.ellipse(7, 8, 4.4, 2.8, I_BLUE)
+    c.ellipse(6, 7, 3.0, 1.6, I_WHITE)
+    c.ellipse(9, 8, 2.0, 1.6, I_YELLOW)             # flank stripe
+    for k in range(3):                              # tail
+        c.vline(12 + k, 8 - 1 - k, 8 + 1 + k, I_BLUE)
+    c.set(13, 8 + 2 * flick, I_YELLOW)
+    c.set(3, 7, I_OUT)                              # eye
+    c.outline(I_OUT)
+    return c
+
+
+def draw_mushroom() -> Canvas:
+    """Red cap, white spots, the sort that grows in a hollow."""
+    c = Canvas(16, 16)
+    c.rect(6, 9, 9, 13, I_WHITE)
+    c.ellipse(8, 9, 5.4, 3.4, I_RED)
+    c.ellipse(8, 8, 4.0, 2.2, I_RED)
+    for (sx, sy) in ((5, 8), (9, 7), (11, 9), (7, 10)):
+        c.set(sx, sy, I_WHITE)
+        c.set(sx + 1, sy, I_WHITE)
+    c.outline(I_OUT)
+    return c
+
+
+def draw_coconut() -> Canvas:
+    """One of the gold ones, knocked out of a palm."""
+    c = Canvas(16, 16)
+    c.ellipse(8, 9, 4.4, 4.0, I_SELPHIE)
+    c.ellipse(7, 8, 3.0, 2.6, I_YELLOW)
+    for (sx, sy) in ((6, 7), (10, 8), (8, 11)):     # the three eyes
+        c.set(sx, sy, I_OUT)
+    c.outline(I_OUT)
+    return c
+
+
+def draw_egg() -> Canvas:
+    """A seagull egg, sitting in what is left of the nest."""
+    c = Canvas(16, 16)
+    c.ellipse(8, 11, 6.0, 2.0, I_SELPHIE)           # the nest
+    c.ellipse(8, 8, 3.6, 4.4, I_WHITE)
+    c.ellipse(7, 7, 2.2, 2.8, I_SKIN_L)
+    for (sx, sy) in ((6, 6), (9, 8), (7, 10), (10, 5)):
+        c.set(sx, sy, I_SKIN_M)
+    c.outline(I_OUT)
+    return c
+
+
+def draw_bottle() -> Canvas:
+    """The bottle, full of water from under the fall."""
+    c = Canvas(16, 16)
+    c.rect(6, 6, 9, 13, I_BLUE)
+    c.rect(7, 2, 8, 5, I_WHITE)                     # neck
+    c.rect(6, 6, 6, 13, I_WHITE)                    # a highlight down one side
+    c.hline(6, 9, 5, I_WHITE)                       # shoulder
+    c.hline(6, 9, 13, I_NAVY)
+    c.outline(I_OUT)
+    return c
+
+
 def build_obj_page2() -> Canvas:
     """The second sprite page: the islanders and what they are after."""
     page = Canvas(128, 128)
@@ -1118,13 +1239,20 @@ def build_obj_page2() -> Canvas:
     page.blit(islander(I_SELPHIE, I_YELLOW, I_YELLOW, style="flip",
                        trim=I_WHITE, prop="rope",
                        prop_col=I_WHITE), 96, 0)                # $0C
-    # row 4: Wakka, then the three raft materials as 16x16 pieces
+    # row 4: Wakka, then day one's raft materials as 16x16 pieces
     page.blit(islander(I_WAKKA, I_BLUE, I_YELLOW, style="up",
                        trim=I_GREEN, prop="ball",
                        prop_col=I_RED), 0, 32)                  # $40
-    page.blit(draw_log(), 32, 32)           # $44
-    page.blit(draw_cloth(), 48, 32)         # $46
-    page.blit(draw_rope(), 64, 32)          # $48
+    page.blit(draw_log(), 64, 32)           # $48
+    page.blit(draw_cloth(), 80, 32)         # $4A
+    page.blit(draw_rope(), 96, 32)          # $4C
+    page.blit(draw_mushroom(), 112, 32)     # $4E
+    # row 6: what day two is after
+    page.blit(draw_fish(0), 64, 48)         # $68
+    page.blit(draw_fish(1), 80, 48)         # $6A
+    page.blit(draw_coconut(), 96, 48)       # $6C
+    page.blit(draw_egg(), 112, 48)          # $6E
+    page.blit(draw_bottle(), 0, 64)         # $80
     return page
 
 
@@ -1323,7 +1451,10 @@ def build_hud_font() -> Canvas:
 
 def load_grid() -> list[str]:
     text = (ROOT / "assets" / "island.txt").read_text().splitlines()
-    rows = [ln for ln in text if ln and not ln.startswith("#")]
+    # A comment is "#" alone or "# ...".  Terrain codes include "#", so a
+    # map row that starts with cliff rock must not be mistaken for one.
+    rows = [ln for ln in text
+            if ln and not (ln[0] == "#" and ln[1:2] in ("", " "))]
     if len(rows) != MAP_H:
         raise SystemExit(f"island.txt: expected {MAP_H} map rows, got {len(rows)}")
     for n, row in enumerate(rows):

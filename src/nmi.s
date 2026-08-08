@@ -152,7 +152,7 @@
     stx A1T0L
     lda #^hudRow
     sta A1B0
-    ldx #128
+    ldx #192
     stx DAS0L
     lda #$01
     sta MDMAEN

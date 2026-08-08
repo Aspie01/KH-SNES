@@ -45,13 +45,13 @@ Each of these needs something the combat slice does not have:
   `src/island.s` owns the five islanders and their lines; A talks to whoever is
   in range.
 - **Item pickups with counts**, and a quest tracker that reads the tables above.
-  *Done for day one*: walking into a material takes it, and the second HUD row
-  becomes Kairi's checklist once she has asked.
+  *Done for both days*: walking into a thing takes it, and the HUD rows below
+  Sora's gauge become Kairi's checklist once she has asked.
 - **Multi-level terrain** — the rope is on a high platform and the bridge is
   raised, so the island is not a single flat plane. *Done*: see below.
 - **Interactable scenery**: palms that drop coconuts when struck, a climbable
-  thin tree, a waterfall trigger, an enterable Secret Place. *Still to do* —
-  these are what day two needs.
+  thin tree, a waterfall to stand under, an enterable Secret Place. *Done* —
+  see day two below.
 - **A race mode** with a course, a timer and an opponent running a fixed path.
   *Still to do.*
 
@@ -78,6 +78,20 @@ Three things use it:
 Pickups compare heights exactly, so the rope cannot be lifted off the platform
 by standing on the grass beneath it.
 
+## The three interactions
+
+Which one a thing answers to is decided by its actor type alone, so adding a
+collectable is a table entry and a spawn:
+
+| | |
+| --- | --- |
+| walk into it | everything in `ACT_LOG..ACT_BOTTLE` — the materials, mushrooms, a knocked-down coconut, the egg, the bottle |
+| swing at it | fish out in the shallows, and palms still carrying coconuts |
+| press A | the islanders, so a walk along the beach does not trip over five conversations |
+
+`itemCount` is indexed by `actor type - ACT_LOG`, so a pickup tallies itself
+without a lookup.
+
 ## Day one, as built
 
 | Where | What |
@@ -91,3 +105,27 @@ by standing on the grass beneath it.
 | `(12,2)` | Log — the small island where Riku sits |
 | `(7,6)` treehouse deck | Cloth |
 | `(3,6)` high platform | Rope |
+
+Handing the list in ends the day: the screen dims, the island is rebuilt with
+day two's set, and it comes back up on the morning after.
+
+## Day two, as built
+
+| Where | What |
+| --- | --- |
+| `(4,11)`, `(3,10)`, `(12,10)` shallows | Fish ×3 — swing at them from the shore |
+| `(6,11)` | Mushroom, in the hollow behind the rock by Kairi |
+| `(4,5)` | Mushroom, in the bushes at the foot of the tower |
+| `(1,7)` | Mushroom, inside the Secret Place |
+| `(7,9)`, `(9,9)` | Coconut palms — swing until the gold ones come down |
+| `(7,2)` treetop | Seagull egg, up the leaning tree by the bridge |
+| `(2,7)` pool | Bottle, under the waterfall |
+
+Three of these needed terrain that did not exist:
+
+- a **rock tower** at `(2,5)`/`(1,6)` with the **waterfall** coming down
+  `(2,6)`, and its **pool** at `(2,7)`;
+- the **Secret Place** at `(1,7)`, walled in by the tower on every side but
+  the pool, so the only way in is through the fall;
+- a **leaning tree** by the bridge — trunk sections at `+1` and `+2` and a
+  leafy top at `+3`, which the one-step rule turns into a climb.

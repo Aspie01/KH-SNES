@@ -316,6 +316,13 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     plx
     bra @next
 @notMote:
+    cmp #ACT_FISH
+    bne @notFish
+    phx
+    jsr UpdateFish
+    plx
+    bra @next
+@notFish:
     cmp #ACT_SLASH
     bne @next
     phx
@@ -1400,6 +1407,64 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 .endproc
 
 ;-----------------------------------------------------------------------------
+; UpdateFish -- In (A8/I16): X = actor index.
+;
+; A fish is scenery that has to look alive: it swims a few pixels one way, a
+; few back, and flicks its tail.  It ignores the ground entirely -- the whole
+; point is that it is out in water Sora cannot walk on.
+;-----------------------------------------------------------------------------
+.proc UpdateFish
+    .a8
+    .i16
+    stx curActor
+    inc actTimer,x
+
+    lda actTimer,x
+    and #$07
+    bne @swim
+    lda actAnim,x
+    eor #$01
+    sta actAnim,x
+    asl a
+    clc
+    adc #TILE_FISH
+    sta actTile,x
+
+@swim:
+    ; Half of a 64-frame cycle each way, with the sprite turned to match.
+    lda actTimer,x
+    and #$20
+    bne @west
+    lda actFlags,x
+    and #<(~AF_HFLIP)
+    sta actFlags,x
+    rep #$20
+    .a16
+    lda #FISH_SWIM
+    bra @apply
+@west:
+    lda actFlags,x
+    ora #AF_HFLIP
+    sta actFlags,x
+    rep #$20
+    .a16
+    lda #.loword(-FISH_SWIM)
+@apply:
+    sta tmp0
+    lda curActor
+    asl a
+    tax
+    lda actX,x
+    clc
+    adc tmp0
+    sta actX,x
+    sep #$20
+    .a8
+    ldx curActor
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
 ; OrbHitPlayer -- In (A8/I16): X = orb index.
 ;-----------------------------------------------------------------------------
 .proc OrbHitPlayer
@@ -2008,14 +2073,20 @@ typeTile:   .byte $00, TILE_SORA,  TILE_HEART0, TILE_PALM,  TILE_ROCKBIG, TILE_R
             .byte TILE_STREAK
             ; the islanders and the raft materials, on sprite page one
             .byte TILE_KAIRI, TILE_RIKU, TILE_TIDUS, TILE_SELPHIE, TILE_WAKKA
-            .byte TILE_LOG, TILE_CLOTH, TILE_ROPE
+            .byte TILE_LOG, TILE_CLOTH, TILE_ROPE, TILE_MUSH, TILE_COCONUT
+            .byte TILE_EGG, TILE_BOTTLE, TILE_FISH, TILE_PALM
+typeTileEnd:
 typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_FX
             .byte PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_HEART
             .byte PAL_OBJ_HEART
             .byte PAL_OBJ_FX
             .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
             .byte PAL_OBJ_ISLE
-            .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
+            .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
+            .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
+            ; a coconut palm is drawn with the ordinary palm's art
+            .byte PAL_OBJ_SCENE
+typePalEnd:
 typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LARGE|AF_SHADOW, AF_SHADOW, $00
             ; the weapons hover, so they cast no shadow of their own
             .byte AF_LARGE|AF_SHADOW, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK
@@ -2033,12 +2104,28 @@ typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LAR
             .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
             .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
             .byte AF_SHADOW|AF_PAGE1, AF_SHADOW|AF_PAGE1, AF_SHADOW|AF_PAGE1
+            .byte AF_SHADOW|AF_PAGE1, AF_SHADOW|AF_PAGE1
+            .byte AF_SHADOW|AF_PAGE1, AF_SHADOW|AF_PAGE1
+            ; fish float in the shallows, so no ground shadow
+            .byte AF_PAGE1
+            .byte AF_LARGE|AF_SHADOW
+typeFlagsEnd:
 typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
             .byte $00, $00, $00, $00, DS_MAX_HP
             .byte $00
             .byte $00
             .byte $00, $00, $00, $00, $00
-            .byte $00, $00, $00
+            .byte $00, $00, $00, $00, $00
+            .byte $00, $00, $00, $00
+
+typeHPEnd:
+
+; A type added to game.inc without a row in every table would spawn with
+; whatever byte happens to follow, so make the assembler check.
+.assert (typeTileEnd  - typeTile)  = (ACT_PALMC + 1), error, "typeTile"
+.assert (typePalEnd   - typePal)   = (ACT_PALMC + 1), error, "typePal"
+.assert (typeFlagsEnd - typeFlags) = (ACT_PALMC + 1), error, "typeFlags"
+.assert (typeHPEnd    - typeHP)    = (ACT_PALMC + 1), error, "typeHP"
 
 ; type, isometric i, isometric j -- terminated by $FF
 ; Sora wakes on the sand. No Heartless: they arrive the night the island
@@ -2048,9 +2135,10 @@ spawnTable:
     .byte ACT_PALM,     6,  4
     .byte ACT_PALM,    10,  5
     .byte ACT_PALM,     4,  7
-    .byte ACT_PALM,     7,  9
     .byte ACT_PALM,    13,  1        ; out on the small island, over Riku
     .byte ACT_PALM,     6,  6        ; the tree the treehouse is built round
+    .byte ACT_PALMC,    7,  9        ; the two by Kairi still carry coconuts
+    .byte ACT_PALMC,    9,  9
     .byte ACT_ROCKBIG,  8,  8
     .byte ACT_ROCK,     7, 10
     ; the five islanders
@@ -2059,9 +2147,4 @@ spawnTable:
     .byte ACT_TIDUS,    3,  5        ; up on the far-left platform
     .byte ACT_SELPHIE,  7, 12        ; out on the dock
     .byte ACT_WAKKA,   11, 10        ; across the little footbridge
-    ; day one's raft materials
-    .byte ACT_LOG,     11, 11        ; the shore past the wooden bridge
-    .byte ACT_LOG,     12,  2        ; the small island where Riku sits
-    .byte ACT_CLOTH,    7,  6        ; inside the treehouse
-    .byte ACT_ROPE,     3,  6        ; the high platform, beside Tidus
     .byte $FF
