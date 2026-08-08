@@ -158,3 +158,68 @@ Five findings were re-verified by hand before anything was changed:
 - **Finding 43: `TryMoveActor`'s "refuse" branch is nearly unreachable, and a blocked cardinal move slides on the *other* axis.** §1 lists the fourth outcome as "do not move", which is right about the result and misleading about the path. `@slideY` tests `(actX, tmp6)` where `tmp6 = actY + actVY` (grid.s:355-372), so when `actVY` is zero the candidate tile IS the tile the actor is standing on — walkable, zero height difference, so `StepOk` passes and `actY` is written back unchanged. A walk straight west into a wall therefore takes the vertical-slide branch and "succeeds" having moved nothing. `@stuck` is reached only when both velocities are non-zero and all three tests fail, i.e. on a diagonal into a corner where both orthogonal neighbours are also blocked. A port that reports which axis resolved — and the DS one does, because that is how the load-bearing order is tested — must expect the vertical case for every blocked cardinal move, or its own tests will assert the wrong thing.
 
 - **`StoreZ` is not called on the refuse path** (grid.s:374-376), which is correct: the actor did not move, so the height it is standing on has not changed. But note the asymmetry with finding "the one-step height rule uses the actor's cached `actZ`" above: `TryMoveActor` maintains the cache on all three success paths and leaves it alone on failure, so the cache is only ever stale when something *else* moved the actor.
+
+## Corrections and additions found during §M5's island and night machines
+
+Two independent extractions of each machine were made from the assembly and
+diffed against each other and against this document. Where all readings agreed
+against the document, the document is wrong.
+
+- **Finding 44 corrects finding 16.** Finding 16 gives Q_DUSK's brightness as
+  "(dayTimer-1)>>1 from 14 to 0". It is `dayTimer>>1` from **15** to 0. The code
+  is `lda dayTimer / beq @gone / dec dayTimer / lsr a / sta screenBright`
+  (island.s:162-166): `dec dayTimer` is a direct-page MEMORY decrement and does
+  not touch the accumulator, so the `lsr a` that follows halves the value loaded
+  *before* the step. The same code appears in DayOut (island.s:191-195) and has
+  the same result. `DayIn` is the one that differs — it reloads
+  (`lda #DAY_FADE / sec / sbc dayTimer`, island.s:233-237) and so reads the
+  POST-decrement value, ramping 0 up to 15. **The two halves of the day change do
+  not mirror each other**, and finding 16 appears to have derived the formula
+  from DayIn's shape and applied it to DayOut's code.
+
+- **Finding 45: every one of the island's four timed beats is N+1 frames, not N.**
+  All four use `lda / beq / dec`, testing before decrementing, so `DAY_FADE = 30`
+  is 31 frames (30 of fading plus the frame that reads zero and transitions) and
+  `COUNT_LEN = 192` is 193. §6's "30 frames out, 30 frames in" and "192 frames"
+  are the constants, not the periods. The same is true of `DARK_HOLD` (97 frames),
+  `TEAR_LEN` (121), `END_FADE` (63), `TOWN_GAP` (81) and `FALL_WAIT` (71) — this
+  is a property of every timer in the game and not of any one scene.
+
+- **Finding 46: the day change ignores the dialogue box, and the audit's list of
+  exceptions is incomplete.** The note above says "the two documented exceptions
+  are the night's Tear and EndFade". `Q_DAYOUT` and `Q_DAYIN` are dispatched
+  ABOVE the `TextBusy` gate (island.s:69-76) and are therefore two more. Four
+  beats in total run through an open box.
+
+- **Finding 47: the transient `Q_IDLE` in DayOut is load-bearing.** island.s:215
+  writes `Q_IDLE`, 216 calls `HudUpdate`, and 218 overwrites it with `Q_DAYIN` —
+  three instructions apart, in one frame. It is not a redundant store: the HUD it
+  draws is the one the player sees 31 frames later when the fade-in completes, and
+  it has to be day two's empty checklist rather than a day-change state. A port
+  that collapses the two writes loses a HUD row.
+
+- **Finding 48: two scripts are unreachable, and their unreachability is the
+  proof that the day-one/day-two asymmetry is real.** `kairiLines[0]`
+  (`scriptKairiRest`) can never play, because `Q_DONE` on day one diverts to
+  `EndOfDay` before the gameplay block is reached, so the player never gets a
+  frame of control at `Q_DONE` on day one. `kairi2Lines[0]` is reached only on the
+  path that offers the race. Both are dead data in the same way `ORB_SPEED` is.
+
+- **Finding 49: `dayTimer` is time-shared by four unrelated machines** — the
+  DayOut fade, the DayIn fade, the Dusk fade and the race countdown
+  (island.s:181, 220, 637, 752). None can be live at once, so one field is the
+  faithful representation; a port that gives each its own field is not wrong, but
+  one that keeps a *fifth* user of the same byte would be.
+
+- **Finding 50: the race's finish tolerance is `TAG_X`/`TAG_Y` for BOTH legs, and
+  Sora starts the race inside the finish radius.** `tmp2`/`tmp3` are loaded once
+  (island.s:866-872) and never reloaded, so the finish uses 448 — and his start
+  line, `CELL(11,12)`, is only 256 from the finish at `CELL(12,12)`. The only
+  thing preventing an instant win is `raceLeg` starting at 0. `RaceRun` also sets
+  `raceLeg` and returns immediately (island.s:887-890), so tagging and winning
+  cannot land on the same frame.
+
+- **Finding 51: the countdown's HUD digit is not evenly divided.** It is
+  `(dayTimer + 63) >> 6` (hud.s:479-489), which shows "3" for 63 frames, "2" for
+  64, "1" for 64 and "0" for a single frame. The source comment at hud.s:485
+  describes the intent; the arithmetic gives something else.

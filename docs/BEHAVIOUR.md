@@ -260,8 +260,14 @@ IDLE -> ACTIVE -> DONE -> DAYOUT -> DAYIN            (day one into day two)
      -> RACE_SET -> RACE_RUN -> RACE_OVER -> NAMING -> NAMED -> DUSK
 ```
 
-- Day change: 30 frames out, 30 frames in, cast rebuilt at black.
-- Race countdown: 192 frames, 64 to a number.
+- Day change: 30 frames out, 30 frames in, cast rebuilt at black. **[corrected]**
+  Both halves are 31 frames — every timer in the game tests before it decrements,
+  so a constant of N runs N+1 frames; see audit finding 45. The two halves also do
+  not mirror each other: DayOut dims 15→0 reading the timer *before* the step and
+  DayIn brightens 0→15 reading it *after*. And the day change is dispatched above
+  the dialogue gate, so it runs through an open box — audit finding 46.
+- Race countdown: 192 frames, 64 to a number — 193 in practice, and the digit is
+  `(timer + 63) >> 6`, which is not an even third. Audit findings 45 and 51.
 - Riku runs a fixed 20-waypoint course at 17/17 per axis — a little slower than
   a clean line, so the race is winnable, and quick enough to punish wandering.
   A waypoint counts as reached within 40.

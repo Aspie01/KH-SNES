@@ -66,22 +66,12 @@ StageStep TownMachine::shadows(SceneView& view) {
     // audit records for every animation rate.  §6's "one every 80 frames" is the
     // constant, not the measured period.
     spawn_ = TOWN_GAP;
-    if (view.actors.count(ActType::Shadow) >= TOWN_SHADOWS) return StageStep{};
-    if (spots_ == nullptr || nSpots_ <= 0) return StageStep{};
-
-    // Somewhere in the square, but not on top of the player.
-    const uint8_t spot = view.rng.pick(nSpots_);
-    const World sx = tileCentre(spots_[spot].i);
-    const World sy = tileCentre(spots_[spot].j);
-    const int32_t dx = sx.raw() - view.actors.x[view.player].raw();
-    const int32_t dy = sy.raw() - view.actors.y[view.player].raw();
-    // 1024 Q12.4 is 64 px.  BOTH axes have to be inside it to count as too
-    // close -- the SNES fell through to @far as soon as either was outside.
-    if ((dx < 0 ? -dx : dx) < SPAWN_CLEAR && (dy < 0 ? -dy : dy) < SPAWN_CLEAR) {
+    const SpotOutcome r = spawnAtSpot(view, spots_, nSpots_, TOWN_SHADOWS);
+    if (r.tooClose) {
         spawn_ = SPAWN_RETRY;       // one arriving in your face reads as a bug
         return StageStep{};
     }
-    if (view.actors.spawn(ActType::Shadow, sx, sy) < 0) return StageStep{};
+    if (!r.spawned) return StageStep{};
     ++spawned_;                     // counted on SUCCESS, exactly as `inc` was
     return StageStep{};
 }

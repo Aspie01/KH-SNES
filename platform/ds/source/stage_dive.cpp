@@ -148,4 +148,32 @@ StageStep DiveMachine::update(SceneView& view, ScreenFx& fx) {
     return StageStep{};
 }
 
+// A death, and the checkpoint it rewinds to.  Which stage that is depends on
+// which station is loaded, so this is a per-scene rewind and not a single one.
+StageStep DiveMachine::restart(SceneId scene, ScreenFx& fx) {
+    fx.mosaic = 0;
+    fx.shakeX = 0;
+    fx.whiteout = 0;
+    fx.brightness = 15;
+    fx.forcedBlank = false;
+    fx.bgVisible = true;
+    shatter_ = 0;
+    fall_ = 0;
+    fade_ = 0;
+
+    if (scene == SceneId::Dive3) {
+        stage_ = DiveStage::Boss;
+        return StageStep{SceneAction::SpawnBoss};
+    }
+    if (scene == SceneId::Dive2) {
+        stage_ = DiveStage::S2Fight;
+        return StageStep{SceneAction::EnterStation2};
+    }
+    // The first station: back to choosing, with the pedestals live again.  The
+    // choice is inert, so it is deliberately NOT cleared -- a retry does not
+    // un-choose what was already picked.
+    stage_ = DiveStage::Pick;
+    return StageStep{};
+}
+
 }  // namespace kh

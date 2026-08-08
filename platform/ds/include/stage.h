@@ -111,6 +111,20 @@ enum class SceneAction : uint8_t {
     RaiseArmor,         // the Guard Armor comes down
     SweepGauntlets,     // its hands go with it
     HudChanged,         // the objective line or the gauge needs redrawing
+    // Destiny Islands
+    RebuildForDayTwo,   // clear, re-init the world, spawn day two's table
+    BeginNight,         // the light goes, and what comes up is not the morning
+    // The night
+    ColumnForRiku,      // delete Riku, stand a column of dark where he was
+    ColumnForKairi,     // ...and the same to her
+    ClearColumns,       // the dark thins out
+    OpenTheDoor,        // retype the Door on the wall, do NOT spawn a second
+    EnterFragment,      // load the fragment, spawn its cast, raise Darkside
+    SweepCraterShadows, // whatever the boss left behind goes with it
+    EnterTown,          // there is somewhere for him to wash up
+    // Death and retry
+    RespawnNightCast,   // re-run the night's whole table, on the island
+    RespawnFragment,    // ...or the fragment's, and raise Darkside again
 };
 
 // The scripts a stage machine opens.  Named rather than pointed at, because the
@@ -122,6 +136,11 @@ enum class ScriptId : uint8_t {
     DiveVictory, DiveWake,
     // Traverse Town
     TownWake, TownClear, TownMeet, TownWon, TownCard,
+    // Destiny Islands
+    IslandNextDay, IslandSoraWins, IslandRikuWins, IslandWhatName,
+    IslandRikuNames, IslandNamed,
+    // The night
+    NightRikuGone, NightKey, NightKairi, NightTorn, NightFragment, NightCard,
 };
 
 struct StageStep {
@@ -129,6 +148,7 @@ struct StageStep {
     ScriptId script = ScriptId::None;
     uint8_t arg = 0;            // a scene id, or whatever the action needs
 };
+
 
 // What a machine needs to see.  References, because none of it is optional and
 // a null here would be a crash in a frame loop rather than a recoverable state.
@@ -141,6 +161,21 @@ struct SceneView {
     int player = 0;             // playerIdx
     uint32_t frame = 0;         // frameCount; several effects key off its low bits
 };
+
+// Pick a spot at random, refuse it if it is on top of the player, and spawn
+// there.  Shared by the night and the Second District because it is one routine
+// in the assembly too -- SpawnShadows and TownShadows differ only in their
+// constants and in whether anything counts the arrivals.
+//
+// A Heartless arriving in your face reads as a bug rather than as a Heartless,
+// so a spot within 64 px of the player on BOTH axes is refused.  The caller
+// shortens its own timer when that happens.
+struct SpotOutcome {
+    bool spawned = false;
+    bool tooClose = false;
+};
+
+SpotOutcome spawnAtSpot(SceneView& view, const Tile* spots, int count, int cap);
 
 // ---------------------------------------------------------------------------
 // The Dive
@@ -172,6 +207,9 @@ public:
     void setStage(DiveStage s) { stage_ = s; }
     void choose(ActType taken, ActType given) { taken_ = taken; given_ = given; }
     void armShatter() { shatter_ = SHATTER_LEN; }
+    // A death rewinds to the checkpoint for whichever station is loaded, which
+    // is a per-scene stage and not a single one.  The caller re-spawns the cast.
+    StageStep restart(SceneId scene, ScreenFx& fx);
 
 private:
     StageStep shatterStep(SceneView& view, ScreenFx& fx);
@@ -234,6 +272,145 @@ private:
     int timer_ = 0;
     int spawn_ = 0;
     int spawned_ = 0;
+    const Tile* spots_ = nullptr;
+    int nSpots_ = 0;
+};
+
+// ---------------------------------------------------------------------------
+// Destiny Islands
+//
+// IDLE -> ACTIVE -> DONE -> DAYOUT -> DAYIN  (day one into day two)
+//      -> RACE_SET -> RACE_RUN -> RACE_OVER -> NAMING -> NAMED -> DUSK
+//
+// Corrections the diagram needs, all from audit finding 14 and verified against
+// island.s:
+//   - DAYIN ends at IDLE, which the diagram does not show, so day two re-enters
+//     IDLE -> ACTIVE -> DONE;
+//   - day one's DONE -> DAYOUT fires automatically with no player action once
+//     the line is dismissed;
+//   - day two's DONE -> RACE_SET needs talking to Kairi AGAIN;
+//   - RACE_OVER goes to NAMING only if Sora won.  If Riku won it jumps straight
+//     to NAMED with Excalibur forced, because he was never going to pick
+//     anything else.
+//
+// And one the diagram cannot show: THE DAY CHANGE IGNORES THE DIALOGUE BOX.
+// DayOut and DayIn are dispatched BEFORE the TextBusy check (island.s:69-76),
+// which makes them exceptions alongside the night's Tear and EndFade -- and the
+// audit's list of exceptions names only the night's two.
+// ---------------------------------------------------------------------------
+class IslandMachine {
+public:
+    void begin();
+    StageStep update(SceneView& view, ScreenFx& fx);
+
+    QuestState state() const { return state_; }
+    int day() const { return day_; }
+    int dayTimer() const { return dayTimer_; }
+    RaftName raftName() const { return raft_; }
+    // 0 while it is being run, 1 Sora, 2 Riku.  Riku wins a same-frame tie
+    // because RaceRun tests his waypoint count FIRST -- audit finding 8.
+    int raceWon() const { return raceWon_; }
+    int raceLeg() const { return leg_; }
+
+    // The gameplay gate, which is a range and not a flag: pickups, the Keyblade
+    // and conversation are live for state < RaceSet OR state == Named exactly.
+    // So Named still allows gathering -- the race takes the scene away and gives
+    // it back once the raft has a name.  island.s:114-119.
+    bool gameplayLive() const {
+        return state_ < QuestState::RaceSet || state_ == QuestState::Named;
+    }
+    // What the HUD was last told to draw, which is NOT always the current state.
+    // The day change writes Idle, refreshes the HUD, and only then writes DayIn
+    // -- so the checklist the player sees when the screen comes back is day two's
+    // empty one and not a day-change state.  island.s:215-218.
+    QuestState hudState() const { return hudState_; }
+
+    void setState(QuestState s) { state_ = s; hudState_ = s; }
+    void setDay(int d) { day_ = d; }
+    // Talking to Kairi is the island's only real input, and what it does depends
+    // entirely on where the quest has got to.  Returns what to say.
+    StageStep talkToKairi(bool haveAll);
+    // The race, driven from outside because Riku's course and Sora's collision
+    // belong to the actor layer.
+    void beginRace();
+    void setRikuWaypoint(int wp) { rikuWp_ = wp; }
+    void tagPaopu() { if (leg_ == 0) leg_ = 1; }
+    void reachHome();
+
+private:
+    StageStep dayOut(ScreenFx& fx);
+    StageStep dayIn(ScreenFx& fx);
+    StageStep dusk(ScreenFx& fx);
+    StageStep countdown();
+    StageStep raceRun();
+    StageStep afterRace();
+
+    QuestState state_ = QuestState::Idle;
+    QuestState hudState_ = QuestState::Idle;
+    int day_ = 1;
+    // ONE byte time-shared by four unrelated machines on the SNES: the DayOut
+    // fade, the DayIn fade, the Dusk fade and the race countdown.  Kept as one
+    // field here for the same reason -- four fields would let two of them be
+    // live at once, which the original could not represent and no beat needs.
+    int dayTimer_ = 0;
+    int rikuWp_ = 0;
+    int leg_ = 0;
+    int raceWon_ = 0;
+    RaftName raft_ = RaftName::None;
+};
+
+// ---------------------------------------------------------------------------
+// The night the island falls
+//
+// INTRO -> SEEK -> RIKU -> KEY -> KAIRI -> DOOR -> TEAR -> BOSS -> END -> OVER
+//
+// This is the scene ScreenFx exists for.  The lightning and the closing fade
+// both want the colour-math unit, so the flash is SUPPRESSED from END onward --
+// a strike resetting the unit back to translucent shadows undid the fade every
+// time one landed.  TEAR and END additionally run THROUGH an open dialogue box
+// rather than waiting for it, so the line about the island coming apart is on
+// screen while it does.
+// ---------------------------------------------------------------------------
+class NightMachine {
+public:
+    void begin();
+    StageStep update(SceneView& view, ScreenFx& fx);
+
+    NightStage stage() const { return stage_; }
+    int nightTimer() const { return timer_; }
+    int flashTimer() const { return flash_; }
+    int flashWait() const { return wait_; }
+    bool keyGot() const { return key_; }
+
+    void setStage(NightStage s) { stage_ = s; }
+    // Talking to Riku, and later to Kairi, is what moves the night on.
+    StageStep talkToRiku();
+    StageStep talkToKairi();
+    // A death rewinds to whichever of the two searches was in progress -- and
+    // clears the Keyblade if it had not been earned yet.  It also has to put the
+    // screen-wide effects back, because a death can land in the middle of the
+    // island coming apart.
+    StageStep restart(bool onFragment, ScreenFx& fx);
+    // Where the Shadows come up.  The night spawns them in BOTH searches and
+    // has no wave cap -- unlike the Second District, they keep arriving for as
+    // long as the search lasts.
+    void setSpots(const Tile* spots, int count) { spots_ = spots; nSpots_ = count; }
+    int spawnTimer() const { return spawn_; }
+
+private:
+    void lightning(SceneView& view, ScreenFx& fx);
+    void spawnShadows(SceneView& view);
+    StageStep column(SceneView& view, SceneAction make, NightStage next,
+                     ScriptId say);
+    StageStep tear(SceneView& view, ScreenFx& fx);
+    StageStep endFade(ScreenFx& fx);
+
+    NightStage stage_ = NightStage::Intro;
+    int timer_ = 0;
+    int flash_ = 0;
+    int wait_ = 0;
+    int spawn_ = 0;
+    bool key_ = false;
     const Tile* spots_ = nullptr;
     int nSpots_ = 0;
 };
