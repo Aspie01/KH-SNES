@@ -16,6 +16,7 @@
 .import SpawnTable
 .import IslandInit
 .import NightRestart
+.import TownRestart
 .import LoadScene
 .import TextOpen, TextBusy, TextClose
 .import HudUpdate
@@ -374,7 +375,11 @@ REACH_Y = 448
     sta TS
 
     lda sceneId
-    cmp #SCENE_NIGHT
+    cmp #SCENE_TOWN1
+    bcc :+
+    jsr TownRestart             ; the three districts
+    jmp @done
+:   cmp #SCENE_NIGHT
     bcc :+
     jsr NightRestart            ; SCENE_NIGHT and SCENE_FRAGMENT
     jmp @done

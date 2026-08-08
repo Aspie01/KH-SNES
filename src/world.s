@@ -9,12 +9,15 @@
 
 .import TryMoveActor, TileToWorld, TileHeight
 .import UpdateRiku
+.import UpdateArmor
 .import HudUpdate
 .import TextBusy
 .import soraChr
 
 .export InitWorld, UpdateWorld, SpawnActor, ClearActors, CountType, SetActorZ
 .export SpawnTable, PlayerPos, NearPlayer
+; The two pieces of the boss loop Traverse Town's own boss needs as well.
+.export AimAtPlayer, DamageSora
 ; Exported only so the scene scripts can count it against MAX_ACTORS.
 .export spawnTable, spawnTableEnd
 
@@ -339,6 +342,13 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     plx
     bra @next
 @notRiku:
+    cmp #ACT_ARMOR
+    bne @notArmor
+    phx
+    jsr UpdateArmor
+    plx
+    bra @next
+@notArmor:
     cmp #ACT_SLASH
     bne @next
     phx
@@ -816,19 +826,15 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 @loop:
     lda actType,x
     cmp #ACT_DARKSIDE
-    bne @notBoss
-    phx
-    jsr BossInRange
-    plx
-    bcc @next
-    phx
-    jsr HurtBoss
-    plx
-    bra @next
-@notBoss:
+    beq @bossDS
+    cmp #ACT_ARMOR
+    beq @bossGA
     cmp #ACT_SHADOW
     bne @next
-    ldy keyGot
+    ; Eight-bit deliberately: saidNoUse is the byte after keyGot, so a 16-bit
+    ; load of it starts reading "he has already been told the sword is no use"
+    ; as "he has the Keyblade".
+    lda keyGot
     beq @next                   ; a wooden sword goes straight through them
     phx
     jsr HeartlessInRange
@@ -837,6 +843,32 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     phx
     jsr HurtHeartless
     plx
+    bra @next
+
+    ; Both bosses answer to the same test, with their own extents: the Guard
+    ; Armor's torso is the narrower of the two.
+@bossDS:
+    ldy #0
+    bra @bossHit
+@bossGA:
+    ldy #2
+@bossHit:
+    rep #$20
+    .a16
+    lda bossHurtX,y
+    sta tmp2
+    lda bossHurtY,y
+    sta tmp3
+    sep #$20
+    .a8
+    phx
+    jsr BossInRange
+    plx
+    bcc @next
+    phx
+    jsr HurtBoss
+    plx
+
 @next:
     inx
     cpx #MAX_ACTORS
@@ -845,7 +877,8 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 .endproc
 
 ;-----------------------------------------------------------------------------
-; BossInRange / HurtBoss -- In (A8/I16): X = actor index.
+; BossInRange / HurtBoss -- In (A8/I16): X = actor index, tmp0/tmp1 = the hit
+; centre, tmp2/tmp3 = the half-extents of this boss's hurt box.
 ;-----------------------------------------------------------------------------
 .proc BossInRange
     .a8
@@ -862,7 +895,7 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     bpl :+
     eor #$FFFF
     inc a
-:   cmp #DS_HURT_X
+:   cmp tmp2
     bcs @miss
     lda actY,x
     sec
@@ -870,7 +903,7 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     bpl :+
     eor #$FFFF
     inc a
-:   cmp #DS_HURT_Y
+:   cmp tmp3
     bcs @miss
     sep #$20
     .a8
@@ -2214,6 +2247,11 @@ fishVel:    .word FISH_SWIM, .loword(-FISH_SWIM)
 ; Screen offsets of the three arcs the sweep leaves behind, Q12.4.
 sweepOfs:   .word .loword(-384), 0, 384
 
+; What each boss can be hit within, Q12.4 half-extents: Darkside, then the
+; Guard Armor, whose torso is narrower and does not reach as far forward.
+bossHurtX:  .word DS_HURT_X, GA_HURT_X
+bossHurtY:  .word DS_HURT_Y, GA_HURT_Y
+
 ; (vertical bucket * 3 + horizontal bucket) -> facing; $FF means "standing".
 dirTable:   .byte DIR_NW, DIR_N, DIR_NE
             .byte DIR_W,  $FF,   DIR_E
@@ -2235,6 +2273,9 @@ typeTile:   .byte $00, TILE_SORA,  TILE_HEART0, TILE_PALM,  TILE_ROCKBIG, TILE_R
             .byte TILE_DOOR, TILE_FACES, TILE_SCRIBBLE
             ; the night
             .byte TILE_DOOROPEN, TILE_DARK
+            ; Traverse Town
+            .byte TILE_CID, TILE_TOWNMAN, TILE_TOWNWOMAN, TILE_LAMP
+            .byte TILE_DONALD, TILE_GOOFY, TILE_ARMOR, TILE_GAUNTLET
 typeTileEnd:
 typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_FX
             .byte PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_HEART
@@ -2248,13 +2289,17 @@ typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE
             .byte PAL_OBJ_SCENE
             .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
             .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE
+            ; the town's cast shares OBJ palette 1; the Guard Armor gets the
+            ; slot the palms and rocks usually have, since neither is in it
+            .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
+            .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_SCENE, PAL_OBJ_SCENE
 typePalEnd:
 typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LARGE|AF_SHADOW, AF_SHADOW, $00
             ; the weapons hover, so they cast no shadow of their own
             .byte AF_LARGE|AF_SHADOW, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK
-            ; the boss is drawn by EmitBoss, so it carries no sprite flags of
-            ; its own -- only its shadow.  Orbs float, so no shadow either.
-            .byte AF_SHADOW
+            ; the boss is emitted as four sprites by EmitBoss, so AF_HUGE keeps
+            ; the ordinary path off it.  Orbs float, so no shadow either.
+            .byte AF_HUGE|AF_SHADOW
             .byte $00
             ; motes are pure light, so no shadow
             .byte $00
@@ -2279,6 +2324,16 @@ typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LAR
             ; ground and throws no shadow of its own
             .byte AF_LARGE|AF_TALK|AF_PAGE1|AF_FLAT
             .byte AF_LARGE|AF_PAGE1
+            ; the town: three residents, a lamp post, and the two who arrive
+            .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
+            .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
+            .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
+            .byte AF_LARGE|AF_SHADOW|AF_PAGE1
+            .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
+            .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
+            ; the Guard Armor is emitted as four sprites, like Darkside
+            .byte AF_HUGE|AF_SHADOW|AF_PAGE1
+            .byte AF_LARGE|AF_PAGE1
 typeFlagsEnd:
 typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
             .byte $00, $00, $00, $00, DS_MAX_HP
@@ -2289,15 +2344,16 @@ typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
             .byte $00, $00, $00, $00
             .byte $00, $00, $00, $00
             .byte $00, $00
+            .byte $00, $00, $00, $00, $00, $00, GA_MAX_HP, $00
 
 typeHPEnd:
 
 ; A type added to game.inc without a row in every table would spawn with
 ; whatever byte happens to follow, so make the assembler check.
-.assert (typeTileEnd  - typeTile)  = (ACT_DARK + 1), error, "typeTile"
-.assert (typePalEnd   - typePal)   = (ACT_DARK + 1), error, "typePal"
-.assert (typeFlagsEnd - typeFlags) = (ACT_DARK + 1), error, "typeFlags"
-.assert (typeHPEnd    - typeHP)    = (ACT_DARK + 1), error, "typeHP"
+.assert (typeTileEnd  - typeTile)  = (ACT_GAUNTLET + 1), error, "typeTile"
+.assert (typePalEnd   - typePal)   = (ACT_GAUNTLET + 1), error, "typePal"
+.assert (typeFlagsEnd - typeFlags) = (ACT_GAUNTLET + 1), error, "typeFlags"
+.assert (typeHPEnd    - typeHP)    = (ACT_GAUNTLET + 1), error, "typeHP"
 
 ; type, tile i, tile j -- terminated by $FF
 ; Sora wakes on the sand. No Heartless: they arrive the night the island

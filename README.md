@@ -44,6 +44,24 @@ Keyblade arrives too late for Kairi. The island tears apart, and what is left of
 it is one scrap of ground with Darkside standing on it. See
 `docs/DESTINY_ISLANDS.md`.
 
+![Traverse Town](docs/screenshot-town.png)
+
+Beat that and the islands are gone, and he washes up face down on wet stone in
+**Traverse Town** — three districts of one screen each, joined by doors. The
+First District has a shop row with one light still on and somebody behind it who
+will tell you which way to go. The Second has the fountain, and the Heartless,
+and a door on the far side that will not open while the square behind you is
+still moving.
+
+![The Guard Armor](docs/screenshot-guardarmor.png)
+
+The Third District is where the roof comes down. Two people fall out of the sky
+and land in the square, and then so does the **Guard Armor** — a suit of armour
+with nobody in it that holds station at the head of the square, follows you left
+and right, and drops a fist where you are standing. It is 64× 64 like Darkside,
+and its two hands are separate actors so the depth sort draws them in front of
+its own torso. See `docs/TRAVERSE_TOWN.md`.
+
 ## Build
 
 Needs `cc65` (for `ca65`/`ld65`), Python 3 and Pillow.
@@ -58,7 +76,7 @@ make assets     # regenerate art and map binaries only
 make clean
 ```
 
-The output is `kh.sfc` — 256 KiB, LoROM, FastROM, with a valid header and
+The output is `kh.sfc` — 512 KiB, LoROM, FastROM, with a valid header and
 internal checksum.
 
 ## Play
@@ -182,11 +200,26 @@ three things use it:
 - **Register widths, checked at build time.** On the 65816 `LDA #` is two bytes
   with an eight-bit accumulator and three with a sixteen-bit one, and the
   assembler only knows which from the `.a8` / `.a16` directives it was given.
-  Those are sequential, so a `.a16` block ending in a branch leaves the
-  assembler sizing the *other* branch's immediates wrongly — and the spare byte
-  it emits is a `BRK` the CPU walks into. `tools/check_modes.py` walks every
-  branch target with the widths the CPU will really arrive with and fails the
-  build on a disagreement. It has earned its keep.
+  Those directives are sequential and control flow is not, so a `.a16` stretch
+  that ends in a `jmp` leaves everything after it assembled sixteen-bit — and
+  the spare byte the assembler emits is a `BRK` the CPU walks into, after which
+  every following byte is a misaligned instruction and the damage lands wherever
+  those bytes happen to address. That is six debugging sessions on this project,
+  the last of them a black screen in the Second District.
+  `tools/check_modes.py` therefore does not guess: for each `.proc` it walks the
+  control-flow graph from the entry — fall-through, branch and jump edges —
+  carrying the widths the CPU actually has, which only `rep` and `sep` change,
+  and fails the build on any reachable immediate whose assembled size disagrees.
+  Two earlier versions compared a branch against its target instead; that finds
+  a disagreement between the two, which is not the same thing, and it is exactly
+  what let the last one through — the branch and its target agreed with each
+  other and were both wrong.
+- **A world for four binaries a room.** Traverse Town's three districts are the
+  same 32×16 grid the island is, so a district is characters, tilemap, collision
+  and height and nothing else — and the doors between them are a seven-byte
+  table row, not three special cases. Which stage the town has to have reached
+  for a given door to open is in the same row, so the place is gated without a
+  lock flag anywhere.
 - **FastROM** in banks `$80+`, LoROM mapping.
 
 ## Layout
@@ -201,6 +234,7 @@ src/
   dive.s        Station of Awakening: script, pedestals, weapon choice
   island.s      Destiny Islands: the two days, the race, the Secret Place
   night.s       the night it falls, and the last piece of it
+  town.s        Traverse Town: three districts, the doors, the Guard Armor
   text.s        dialogue window, typewriter reveal, yes/no prompts
   hud.s         HP gauge on BG3
   pad.s         controller input
@@ -210,25 +244,38 @@ tools/
   build_assets.py   all art and map data (original pixel art, drawn in code)
   pixel.py          canvas, palettes, SNES tile/palette encoders
   fixrom.py         internal checksum
-  check_map.py      flood-fills both maps against every spawn point
+  check_map.py      flood-fills every map against every spawn point
   check_modes.py    finds immediates assembled at the wrong register width
   playtest.sh       scripted input + screenshots
   recframes.py      frame extraction from a mednafen recording
 assets/
   island.txt        the play space, editable as plain text
   fragment.txt      what is left of it after the island comes apart
+  town1.txt         Traverse Town, First District
+  town2.txt         ...Second, with the fountain
+  town3.txt         ...Third, where it comes down on them
   src/              indexed PNG previews (editable, re-importable)
+docs/
+  DESTINY_ISLANDS.md   what the two days and the night contain
+  TRAVERSE_TOWN.md     the three districts, the doors, the Guard Armor
 ```
 
 ## ROM budget
 
 | Segment | Bank | Size |
 | --- | --- | --- |
-| CODE + RODATA | `$80` | 3.6 KiB |
-| BG graphics + HUD font | `$81` | 3.8 KiB |
-| Sprite page | `$82` | 8 KiB |
-| Tilemap, collision, palettes | `$83` | 4.8 KiB |
+| CODE + RODATA | `$80` | 20.4 KiB |
+| Island BG graphics + HUD font | `$81` | 9.6 KiB |
+| Sprite pages (three cuts of one VRAM page) | `$82` | 24 KiB |
+| Tilemaps, collision, height, palettes | `$83` | 6.7 KiB |
 | Sora animation sheet | `$84` | 15 KiB |
+| Stations of Awakening | `$85`-`$87` | 3 × ~12.5 KiB |
+| The last piece of the island | `$88` | 8.5 KiB |
+| Traverse Town, districts one and two | `$89` | 14.7 KiB |
+| ...and three | `$8A` | 7 KiB |
+
+Five banks of the sixteen are still empty, and `kh.cfg` names them, so the next
+world is a segment and an `.incbin` rather than a relink of everything.
 
 VRAM is fully mapped: BG1 characters at `$0000` (512 tiles -- the stained glass
 needs 258 of them where the island's terrain folds to 244), the 2bpp font at
@@ -262,23 +309,37 @@ B  bridge +1      L  step +1         P  deck +2   H  treehouse +2
 M  trunk +2       K  treetop +3       *  the dark (fragment.txt only)
 ```
 
-Actor spawns live in `spawnTable` at the bottom of `src/world.s` and in
-`day1Spawns` / `day2Spawns` in `src/island.s`, all in tile coordinates.
-`tools/check_map.py` flood-fills the map with the engine's own one-step rule and
-fails if any of them has become unreachable, which is cheaper than finding out
-by playing.
+Traverse Town's three districts are the same format, in `assets/town1.txt`,
+`town2.txt` and `town3.txt`, with their own vocabulary:
+
+```
+c  cobbles        p  paving under a lamp   s  step +1     q  raised walkway +2
+w  building +3    e  ...with a lit window  o  roof +3     d  a doorway
+x  crates         l  a lamp post           n  parapet     v  fountain water
+```
+
+A doorway has to sit in the bottom row of a building block with open ground to
+the south -- that is the only row of one that shows a face, so it is the only row
+a door can be painted into.
+
+Actor spawns live in `spawnTable` at the bottom of `src/world.s`, in
+`day1Spawns` / `day2Spawns` in `src/island.s`, and in `town1Spawns` and friends
+in `src/town.s`, all in tile coordinates. `tools/check_map.py` flood-fills every
+map with the engine's own one-step rule and fails if any spawn, or either side of
+any door, has become unreachable -- which is cheaper than finding out by
+playing.
 
 ## Roadmap
 
 The slice is bounded by one constraint: a 64×32 tilemap is 512×256 pixels, so
 the whole world fits in VRAM with no streaming. In rough order:
 
-1. **Traverse Town** — the first world after the islands, and the first one
-   that needs somewhere to *put* a world: interiors, doors between rooms, and an
-   inventory that survives a scene change.
+1. **Traverse Town interiors** — the districts are in; the shops, the accessory
+   counter and an inventory that survives a scene change are not. The door table
+   already takes them: a room is a text map and three lines of data.
 2. **Tilemap streaming** — upload columns and rows as the camera crosses tile
-   boundaries, which lifts the world-size ceiling entirely and is what a second
-   world would need.
+   boundaries, which lifts the world-size ceiling entirely and is what a world
+   bigger than one screen a room would need.
 3. **Dive polish** — Sora's death is a dim and a retry; a proper collapse and a
    CONTINUE / QUIT choice would sell it better.
 4. **Combat depth** — three-hit ground combo, lock-on targeting, MP and a magic

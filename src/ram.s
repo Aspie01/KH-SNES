@@ -118,6 +118,18 @@ flashTimer:   .res 1            ; lightning: counts down through a flash
 flashWait:    .res 2            ; ...and then to the next one
 keyGot:       .res 1            ; 0 until the Keyblade comes; nothing connects
 saidNoUse:    .res 1            ; the line about the sword, said once
+
+; Traverse Town
+townStage:    .res 1            ; T_ARRIVE .. T_OVER
+townTimer:    .res 1
+townKills:    .res 1            ; Heartless the Second District has sent so far
+doorTimer:    .res 1            ; frames left in a door transition
+doorTo:       .res 1            ; ...and the doorTable row being walked through
+; The tile Sora stood on last frame.  A door fires on the step onto it rather
+; than on standing there, so a bolted one says its line once instead of every
+; frame the player leans on it.
+lastTileI:    .res 1
+lastTileJ:    .res 1
 curActor:     .res 2            ; actor being updated, survives calls that use tmp*
 
 .segment "BSS"

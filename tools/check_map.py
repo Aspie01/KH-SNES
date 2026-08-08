@@ -85,6 +85,52 @@ FRAGMENT = {
 }
 
 
+# Traverse Town.  Three districts joined by doors, and a door is a walkable
+# tile in an otherwise solid row -- so a wrong character does not wall off a
+# corner of one map, it strands the player in a district with no way out.
+# Every door here is checked from both sides: the tile itself, and the tile on
+# the far side that town.s stands Sora on after the swap.
+TOWN1 = {
+    "Sora": (14, 12),
+    "Cid": (23, 6),
+    "a townsman": (8, 9),
+    "a townswoman": (18, 13),
+    "the door to the Second District": (25, 4),
+    "the landing from the Second District": (25, 5),
+}
+
+TOWN2 = {
+    "Sora": (26, 5),
+    "the door back to the First District": (26, 4),
+    "the landing from the First District": (26, 5),
+    "the door to the Third District": (5, 4),
+    "the landing from the Third District": (5, 5),
+    "shadow spot 1": (6, 6),
+    "shadow spot 2": (20, 6),
+    "shadow spot 3": (9, 9),
+    "shadow spot 4": (22, 9),
+    "shadow spot 5": (6, 12),
+    "shadow spot 6": (24, 12),
+    "shadow spot 7": (16, 13),
+    "shadow spot 8": (11, 11),
+}
+
+TOWN3 = {
+    "Sora": (16, 5),
+    "the door back to the Second District": (16, 4),
+    "the landing from the Second District": (16, 5),
+    "Donald": (14, 9),
+    "Goofy": (18, 9),
+    "the Guard Armor": (16, 7),
+}
+
+# The lamp posts stand on their own blocked tiles, so like the palms they are
+# checked for a walkable neighbour rather than for being stood on.
+TOWN1_NEAR = {"lamp (west)": (3, 7), "lamp (east)": (27, 7)}
+TOWN2_NEAR = {"lamp (west)": (3, 7), "lamp (east)": (28, 7)}
+TOWN3_NEAR = {"lamp (west)": (7, 7), "lamp (east)": (24, 7)}
+
+
 def check(label: str, grid: list[str], spawn: tuple[int, int],
           reach: dict, adjacent: dict) -> int:
     """Flood-fill one map with the engine's rule and check every spawn point."""
@@ -141,6 +187,10 @@ def main() -> int:
     bad = check("island", load_grid(), SPAWN, REACH, ADJACENT)
     bad |= check("fragment", load_grid("fragment.txt"), FRAGMENT["Sora"],
                  FRAGMENT, {})
+    for name, reach, near in (("town1", TOWN1, TOWN1_NEAR),
+                              ("town2", TOWN2, TOWN2_NEAR),
+                              ("town3", TOWN3, TOWN3_NEAR)):
+        bad |= check(name, load_grid(f"{name}.txt"), reach["Sora"], reach, near)
     return bad
 
 

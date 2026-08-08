@@ -21,12 +21,18 @@
 .import DiveInit, DiveUpdate, GameOverUpdate
 .import IslandUpdate
 .import NightUpdate
+.import TownUpdate
+.import NightBegin
 
 .import bgChr, bgChrEnd
 .import objChr, objChrEnd, obj2Chr, obj2ChrEnd
 .import hudChr, hudChrEnd
 .import bgPal, objPal, hudPal, islePal, nightPal, nightObjPal
+.import townPal, townObjPal, objTownChr, objTownChrEnd
 .import fragChr, fragChrEnd, fragMap, fragColl, fragHeight
+.import town1Chr, town1ChrEnd, town1Map, town1Coll, town1Height
+.import town2Chr, town2ChrEnd, town2Map, town2Coll, town2Height
+.import town3Chr, town3ChrEnd, town3Map, town3Coll, town3Height
 .import bg1Map, collMap, heightMap, flatHeights
 .import diveChr, diveChrEnd, diveMap, diveColl, divePal
 .import dive2Chr, dive2ChrEnd, dive2Map, dive2Coll
@@ -307,6 +313,12 @@ MainLoop:
     beq @toNight
     cmp #SCENE_FRAGMENT
     beq @toFrag
+    cmp #SCENE_TOWN1
+    beq @toTown1
+    cmp #SCENE_TOWN2
+    beq @toTown2
+    cmp #SCENE_TOWN3
+    beq @toTown3
     jmp @dive1
 @toDive2:
     jmp @dive2
@@ -318,6 +330,12 @@ MainLoop:
     jmp @night
 @toFrag:
     jmp @fragment
+@toTown1:
+    jmp @town1
+@toTown2:
+    jmp @town2
+@toTown3:
+    jmp @town3
 
     ;--- Station of Awakening, first platform ---
 @dive1:
@@ -458,6 +476,81 @@ MainLoop:
     sta camHiY
     sep #$20
     .a8
+    jmp @common
+
+    ;--- Traverse Town -----------------------------------------------------
+    ; Three districts of one screen each, differing only in which four
+    ; binaries they pull.  The town's cast replaces the islanders on the
+    ; second sprite page, and its two OBJ palettes land over the two the
+    ; island was using -- palette 1 carries the Heartless colours in the same
+    ; three slots the night put them in, so TILE_HEART_NIGHT is the right cut
+    ; here too and costs nothing.
+@town1:
+    DMA_VRAM VRAM_BG1_CHR, town1Chr, (town1ChrEnd - town1Chr)
+    DMA_VRAM VRAM_BG1_MAP, town1Map, 4096
+    lda #<town1Coll
+    sta collPtr
+    lda #>town1Coll
+    sta collPtr+1
+    lda #^town1Coll
+    sta collPtr+2
+    lda #<town1Height
+    sta heightPtr
+    lda #>town1Height
+    sta heightPtr+1
+    lda #^town1Height
+    sta heightPtr+2
+    jmp @townCommon
+
+@town2:
+    DMA_VRAM VRAM_BG1_CHR, town2Chr, (town2ChrEnd - town2Chr)
+    DMA_VRAM VRAM_BG1_MAP, town2Map, 4096
+    lda #<town2Coll
+    sta collPtr
+    lda #>town2Coll
+    sta collPtr+1
+    lda #^town2Coll
+    sta collPtr+2
+    lda #<town2Height
+    sta heightPtr
+    lda #>town2Height
+    sta heightPtr+1
+    lda #^town2Height
+    sta heightPtr+2
+    jmp @townCommon
+
+@town3:
+    DMA_VRAM VRAM_BG1_CHR, town3Chr, (town3ChrEnd - town3Chr)
+    DMA_VRAM VRAM_BG1_MAP, town3Map, 4096
+    lda #<town3Coll
+    sta collPtr
+    lda #>town3Coll
+    sta collPtr+1
+    lda #^town3Coll
+    sta collPtr+2
+    lda #<town3Height
+    sta heightPtr
+    lda #>town3Height
+    sta heightPtr+1
+    lda #^town3Height
+    sta heightPtr+2
+
+@townCommon:
+    DMA_CGRAM 0, townPal, 256
+    DMA_VRAM VRAM_OBJ2_CHR, objTownChr, (objTownChrEnd - objTownChr)
+    DMA_CGRAM (128 + 16), townObjPal, 64
+    lda #TILE_HEART_NIGHT
+    sta heartTile
+    rep #$20
+    .a16
+    stz camLoX
+    stz camLoY
+    lda #CAM_MAX_X
+    sta camHiX
+    lda #CAM_MAX_Y
+    sta camHiY
+    sep #$20
+    .a8
 
 @common:
     ; The scene's BG palette covers CGRAM 0-127, so the HUD's four colours
@@ -518,7 +611,11 @@ MainLoop:
     ; the dive has reached its terminal state.
 @alive:
     lda sceneId
-    cmp #SCENE_NIGHT
+    cmp #SCENE_TOWN1
+    bcc :+
+    jsr TownUpdate              ; the three districts
+    rts
+:   cmp #SCENE_NIGHT
     bcc :+
     jsr NightUpdate             ; SCENE_NIGHT and SCENE_FRAGMENT
     rts

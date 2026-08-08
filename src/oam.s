@@ -227,17 +227,22 @@ OAM_HIDE_Y = $E0        ; 224: a 32-tall sprite here ends at 255 and never
     sep #$20
     .a8
     lda actType,x
+    beq @step
+    lda actFlags,x
+    and #AF_HUGE
+    bne @found
+@step:
     rep #$20
     .a16
-    and #$00FF
-    cmp #ACT_DARKSIDE
-    beq @found
     inx
     cpx #MAX_ACTORS
     bcc @scan
     rts
 
 @found:
+    rep #$20
+    .a16
+
     stx tmp3                    ; actor index, for WriteOamRaw
     txa
     asl a
@@ -259,6 +264,24 @@ OAM_HIDE_Y = $E0        ; 224: a 32-tall sprite here ends at 255 and never
     sbc camY
     sta tmp9
 
+    ; A boss rides its height the same way anything else does, which is what
+    ; lets one arrive by coming down out of the air rather than appearing.
+    ldy tmp3
+    sep #$20
+    .a8
+    lda actZ,y
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    asl a
+    asl a                       ; height * 8 pixels
+    sta tmp2
+    lda tmp9
+    sec
+    sbc tmp2
+    sta tmp9
+
     ; Flash while it is flinching.  Set once: WriteOamRaw reads tmp6 but never
     ; writes it, and Y is the quadrant cursor from here on.
     sep #$20
@@ -270,7 +293,7 @@ OAM_HIDE_Y = $E0        ; 224: a 32-tall sprite here ends at 255 and never
     and #$02
     bne @flashPal
 @normalPal:
-    lda #PAL_OBJ_HEART
+    lda actPal,y                ; whichever palette this one was spawned with
     bra @setPal
 @flashPal:
     lda #PAL_OBJ_FX
@@ -305,7 +328,20 @@ OAM_HIDE_Y = $E0        ; 224: a 32-tall sprite here ends at 255 and never
     cmp #(SCREEN_W + 32)
     bcs @next
 
-    lda quadT,y
+    ; The four quadrants sit at +0 +4 over +$40 +$44 from the actor's own
+    ; tile base, which is what makes this work for anything 64x64 rather than
+    ; only for Darkside.
+    phy
+    ldy tmp3
+    sep #$20
+    .a8
+    lda actTile,y
+    rep #$20
+    .a16
+    and #$00FF
+    ply
+    clc
+    adc quadT,y
     sta tmp2
     lda #$0002                  ; each quadrant is a large (32x32) sprite
     sta tmp5
@@ -324,7 +360,7 @@ OAM_HIDE_Y = $E0        ; 224: a 32-tall sprite here ends at 255 and never
 ; Quadrant offsets from the boss's feet, and the tile each one starts at.
 quadX: .word .loword(-32), .loword(0), .loword(-32), .loword(0)
 quadY: .word .loword(-64), .loword(-64), .loword(-32), .loword(-32)
-quadT: .word TILE_DARKSIDE, TILE_DARKSIDE+$04, TILE_DARKSIDE+$40, TILE_DARKSIDE+$44
+quadT: .word $0000, $0004, $0040, $0044
 
 ;-----------------------------------------------------------------------------
 ; EmitActorSprite -- In: X = actor index.  A16/I16.
@@ -360,6 +396,13 @@ quadT: .word TILE_DARKSIDE, TILE_DARKSIDE+$04, TILE_DARKSIDE+$40, TILE_DARKSIDE+
     ldy tmp3
     sep #$20
     .a8
+    lda actFlags,y
+    and #AF_HUGE
+    beq :+
+    rep #$20                    ; EmitBoss draws this one, as four sprites
+    .a16
+    rts
+:
     lda actZ,y
     rep #$20
     .a16

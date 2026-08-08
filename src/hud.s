@@ -13,7 +13,7 @@
 .include "macros.inc"
 .include "text.inc"
 
-.import NightStageLabel
+.import NightStageLabel, TownStageLabel
 
 .export HudInit, HudUpdate
 
@@ -31,6 +31,11 @@ QUEST_ROW2     = 128            ; ...and the third, which day two needs
 BOSS_LABEL_X   = 1
 BOSS_BAR_X     = 11
 BOSS_BAR_CELLS = 18             ; 18 cells * 2 = DS_MAX_HP
+; The Guard Armor has a longer name and the same length of fight, so its bar
+; starts further along the row.  Both are runtime values, not the constants
+; the cell writes used to be built from.
+ARMOR_BAR_X    = 13             ; caps at 12 and 31: the row exactly
+ARMOR_BAR_CELLS = 18            ; 18 cells * 2 = GA_MAX_HP
 
 ; The second row does double duty: a boss gauge in the Dive, and Kairi's
 ; checklist on the island.  Offsets are into the label string, which starts
@@ -177,66 +182,126 @@ RACE_COUNT     = 6              ; where the countdown digit sits
     sep #$20
     .a8
     lda sceneId
-    cmp #SCENE_NIGHT
+    cmp #SCENE_TOWN1
+    bcc :+
+    jmp @townrow
+:   cmp #SCENE_NIGHT
     beq @nightrow
     cmp #SCENE_ISLAND
-    bne @bossgauge
-    lda questState
-    beq @flag                   ; she has not asked yet
+    beq :+
+    jmp @bossgauge
+:   lda questState
+    beq @toFlag                 ; she has not asked yet
     cmp #Q_RACE_SET
     bcc @list                   ; the checklist, until the race takes over
     jsr DrawRace
-    bra @flag
+    bra @toFlag
 @list:
     cmp #Q_DAYOUT
-    bcs @flag                   ; the day is turning over
+    bcs @toFlag                 ; the day is turning over
     jsr DrawQuest
-    bra @flag
+    bra @toFlag
 
 @nightrow:
     jsr DrawNight
-    bra @flag
+
+    ; The boss gauge is long enough now that the end of the row is out of a
+    ; short branch's reach from up here.
+@toFlag:
+    jmp @flag
+
+    ; The town's row is the objective until something with a gauge turns up.
+@townrow:
+    lda bossHP
+    bne @bossgauge
+    jsr DrawTown
+    bra @toFlag
 
 @bossgauge:
     lda bossHP
-    beq @flag
-    rep #$20
+    bne :+
+    jmp @flag
+:   rep #$20
     .a16
     and #$00FF
     sta tmp4
 
-    ldx #0
+    ; Which boss, and therefore where its bar starts.  Only Traverse Town has
+    ; a second one, so the scene decides.
+    sep #$20
+    .a8
+    lda sceneId
+    cmp #SCENE_TOWN1
+    bcs @armor
+    rep #$20
+    .a16
+    lda #.loword(bossName)
+    sta tmp9
+    lda #BOSS_BAR_X
+    sta tmp8
+    lda #BOSS_BAR_CELLS
+    sta tmp3
+    bra @named
+@armor:
+    rep #$20
+    .a16
+    lda #.loword(armorName)
+    sta tmp9
+    lda #ARMOR_BAR_X
+    sta tmp8
+    lda #ARMOR_BAR_CELLS
+    sta tmp3
+
+@named:
+    ldy #0
 @label:
     sep #$20
     .a8
-    lda bossName,x
+    lda (tmp9),y
+    cmp #$FF
     beq @caps
     rep #$20
     .a16
     and #$00FF
     ora #HUD_ATTR
     sta tmp6
-    txa
+    tya
     asl a
     clc
     adc #(BOSS_ROW + BOSS_LABEL_X * 2)
-    tay
+    tax
     lda tmp6
-    sta hudRow,y
-    inx
+    sta hudRow,x
+    iny
     bra @label
 
 @caps:
     rep #$20
     .a16
+    lda tmp8                    ; one cell before the bar
+    dec a
+    asl a
+    clc
+    adc #BOSS_ROW
+    tax
     lda #(HUD_ATTR | CH_BAR_L)
-    sta hudRow + BOSS_ROW + (BOSS_BAR_X - 1) * 2
+    sta hudRow,x
+    lda tmp8                    ; ...and one after it
+    clc
+    adc tmp3
+    asl a
+    clc
+    adc #BOSS_ROW
+    tax
     lda #(HUD_ATTR | CH_BAR_R)
-    sta hudRow + BOSS_ROW + (BOSS_BAR_X + BOSS_BAR_CELLS) * 2
+    sta hudRow,x
 
-    lda #(BOSS_ROW + BOSS_BAR_X * 2)
+    lda tmp8
+    asl a
+    clc
+    adc #BOSS_ROW
     sta tmp0
-    lda #BOSS_BAR_CELLS
+    lda tmp3
     sta tmp1
     jsr DrawGauge
 
@@ -331,6 +396,31 @@ RACE_COUNT     = 6              ; where the countdown digit sits
     asl a
     tax
     lda nightLines,x
+    sta tmp7
+    lda #BOSS_ROW
+    sta tmp8
+    sep #$20
+    .a8
+    jmp PutLabel
+@out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; DrawTown -- which district Traverse Town wants him in.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc DrawTown
+    .a8
+    .i16
+    jsr TownStageLabel
+    cmp #$FF
+    beq @out                    ; mid-cutscene: leave the row empty
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda townLines,x
     sta tmp7
     lda #BOSS_ROW
     sta tmp8
@@ -488,8 +578,21 @@ nightRiku:
 nightCave:
     TXTSTR "THE SECRET PLACE"
 
+; Traverse Town, indexed by what TownStageLabel returns.
+townLines:
+    .word .loword(townCid), .loword(townSecond), .loword(townThird)
+townCid:
+    TXTSTR "FIND SOMEBODY AWAKE"
+townSecond:
+    TXTSTR "THE SECOND DISTRICT"
+townThird:
+    TXTSTR "THE THIRD DISTRICT"
+
+; Boss names.  The gauge writes these itself rather than going through
+; PutLabel, because it has to know where the name ends to put the bar after
+; it -- and a space is CH_BLANK, which is zero, so the run ends on $FF like
+; every other one here rather than on the first gap in the name.
 bossName:
-    .byte CH_A + 'D' - 'A', CH_A + 'A' - 'A', CH_A + 'R' - 'A'
-    .byte CH_A + 'K' - 'A', CH_A + 'S' - 'A', CH_A + 'I' - 'A'
-    .byte CH_A + 'D' - 'A', CH_A + 'E' - 'A'
-    .byte $00
+    TXTSTR "DARKSIDE"
+armorName:
+    TXTSTR "GUARD ARMOR"

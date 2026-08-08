@@ -16,7 +16,7 @@ BUILD   := build
 
 SRCS    := src/main.s src/nmi.s src/pad.s src/grid.s src/oam.s \
            src/world.s src/hud.s src/text.s src/dive.s src/island.s \
-           src/night.s src/ram.s src/header.s src/gfxdata.s
+           src/night.s src/town.s src/ram.s src/header.s src/gfxdata.s
 OBJS    := $(patsubst src/%.s,$(BUILD)/%.o,$(SRCS))
 
 ASFLAGS := --cpu 65816 -I src -g
@@ -34,10 +34,18 @@ GEN     := assets/gen/bgchr.bin assets/gen/bg1map.bin assets/gen/collmap.bin \
            assets/gen/islepal.bin assets/gen/nightpal.bin \
            assets/gen/nightobjpal.bin assets/gen/fragchr.bin \
            assets/gen/fragmap.bin assets/gen/fragcoll.bin \
-           assets/gen/fragheight.bin
+           assets/gen/fragheight.bin assets/gen/townpal.bin \
+           assets/gen/townobjpal.bin assets/gen/objtownchr.bin \
+           assets/gen/town1chr.bin assets/gen/town1map.bin \
+           assets/gen/town1coll.bin assets/gen/town1height.bin \
+           assets/gen/town2chr.bin assets/gen/town2map.bin \
+           assets/gen/town2coll.bin assets/gen/town2height.bin \
+           assets/gen/town3chr.bin assets/gen/town3map.bin \
+           assets/gen/town3coll.bin assets/gen/town3height.bin
 
 ASSET_SRC := tools/build_assets.py tools/pixel.py assets/island.txt \
-             assets/fragment.txt
+             assets/fragment.txt assets/town1.txt assets/town2.txt \
+             assets/town3.txt
 
 .PHONY: all assets check run clean
 

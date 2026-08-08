@@ -37,8 +37,13 @@
 .import HudUpdate
 .import ClearActors, SpawnActor, SpawnTable, PlayerPos, NearPlayer, CountType
 .import LoadScene
+.import TownBegin
 
 .export NightBegin, NightUpdate, NightRestart, NightStageLabel
+; The storm's two utilities are general enough that Traverse Town wants them:
+; putting the colour-math unit back the way the engine expects it, and a
+; sixteen-bit LFSR for deciding where the next Heartless comes up.
+.export ShadowMath, Rand
 
 .segment "CODE"
 
@@ -208,7 +213,10 @@
 :   cmp #N_BOSS
     bne :+
     jmp WatchBoss
-:   rts                         ; N_OVER: the card stays up
+:
+    ; N_OVER, and the card has just been dismissed.  There is somewhere for
+    ; him to wash up.
+    jmp TownBegin
 .endproc
 
 ;=============================================================================

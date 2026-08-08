@@ -87,6 +87,28 @@ BG_NIGHT = [
     (16, 16, 30),       # 15 outline
 ]
 
+# Traverse Town.  It is always night there, and the light comes from lamps and
+# from shop windows with somebody still behind them, so the ground is cold
+# blue-grey where nothing is lit and warm where something is.
+BG_TOWN = [
+    (10, 12, 28),       # 0  the sky between the roofs
+    (116, 120, 148),    # 1  cobble light
+    (88, 92, 120),      # 2  cobble mid
+    (62, 66, 92),       # 3  cobble dark
+    (152, 130, 104),    # 4  paving light -- the warm ring under a lamp
+    (118, 100, 80),     # 5  paving mid
+    (84, 70, 58),       # 6  paving dark
+    (196, 180, 152),    # 7  plaster light
+    (150, 134, 112),    # 8  plaster mid
+    (100, 88, 76),      # 9  plaster dark
+    (128, 84, 52),      # 10 timber light
+    (86, 54, 36),       # 11 timber dark
+    (252, 216, 120),    # 12 lamplight, and a window with someone behind it
+    (40, 60, 104),      # 13 deep shadow, and the water in the fountain
+    (236, 240, 248),    # 14 highlight
+    (18, 18, 32),       # 15 outline
+]
+
 OBJ_HEART = [
     (0, 0, 0),          # 0  transparent
     (6, 6, 12),         # 1  outline
@@ -146,6 +168,51 @@ OBJ_FX = [
 # Drawn with half-add colour math against BG1, so "black" reads as a 50%
 # darkening of whatever ground is underneath rather than a black blob.
 OBJ_SHADOW = [(0, 0, 0)] * 16
+
+# OBJ palette 1 in Traverse Town.  Same shape as the islanders' palette so the
+# same figure-drawing helper works, and the same three slots given over to the
+# Heartless as the night uses -- so the Shadows keep the one extra cut of their
+# art rather than needing a third.
+OBJ_TOWN = [
+    (0, 0, 0),          # 0  transparent
+    (26, 22, 34),       # 1  outline
+    (255, 216, 176),    # 2  skin light
+    (224, 168, 124),    # 3  skin mid
+    (214, 150, 96),     # 4  Goofy's fur, and Cid's weathered tan
+    (150, 118, 92),     # 5  brown -- Leon's hair, Goofy's muzzle
+    (34, 28, 54),       # 6  Heartless body
+    (74, 66, 112),      # 7  ...and its highlight
+    (255, 232, 80),     # 8  eyes -- and a duck's bill
+    (248, 248, 248),    # 9  white
+    (64, 108, 200),     # 10 blue
+    (248, 200, 72),     # 11 yellow
+    (156, 92, 172),     # 12 purple
+    (40, 44, 76),       # 13 navy
+    (88, 160, 88),      # 14 green
+    (192, 60, 64),      # 15 red
+]
+
+# The Guard Armor gets OBJ palette 2 to itself: nothing else it shares a scene
+# with needs the palms and rocks that slot usually carries.
+OBJ_ARMOR = [
+    (0, 0, 0),          # 0  transparent
+    (20, 18, 30),       # 1  outline
+    (216, 220, 236),    # 2  steel light
+    (160, 168, 196),    # 3  steel mid
+    (104, 112, 144),    # 4  steel dark
+    (224, 84, 88),      # 5  red plate
+    (156, 44, 56),      # 6  red plate, shadowed
+    (176, 116, 200),    # 7  violet
+    (112, 64, 140),     # 8  violet, shadowed
+    (248, 208, 96),     # 9  brass
+    (176, 132, 40),     # 10 brass, shadowed
+    (120, 80, 48),      # 11 leather
+    (48, 40, 72),       # 12 the gap where a body would be
+    (255, 232, 80),     # 13 the emblem, and what is looking out of the helm
+    (255, 255, 255),    # 14 spark
+    (0, 0, 0),          # 15
+]
+
 
 # 2bpp, so only four entries.  Index 3 is the opaque box background baked
 # into every glyph cell, which is what lets text sit inside a dialogue window

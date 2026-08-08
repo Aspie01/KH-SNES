@@ -1,0 +1,34 @@
+# Traverse Town, Second District -- the fountain, and what is in the square
+#
+# Traverse Town, 32x16 tiles of 16x16 pixels, same codes as the island plus the
+# town's own:
+#
+#   c  cobbles        (walkable)      p  warm paving, under a lamp (walkable)
+#   s  step      +1   (walkable)      q  raised walkway +2        (walkable)
+#   w  building  +3   (blocked)       e  ...with a lit window     (blocked)
+#   o  roof      +3   (blocked)       d  a doorway to somewhere else (walkable)
+#   x  crates         (blocked)       l  a lamp post              (blocked)
+#   n  low parapet    (blocked)       v  water in the fountain    (blocked)
+#
+# Two rules, the same ones the island obeys.  A +3 tile covers the row above
+# it, so a building has to be solid all the way up -- and a doorway has to sit
+# in the bottom row of one, with open ground to the south, or the building
+# below it would paint over the door.  Nothing walkable above row 4, because
+# the HUD owns the top 24 pixels.
+#
+oooooooooooooooooooooooooooooooo
+oooooooooooooooooooooooooooooooo
+oooooooooooooooooooooooooooooooo
+oooooooooooooooooooooooooooooooo
+wwwwwdwwwwewwwwwwwwwwewwwwdwwwww
+cccccccccccccccccccccccccccccccc
+cccpccccccccccccccccccccccccpccc
+ccplpccccccccnnnnnnccccccccplpcc
+cccpcccccccccnvvvvncccccccccpccc
+cccccccccccccnvvvvnccccccccccccc
+cccccccccccccnnnnnnccccccccccccc
+cccccccccccccccccccccccccccccccc
+ccxxccccccccccccccccccccccccxxcc
+cccccccccccccccccccccccccccccccc
+cccccccccccccccccccccccccccccccc
+nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn

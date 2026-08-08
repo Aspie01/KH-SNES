@@ -118,6 +118,15 @@ TILE_FACES   = $84              ; 32x32 chalk drawings on the cave wall
 TILE_SCRIBBLE = $88
 TILE_DOOROPEN = $8C             ; 32x32, the night it opens
 TILE_DARK    = $C0              ; 32x32 column of darkness, two cels
+; The same page again, loaded with Traverse Town's cast instead.
+TILE_CID     = $00
+TILE_TOWNMAN = $04
+TILE_TOWNWOMAN = $08
+TILE_LAMP    = $0C
+TILE_DONALD  = $40
+TILE_GOOFY   = $44
+TILE_GAUNTLET = $48             ; open at $48, a fist at $4C
+TILE_ARMOR   = $80              ; 64x64: $80 $84 over $C0 $C4
 ; The Shadow, cut a second time from the colours OBJ palette 1 holds while the
 ; island is falling.  Which base a Shadow uses is per-scene, in heartTile.
 TILE_HEART_NIGHT = $A8
@@ -196,6 +205,16 @@ ACT_SCRIBBLE = 30               ; years of smaller drawings
 ; The night the island falls.
 ACT_DOOROPEN = 31               ; the same door, and what is behind it
 ACT_DARK     = 32               ; a column of darkness standing on the ground
+; Traverse Town.  The three residents are consecutive, so one range check
+; covers "is this somebody who lives here".
+ACT_CID      = 33
+ACT_TOWNMAN  = 34
+ACT_TOWNWOMAN = 35
+ACT_LAMP     = 36               ; a street lamp, so somebody can walk behind it
+ACT_DONALD   = 37
+ACT_GOOFY    = 38
+ACT_ARMOR    = 39               ; the Guard Armor, 64x64
+ACT_GAUNTLET = 40               ; ...and one of its hands
 
 ; itemCount slots, which are (actor type - ACT_LOG)
 IT_LOG       = 0
@@ -214,6 +233,9 @@ SCENE_DIVE3  = 2                ; the third, where Darkside rises
 SCENE_ISLAND = 3                ; Destiny Islands
 SCENE_NIGHT  = 4                ; ...the night it falls: the same map, after dark
 SCENE_FRAGMENT = 5              ; the last piece of it, in the dark
+SCENE_TOWN1  = 6                ; Traverse Town, First District
+SCENE_TOWN2  = 7                ; ...Second, with the fountain
+SCENE_TOWN3  = 8                ; ...Third, where it comes down on them
 
 ; Which dream weapon was taken / surrendered
 WEAPON_NONE  = 0
@@ -381,6 +403,69 @@ END_FADE     = 62               ; ...and the dark takes the rest over these
 FLASH_GAP_MIN = 150             ; frames between storms of it
 FLASH_GAP_VAR = 127             ; ...plus a random 0-127
 FLASH_LEN    = 8
+
+;-----------------------------------------------------------------------------
+; Traverse Town
+;-----------------------------------------------------------------------------
+; townStage tracks progress rather than which district Sora is standing in --
+; the doors are free to be walked back through, and a stage is what decides
+; whether one of them is bolted.
+T_ARRIVE     = 0                ; face down on wet stone, and it is not a dream
+T_LOOK       = 1                ; the First District: somebody here is still up
+T_SECOND     = 2                ; ...and has said which way.  The door opens
+T_THIRD      = 3                ; the Second District is clear; the way on is
+T_MEET       = 4                ; two people come down out of the sky
+T_BOSS       = 5                ; ...and so does the Guard Armor
+T_WON        = 6                ; the three of them are still standing
+T_OVER       = 7                ; the card
+
+TOWN_SHADOWS = 5                ; Heartless out at once in the Second District
+TOWN_WAVE    = 8                ; ...and how many arrive before it is clear
+TOWN_GAP     = 80               ; frames between arrivals
+TOWN_SPOTS   = 8                ; entries in the spawn-spot table
+DOOR_ROW     = 4                ; every door sits in this row of its map
+; Frames each half of a door transition takes.  Halved it is the brightness
+; ramp exactly, which is why it is twice the fifteen INIDISP levels.
+DOOR_FADE    = 30
+FALL_WAIT    = 70               ; how long the two of them take to turn up
+FALL_DROP    = 24               ; ...and to come down once they have
+FALL_Z       = 12               ; from this high, in eight-pixel steps
+
+; The Guard Armor.  Slower than Darkside and much more insistent: it walks at
+; you, and its hands come down where you are standing.  Thirty-six is the same
+; length of fight Darkside was, so the gauge is the same eighteen cells.
+GA_MAX_HP    = 36
+; It tracks sideways at a shade under Sora's own pace, so he can outrun it but
+; not stand off from it -- at half his speed it never arrived and the fight was
+; a stalemate at arm's length.
+GA_WALK      = 20               ; Q12.4 per frame; Sora walks 24
+; What it can be hit within, centred on its feet.  Generous on both axes: the
+; body it belongs to is drawn sixty-four pixels *above* that point, so a box
+; tight around the feet asks the player to hit a thing that is not there.
+GA_HURT_X    = 640              ; 40 px either side
+GA_HURT_Y    = 704              ; 44 px, which a swing from two tiles south makes
+GA_SLAM_WIND = 40
+GA_SLAM_HOLD = 20
+GA_REST      = 50
+GA_WALK_LEN  = 96               ; frames it closes on you before it strikes
+; How near counts as near enough, per axis and Q12.4.  Two tiles: the body is
+; 64 px across and its position is its feet, so anything less walks the torso
+; over the top of the player and the fight stops reading.
+GA_STOP      = 512
+GA_HAND_R    = 640              ; how far out the hands ride, Q12.4
+GA_HAND_UP   = 448              ; ...and how far up the torso
+GA_HAND_HIGH = 10               ; the wound-up fist, in eight-pixel steps
+GA_HAND_X    = 448              ; and what one of them hurts within
+GA_HAND_Y    = 384
+GA_DROP      = 40               ; frames it takes to arrive
+GA_DROP_Z    = (GA_DROP / 4)    ; the descent is the timer shifted twice
+
+; Guard Armor states
+GAS_DROP     = 0                ; still coming down -- and the spawn default
+GAS_WALK     = 1
+GAS_WIND     = 2                ; a fist up over where you are standing
+GAS_SLAM     = 3                ; ...and down
+GAS_REST     = 4
 
 RAFT_HIGHWIND  = 1
 RAFT_EXCALIBUR = 2

@@ -16,9 +16,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pixel import (                                    # noqa: E402
-    BG_DIVE, BG_GROUND, BG_NIGHT, HUD_PAL, OBJ_DIVE, OBJ_FX, OBJ_HEART,
-    OBJ_ISLE, OBJ_NIGHT, OBJ_SCENE, OBJ_SCENE_NIGHT, OBJ_SHADOW,
-    OBJ_SORA,
+    BG_DIVE, BG_GROUND, BG_NIGHT, BG_TOWN, HUD_PAL, OBJ_ARMOR, OBJ_DIVE,
+    OBJ_FX, OBJ_HEART, OBJ_ISLE, OBJ_NIGHT, OBJ_SCENE, OBJ_SCENE_NIGHT,
+    OBJ_SHADOW, OBJ_SORA, OBJ_TOWN,
     Canvas, GEN, ROOT, SRC, cut_tiles, encode_2bpp_page, encode_4bpp_page,
     palette_bytes, tile_4bpp, write_bin, write_png,
 )
@@ -38,6 +38,17 @@ WATER_L, WATER_M, WATER_D = 7, 8, 9
 WOOD_L, WOOD_D = 10, 11
 ROCK_L, ROCK_D = 12, 13
 FOAM, OUTLINE = 14, 15
+
+# The same sixteen slots, named again for Traverse Town.  A scene's palette is
+# what gives them meaning, so the town reuses the island's indices rather than
+# needing any more of them: sand becomes cobble, grass becomes warm paving,
+# rock becomes plaster, wood becomes beams.
+COBBLE_L, COBBLE_M, COBBLE_D = 1, 2, 3
+PAVE_L, PAVE_M, PAVE_D = 4, 5, 6
+PLASTER_L, PLASTER_M, PLASTER_D = 7, 8, 9
+BEAM_L, BEAM_D = 10, 11
+LAMPLIGHT, DEEP = 12, 13
+GLINT = 14
 
 # terrain code -> (light, mid, dark, walkable, height)
 #
@@ -70,6 +81,19 @@ TERRAIN = {
     # Nothing at all: the dark the island falls into.  Index 0 is the
     # backdrop colour, so a void tile costs one character and no palette.
     "*": (0, 0, 0, False, 0),
+    #--- Traverse Town ------------------------------------------------------
+    "c": (COBBLE_L, COBBLE_M, COBBLE_D, True, 0),    # cobbles
+    "p": (PAVE_L, PAVE_M, PAVE_D, True, 0),          # paving, under a lamp
+    "s": (COBBLE_L, COBBLE_M, COBBLE_D, True, 1),    # a step up
+    "q": (COBBLE_L, COBBLE_M, COBBLE_D, True, 2),    # a raised walkway
+    "w": (PLASTER_L, PLASTER_L, PLASTER_D, False, 3),   # a building
+    "e": (PLASTER_L, PLASTER_L, PLASTER_D, False, 3),   # ...with a lit window
+    "o": (BEAM_L, BEAM_L, BEAM_D, False, 3),         # a roof over the street
+    "d": (LAMPLIGHT, PAVE_D, BEAM_D, True, 0),       # a doorway to somewhere
+    "x": (BEAM_L, BEAM_D, OUTLINE, False, 0),        # crates
+    "l": (COBBLE_L, COBBLE_M, COBBLE_D, False, 0),   # a lamp post
+    "n": (PLASTER_L, PLASTER_M, PLASTER_D, False, 0),   # the fountain rim
+    "v": (GLINT, DEEP, OUTLINE, False, 0),           # ...and what is in it
 }
 
 
@@ -93,17 +117,21 @@ GROUP = {"~": "water", "-": "water", ".": "sand", "r": "sand",
          ",": "grass", "T": "grass", "R": "grass", "=": "wood", "#": "rock",
          "B": "wood", "L": "wood", "P": "wood", "H": "wood",
          "W": "water", "C": "cave", "b": "grass", "Y": "grass",
-         "M": "wood", "K": "grass", "F": "rock", "*": "void"}
+         "M": "wood", "K": "grass", "F": "rock", "*": "void",
+         "c": "cobble", "s": "cobble", "q": "cobble", "p": "pave",
+         "w": "plaster", "e": "plaster", "o": "beam", "d": "door",
+         "x": "beam", "l": "cobble", "n": "plaster", "v": "water"}
 
 # What the side of a raised block is made of.  The leafy top of the climbing
 # tree is grass, but what holds it up is a trunk; a bridge has nothing under
 # it but the water it crosses.
 FACE = {"B": "water", "L": "wood", "P": "wood", "H": "wood", "M": "wood",
-        "K": "wood", "#": "rock", "F": "rock"}
+        "K": "wood", "#": "rock", "F": "rock",
+        "w": "stone", "e": "stone", "o": "beam", "s": "stone", "q": "stone"}
 
 # Tiles whose whole shape is the drawing, so a border would only fight it,
 # and the void, which has no shape at all.
-NO_RIM = "K*"
+NO_RIM = "K*l"
 
 # Speckle is per-tile rather than per-cell so that every sand tile is the same
 # four characters.  Two phases, alternating on (i + j), is enough to break up
@@ -195,6 +223,81 @@ def draw_tile(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
                 c.set(x, y, ROCK_D)
         c.set(3, 11, ROCK_D)
         c.set(12, 5, ROCK_D)
+    elif code in "cslq":
+        # Cobbles: staggered courses, small enough that the eye reads texture
+        # rather than a grid.
+        for y in range(1, 16, 3):
+            row = (y // 3) & 1
+            for x in range((0 if row else 2), 16, 4):
+                c.hline(x, x + 2, y, COBBLE_L if (x + y) % 5 else COBBLE_D)
+                c.set(x + 3, y, COBBLE_D)
+            c.hline(0, 15, y + 2, COBBLE_D)
+        if code == "l":
+            # Only the foot of the post and the light around it: the post
+            # itself is a sprite, so that it stands up and sorts with everyone
+            # walking past it.
+            c.ellipse(8, 11, 7.0, 4.0, PAVE_M)
+            c.ellipse(8, 11, 4.4, 2.4, PAVE_L)
+            c.ellipse(8, 12, 2.4, 1.2, OUTLINE)
+    elif code == "p":
+        # Flagstones, larger and warmer -- this is the paving a lamp lights.
+        c.rect(0, 0, 15, 15, PAVE_M)
+        for y in (0, 8):
+            for x in (0, 8):
+                c.rect(x + 1, y + 1, x + 6, y + 6, PAVE_L)
+                c.hline(x + 1, x + 6, y + 6, PAVE_D)
+                c.vline(x + 6, y + 1, y + 6, PAVE_D)
+    elif code in "we":
+        # The top of a building is roof, whichever it is: a lit window only
+        # makes sense on the face, and only the bottom row of a block shows a
+        # face at all.  That is what `e` is for.
+        for y in range(3, 16, 5):
+            c.hline(0, 15, y, PLASTER_M)
+        for x in range(5, 16, 6):
+            c.set(x, 1, PLASTER_M)
+            c.set(x, 11, PLASTER_M)
+    elif code == "o":
+        # Pantiles, seen almost from above.
+        for y in range(0, 16, 4):
+            c.hline(0, 15, y, BEAM_D)
+            c.hline(0, 15, y + 1, BEAM_L)
+        for x in range(0, 16, 5):
+            c.vline(x, 0, 15, BEAM_D)
+    elif code == "d":
+        # A doorway: dark inside, with the light of the next district coming
+        # up the step.
+        c.rect(0, 0, 15, 15, PAVE_D)
+        c.rect(2, 0, 13, 13, OUTLINE)
+        c.rect(3, 1, 12, 12, BEAM_D)
+        c.ellipse(8, 1, 5.0, 3.0, BEAM_D)
+        c.rect(5, 3, 10, 12, LAMPLIGHT)
+        c.ellipse(8, 3, 3.0, 2.0, LAMPLIGHT)
+        c.hline(2, 13, 13, BEAM_L)
+        c.hline(1, 14, 14, PAVE_L)
+        c.hline(0, 15, 15, PAVE_M)
+    elif code == "x":
+        # Crates stacked against a wall.
+        c.rect(0, 0, 15, 15, COBBLE_M)
+        for (bx, by, bw, bh) in ((0, 4, 9, 11), (9, 7, 7, 8)):
+            c.rect(bx, by, bx + bw - 1, by + bh - 1, BEAM_L)
+            c.rect(bx + 1, by + 1, bx + bw - 2, by + bh - 2, BEAM_D)
+            c.rect(bx + 2, by + 2, bx + bw - 3, by + bh - 3, BEAM_L)
+            c.hline(bx, bx + bw - 1, by, OUTLINE)
+            c.vline(bx, by, by + bh - 1, OUTLINE)
+    elif code == "n":
+        # The rim of the fountain in the middle of the square.
+        c.rect(0, 0, 15, 15, PLASTER_M)
+        c.hline(0, 15, 0, PLASTER_L)
+        c.hline(0, 15, 15, PLASTER_D)
+        for x in range(1, 16, 4):
+            c.vline(x, 2, 13, PLASTER_L)
+    elif code == "v":
+        # ...and the water, which nobody has turned off.
+        c.rect(0, 0, 15, 15, DEEP)
+        for (wy, x0, x1) in ((3, 2, 7), (7, 9, 14), (11, 4, 9)):
+            c.hline(x0, x1, wy, GLINT)
+        c.set(6, 6, GLINT)
+        c.set(11, 12, GLINT)
     elif code == "C":
         # Dirt trodden flat over years, so the chamber floor reads as
         # something other than more of the rock around it.
@@ -258,6 +361,27 @@ def draw_block(code: str, phase: int, edges: dict[str, str | None],
         # A bridge stands on nothing: what shows under the planks is the
         # water, in shadow.
         c.rect(0, TILE, TILE - 1, TILE + lift - 1, WATER_D)
+    elif kind == "stone":
+        # The face of a building, which is where its windows are.
+        c.rect(0, TILE, TILE - 1, TILE + lift - 1, PLASTER_M)
+        for y in range(2, lift, 5):
+            c.hline(0, TILE - 1, TILE + y, PLASTER_D)
+        for x in range(3, TILE, 6):
+            c.vline(x, TILE + 1, TILE + lift - 1, PLASTER_D)
+        if code == "e" and lift >= 16:
+            # A window with somebody still behind it -- the only thing that
+            # tells you the town is inhabited before you meet anybody.
+            c.rect(3, TILE + 4, 12, TILE + 16, OUTLINE)
+            c.rect(4, TILE + 5, 11, TILE + 15, LAMPLIGHT)
+            c.vline(7, TILE + 5, TILE + 15, OUTLINE)
+            c.vline(8, TILE + 5, TILE + 15, OUTLINE)
+            c.hline(4, 11, TILE + 9, OUTLINE)
+            c.set(5, TILE + 6, GLINT)
+            c.set(10, TILE + 6, GLINT)
+    elif kind == "beam":
+        # A roof overhangs the street it covers.
+        c.rect(0, TILE, TILE - 1, TILE + lift - 1, BEAM_D)
+        c.hline(0, TILE - 1, TILE + 1, BEAM_L)
     else:
         # A skirt of boards with the corner posts picked out, which is how the
         # island's walkways are built.
@@ -1421,6 +1545,203 @@ def draw_scribbles() -> Canvas:
     return c
 
 
+# ---------------------------------------------------------------------------
+# Traverse Town
+#
+# The town's cast shares OBJ palette 1 with the Heartless, exactly as the night
+# does, so the index names below are the island's read a second way: 4 is
+# Goofy's fur rather than Kairi's hair, 5 is brown rather than Riku's silver.
+# ---------------------------------------------------------------------------
+
+T_TAN, T_BROWN = 4, 5
+
+
+def draw_lamp() -> Canvas:
+    """A street lamp.  A sprite rather than a tile so it stands up, and so
+    somebody can walk behind it."""
+    c = Canvas(32, 32)
+    cx = 16
+    c.rect(cx - 1, 10, cx + 1, 30, T_BROWN)
+    c.vline(cx - 1, 10, 30, I_OUT)
+    c.vline(cx + 1, 10, 30, I_YELLOW)
+    c.ellipse(cx, 30, 4.4, 1.8, T_BROWN)
+    # the head: a lantern with something burning in it
+    c.rect(cx - 4, 2, cx + 4, 10, I_OUT)
+    c.rect(cx - 3, 3, cx + 3, 9, I_YELLOW)
+    c.ellipse(cx, 6, 2.2, 2.6, I_WHITE)
+    c.hline(cx - 5, cx + 5, 1, I_OUT)
+    c.hline(cx - 4, cx + 4, 0, T_BROWN)
+    return c
+
+
+def draw_donald() -> Canvas:
+    """Short, round, furious.  The silhouette is the hat and the bill."""
+    c = Canvas(32, 32)
+    cx = 16
+
+    # webbed feet
+    for sign in (1, -1):
+        c.ellipse(cx + sign * 4, 30, 3.4, 1.6, I_YELLOW)
+    # the coat
+    c.rect(cx - 5, 17, cx + 5, 28, I_BLUE)
+    c.ellipse(cx, 28, 5.4, 2.6, I_BLUE)
+    c.hline(cx - 5, cx + 5, 20, I_YELLOW)          # the trim
+    c.hline(cx - 5, cx + 5, 26, I_YELLOW)
+    for sign in (1, -1):                            # sleeves
+        c.ellipse(cx + sign * 6, 21, 2.0, 3.0, I_BLUE)
+        c.ellipse(cx + sign * 6, 24, 1.8, 1.8, I_WHITE)
+    c.rect(cx - 3, 16, cx + 3, 19, I_WHITE)         # the collar
+    # head
+    c.ellipse(cx, 11, 6.0, 5.4, I_WHITE)
+    # the bill, which is most of him
+    c.ellipse(cx + 1, 14, 5.0, 2.4, I_YELLOW)
+    c.ellipse(cx + 1, 15, 4.2, 1.4, I_OUT)
+    # sailor cap
+    c.ellipse(cx, 6, 6.4, 2.6, I_BLUE)
+    c.ellipse(cx, 4, 4.6, 2.6, I_BLUE)
+    c.hline(cx - 6, cx + 6, 7, I_WHITE)
+    c.rect(cx + 3, 2, cx + 6, 4, I_RED)             # the ribbon
+    for side in (-1, 1):                            # eyes
+        c.rect(cx + side * 3 - 1, 9, cx + side * 3, 11, I_OUT)
+    c.outline(I_OUT)
+    return c
+
+
+def draw_goofy() -> Canvas:
+    """Tall, and mostly ears and hat."""
+    c = Canvas(32, 32)
+    cx = 16
+
+    for sign in (1, -1):                            # the shoes
+        c.ellipse(cx + sign * 4, 30, 3.6, 1.8, I_YELLOW)
+        c.ellipse(cx + sign * 4, 31, 3.2, 1.0, I_OUT)
+    c.rect(cx - 4, 24, cx + 4, 29, I_YELLOW)        # trousers
+    c.rect(cx - 5, 17, cx + 5, 25, I_NAVY)          # the vest
+    c.ellipse(cx, 25, 5.2, 2.2, I_NAVY)
+    c.hline(cx - 5, cx + 5, 17, I_GREEN)
+    for sign in (1, -1):                            # sleeves
+        c.ellipse(cx + sign * 6, 20, 2.0, 3.2, I_GREEN)
+        c.ellipse(cx + sign * 6, 24, 1.8, 1.8, I_WHITE)
+    # head, long in the muzzle
+    c.ellipse(cx, 11, 5.4, 5.0, T_TAN)
+    c.ellipse(cx + 1, 14, 3.6, 2.6, T_TAN)
+    c.ellipse(cx + 1, 15, 2.6, 1.4, T_BROWN)
+    c.set(cx + 2, 15, I_OUT)
+    for side in (-1, 1):                            # the ears, hanging
+        c.ellipse(cx + side * 7, 12, 2.0, 4.0, T_BROWN)
+    # the hat
+    c.ellipse(cx, 6, 6.6, 2.2, I_GREEN)
+    c.rect(cx - 3, 1, cx + 3, 6, I_GREEN)
+    c.ellipse(cx, 1, 3.2, 1.6, I_GREEN)
+    c.hline(cx - 3, cx + 3, 4, I_NAVY)
+    for side in (-1, 1):                            # eyes
+        c.rect(cx + side * 2 - 1, 9, cx + side * 2, 11, I_OUT)
+    c.outline(I_OUT)
+    return c
+
+
+# --- the Guard Armor ------------------------------------------------------
+A_OUT, A_STEEL_L, A_STEEL_M, A_STEEL_D = 1, 2, 3, 4
+A_RED_L, A_RED_D, A_VIO_L, A_VIO_D = 5, 6, 7, 8
+A_BRASS, A_BRASS_D, A_LEATHER, A_GAP = 9, 10, 11, 12
+A_EMBLEM, A_SPARK = 13, 14
+
+
+def draw_guard_armor() -> Canvas:
+    """A suit of armour with nobody in it, 64x64.
+
+    Emitted the same way Darkside is -- four 32x32 blocks -- so it needs no
+    new path through the sprite code.  The arms are separate actors, because
+    in the source they come off.
+    """
+    c = Canvas(64, 64)
+    cx = 32
+
+    # --- the helm, floating clear of the shoulders ---
+    c.ellipse(cx, 14, 13.0, 10.0, A_STEEL_M)
+    c.ellipse(cx, 12, 11.0, 8.0, A_STEEL_L)
+    c.ellipse(cx, 18, 12.0, 5.0, A_STEEL_D)
+    c.rect(cx - 9, 15, cx + 9, 21, A_GAP)          # the visor slot
+    for side in (-1, 1):                            # and what is looking out
+        c.ellipse(cx + side * 5, 18, 2.4, 1.6, A_EMBLEM)
+    c.rect(cx - 2, 2, cx + 2, 8, A_RED_L)          # the crest
+    c.ellipse(cx, 2, 3.0, 2.0, A_RED_D)
+    for side in (-1, 1):                            # horns
+        c.ellipse(cx + side * 12, 9, 3.0, 5.0, A_BRASS)
+        c.ellipse(cx + side * 12, 8, 2.0, 3.4, A_BRASS_D)
+
+    # --- the torso, hanging under it with a gap between ---
+    c.rect(cx - 14, 30, cx + 14, 50, A_RED_L)
+    c.ellipse(cx, 30, 14.0, 5.0, A_RED_L)
+    c.ellipse(cx, 50, 14.0, 5.0, A_RED_D)
+    c.rect(cx - 14, 30, cx - 8, 50, A_RED_D)
+    c.rect(cx + 8, 30, cx + 14, 50, A_RED_D)
+    for y in range(33, 50, 6):                      # plates
+        c.hline(cx - 13, cx + 13, y, A_VIO_D)
+        c.hline(cx - 13, cx + 13, y + 1, A_VIO_L)
+    # the emblem, in the middle of the chest
+    c.ellipse(cx, 40, 6.0, 6.0, A_BRASS)
+    c.ellipse(cx, 40, 4.4, 4.4, A_OUT)
+    c.ellipse(cx - 2, 39, 2.0, 2.0, A_EMBLEM)
+    c.ellipse(cx + 2, 39, 2.0, 2.0, A_EMBLEM)
+    c.rect(cx - 3, 40, cx + 3, 43, A_EMBLEM)
+    c.set(cx, 45, A_EMBLEM)
+
+    # --- the boots, also floating ---
+    for side in (-1, 1):
+        bx = cx + side * 11
+        c.ellipse(bx, 58, 7.0, 5.0, A_STEEL_M)
+        c.ellipse(bx, 56, 5.4, 3.4, A_STEEL_L)
+        c.ellipse(bx + side * 2, 61, 6.0, 2.6, A_LEATHER)
+        c.hline(bx - 5, bx + 5, 59, A_BRASS)
+    c.outline(A_OUT)
+    return c
+
+
+def draw_gauntlet(frame: int) -> Canvas:
+    """One of its hands.  Two cels: open, and closed to come down on you."""
+    c = Canvas(32, 32)
+    cx, cy = 16, 16
+    c.ellipse(cx, cy, 10.0, 9.0, A_STEEL_M)
+    c.ellipse(cx, cy - 2, 8.0, 6.4, A_STEEL_L)
+    c.ellipse(cx, cy + 5, 9.0, 4.0, A_STEEL_D)
+    c.rect(cx - 9, cy - 1, cx + 9, cy + 2, A_VIO_D)
+    c.hline(cx - 9, cx + 9, cy, A_VIO_L)
+    if frame == 0:
+        for k, side in enumerate((-6, -2, 2, 6)):   # fingers, spread
+            c.rect(cx + side - 1, cy + 6, cx + side + 1, cy + 11, A_STEEL_M)
+            c.set(cx + side, cy + 11, A_OUT)
+    else:
+        c.ellipse(cx, cy + 8, 8.0, 4.0, A_STEEL_M)  # a fist
+        c.hline(cx - 7, cx + 7, cy + 9, A_STEEL_D)
+    c.ellipse(cx - 4, cy - 4, 2.4, 1.8, A_SPARK)
+    c.outline(A_OUT)
+    return c
+
+
+def build_obj_town() -> Canvas:
+    """OBJ page two while Traverse Town is up: its cast in place of the
+    islanders', who are not going to be in it."""
+    page = Canvas(128, 128)
+    # rows 0-3: the people already living here
+    page.blit(islander(I_YELLOW, I_BLUE, T_BROWN, style="spiky",
+                       trim=I_WHITE), 0, 0)             # $00 Cid
+    page.blit(islander(T_BROWN, I_GREEN, T_BROWN, style="bob",
+                       trim=I_YELLOW), 32, 0)           # $04 a townsman
+    page.blit(islander(I_PURPLE, I_RED, I_NAVY, style="flip",
+                       trim=I_WHITE), 64, 0)            # $08 a townswoman
+    page.blit(draw_lamp(), 96, 0)                       # $0C
+    # rows 4-7: the two who fall on him, and a hand
+    page.blit(draw_donald(), 0, 32)                     # $40
+    page.blit(draw_goofy(), 32, 32)                     # $44
+    page.blit(draw_gauntlet(0), 64, 32)                 # $48
+    page.blit(draw_gauntlet(1), 96, 32)                 # $4C
+    # rows 8-15, cols 0-7: the Guard Armor, as 2x2 blocks of 32x32 at
+    # $80 $84 over $C0 $C4 -- the same arrangement Darkside uses.
+    page.blit(draw_guard_armor(), 0, 64)
+    return page
+
+
 def build_obj_page2() -> Canvas:
     """The second sprite page: the islanders and what they are after."""
     page = Canvas(128, 128)
@@ -1712,6 +2033,22 @@ def main() -> int:
     print(f"fragment  {frag_n:3d} unique characters, {len(frag_chr):5d} bytes chr, "
           f"{sum(frag_coll):3d} walkable")
 
+    #--- Traverse Town -----------------------------------------------------
+    write_bin(GEN / "townpal.bin", palette_bytes(BG_TOWN) + bytes(256 - 32))
+    for n, stem in ((1, "town1"), (2, "town2"), (3, "town3")):
+        grid = load_grid(f"{stem}.txt")
+        canvas, coll, hmap = build_world(grid)
+        write_png(canvas, BG_TOWN, SRC / f"{stem}_preview.png", transparent0=False)
+        chr_, map_, count = dedupe_tilemap(canvas)
+        if count > 512:
+            raise SystemExit(f"{stem} needs {count} characters; BG1 holds 512.")
+        write_bin(GEN / f"{stem}chr.bin", chr_)
+        write_bin(GEN / f"{stem}map.bin", map_)
+        write_bin(GEN / f"{stem}coll.bin", coll)
+        write_bin(GEN / f"{stem}height.bin", hmap)
+        print(f"{stem}     {count:3d} unique characters, {len(chr_):5d} bytes chr, "
+              f"{sum(coll):3d} walkable")
+
     #--- Station of Awakening ----------------------------------------------
     dive, dive_coll = build_dive_platform()
     write_png(dive, BG_DIVE, SRC / "dive_preview.png", transparent0=False)
@@ -1755,6 +2092,13 @@ def main() -> int:
     page2 = build_obj_page2()
     write_png(page2, OBJ_ISLE, SRC / "obj2_preview.png")
     write_bin(GEN / "obj2chr.bin", encode_4bpp_page(page2))
+
+    # The same VRAM page, loaded with the town's cast instead while it is up.
+    town_page = build_obj_town()
+    write_png(town_page, OBJ_TOWN, SRC / "objtown_preview.png")
+    write_bin(GEN / "objtownchr.bin", encode_4bpp_page(town_page))
+    write_bin(GEN / "townobjpal.bin",
+              palette_bytes(OBJ_TOWN) + palette_bytes(OBJ_ARMOR))
 
     obj_pal = (palette_bytes(OBJ_SORA) + palette_bytes(OBJ_HEART) +
                palette_bytes(OBJ_SCENE) + palette_bytes(OBJ_FX) +

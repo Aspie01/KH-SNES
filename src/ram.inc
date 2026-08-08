@@ -57,6 +57,10 @@ RAM_INC = 1
 .globalzp nightStage, nightTimer, spawnTimer, flashTimer, flashWait
 .globalzp keyGot, saidNoUse
 
+;--- Traverse Town -----------------------------------------------------------
+.globalzp townStage, townTimer, townKills, doorTimer, doorTo
+.globalzp lastTileI, lastTileJ
+
 ;--- buffers (BSS) -----------------------------------------------------------
 .global oamBuf, oamHigh, sortIdx, sortCount, hudRow, txtBuf
 
