@@ -387,7 +387,25 @@ for the dialogue interpreter.
   - `<scene><table>.bin` is one deferred table per section — `day1`, `day2`,
     `pair` — and *when* each is spawned is your scene's business, which is
     exactly why the pipeline does not decide it.
-  - `<scene>spots.bin` is `(i, j)` pairs: where the Heartless come up.
+  - `<scene>spots.bin` is `(i, j)` pairs: where the Heartless come up. **Read
+    the count from the file**, not from a constant — the night carries 35 of
+    them against the SNES's 10, and `SNES_NIGHT_SPOTS` is kept only so the
+    oracle diff can name the fixture's value.
+  - **A scene is not a map.** `ds_scenes()` in `build_assets.py` is the list, and
+    two entries can share one map: `night` runs on the island's ground, tilemap,
+    collision and height byte-for-byte and differs by one palette upload, so
+    there are no `nightchr.bin`/`nightmap.bin`/`nightcoll.bin`/`nightheight.bin`
+    to load — use the island's. `fragment` reads `assets/fragment.txt`, from the
+    SNES directory, because it is deliberately unexpanded.
+  - The night's `Y` tiles give a plain **`Palm`**, not a `PalmC`: day two picked
+    the coconuts, and `night.s` spawned exactly that. This is already baked into
+    `nightcast.bin` — do not re-derive props yourself and do not "fix" the
+    difference.
+  - **`SHADOW_MAX` no longer exists.** It is `SHADOW_MAX_NIGHT` (20) and
+    `SHADOW_MAX_FRAG` (6), because the island grew four times and the fragment
+    did not. Read
+    `docs/behaviour/divergences/003-ds-night-density.md` before touching either;
+    both are derived, neither is measured.
   - `<scene>doors.bin` is `(i, j, land_i, land_j)`. It says where the doors are
     and where Sora stands beside one; it does **not** say what is on the other
     side. `town.s`'s `doorTable` carried a destination scene and a gating stage

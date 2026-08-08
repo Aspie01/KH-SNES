@@ -2088,6 +2088,12 @@ PROP_ACTOR = {
     "l": "Lamp",        # a street lamp, so somebody can walk behind it
 }
 
+# ...except where a scene says otherwise.  The night runs on the island's map
+# but every coconut has been picked by then -- night.s spawns a plain ACT_PALM
+# at both trees the days give an ACT_PALMC, and calls them "picked clean".  That
+# is a property of the scene, not of the tile, so it lives here.
+NIGHT_PROPS = {"Y": "Palm"}
+
 
 def _act_types() -> dict[str, int]:
     """Read the actor type numbers out of the DS header rather than repeating them.
@@ -2207,15 +2213,16 @@ def load_cast(stem: str) -> Cast:
     return cast
 
 
-def derive_props(grid) -> list[tuple[str, int, int, int]]:
+def derive_props(grid, override=None) -> list[tuple[str, int, int, int]]:
     """Every prop the map asks for, north to south then west to east.
 
     The order is the map's, so a scene's prop slots are stable under an edit
     somewhere else on the map -- which is what keeps a trace diff readable.
     """
-    return [(PROP_ACTOR[grid[j][i]], i, j, 0)
+    rule = dict(PROP_ACTOR, **(override or {}))
+    return [(rule[grid[j][i]], i, j, 0)
             for j in range(grid.h) for i in range(grid.w)
-            if grid[j][i] in PROP_ACTOR]
+            if grid[j][i] in rule]
 
 
 def cast_bytes(rows) -> bytes:
@@ -2293,14 +2300,59 @@ def draw_cast(world, rows, marker_of=_marker_of) -> None:
                     world.set(x, y, mark if d <= 3 else MARK_OUTLINE)
 
 
-def build_ds_cast(stem: str, grid, world, palette) -> tuple[Cast, int]:
+class DSScene:
+    """A DS scene: a map, a palette, a cast, and possibly somebody else's ground.
+
+    Two scenes can share one map.  The night runs on the island's tiles, tilemap,
+    collision and height -- what makes it night is one palette upload, exactly as
+    on the SNES -- so it must not re-emit 28 KB of identical ground, and it must
+    not be given the island's cast either.  Hence a scene is a record and not
+    just a filename.
+    """
+
+    __slots__ = ("name", "map", "subdir", "palette", "ground", "props", "note")
+
+    def __init__(self, name, map_, subdir, palette,
+                 ground=None, props=None, note=""):
+        self.name = name
+        self.map = map_
+        self.subdir = subdir
+        self.palette = palette
+        self.ground = ground        # emit our own if None, else share that scene's
+        self.props = props          # PROP_ACTOR override
+        self.note = note
+
+    def grid(self):
+        return load_grid(self.map, subdir=self.subdir)
+
+
+def ds_scenes():
+    """Every DS scene, in build order.  check_map.py walks the same list."""
+    return (
+        DSScene("island", "island.txt", "ds", BG_GROUND),
+        # The two days' island, at night, with the coconuts gone.
+        DSScene("night", "island.txt", "ds", BG_NIGHT,
+                ground="island", props=NIGHT_PROPS,
+                note="the island's ground, one palette later"),
+        # Deliberately NOT expanded: the last scrap of ground after the island
+        # comes apart is sized so Darkside can stand on it and Sora cannot
+        # retreat.  So it reads the SNES map, from assets/ rather than assets/ds/.
+        DSScene("fragment", "fragment.txt", "", BG_NIGHT,
+                note="unexpanded on purpose; see docs/WORLD_SIZES.md"),
+        DSScene("town1", "town1.txt", "ds", BG_TOWN),
+        DSScene("town2", "town2.txt", "ds", BG_TOWN),
+        DSScene("town3", "town3.txt", "ds", BG_TOWN),
+    )
+
+
+def build_ds_cast(stem: str, grid, world, palette, props=None) -> tuple[Cast, int]:
     """Emit one scene's cast tables, and a preview with every entry marked."""
     out = GEN / "ds"
     out.mkdir(parents=True, exist_ok=True)
     cast = load_cast(stem)
-    props = derive_props(grid)
+    prop_rows = derive_props(grid, props)
 
-    write_bin(out / f"{stem}cast.bin", cast_bytes(props + cast.base))
+    write_bin(out / f"{stem}cast.bin", cast_bytes(prop_rows + cast.base))
     for name, rows in cast.tables.items():
         write_bin(out / f"{stem}{name}.bin", cast_bytes(rows))
     if cast.spots:
@@ -2312,44 +2364,54 @@ def build_ds_cast(stem: str, grid, world, palette) -> tuple[Cast, int]:
 
     marked = Canvas(world.w, world.h)
     marked.px = [row[:] for row in world.px]
-    draw_cast(marked, props + cast.actors + cast.spots
+    draw_cast(marked, prop_rows + cast.actors + cast.spots
               + [(d[0], d[1]) for d in cast.doors]
               + [(d[2], d[3]) for d in cast.doors])
     write_png(marked, list(palette) + CAST_MARKERS,
               SRC / f"ds_{stem}_cast.png")
 
-    peak = len(props) + cast.peak
+    peak = len(prop_rows) + cast.peak
     extra = ", ".join(f"{len(v)} {k}" for k, v in cast.tables.items())
-    print(f"     cast: {len(props)} props from the map + {len(cast.base)} placed"
-          f"{f' + {extra}' if extra else ''}, peak {peak}"
+    print(f"     cast: {len(prop_rows)} props from the map + {len(cast.base)} "
+          f"placed{f' + {extra}' if extra else ''}, peak {peak}"
           f"{f', {len(cast.spots)} spots' if cast.spots else ''}"
           f"{f', {len(cast.doors)} doors' if cast.doors else ''}")
     return cast, peak
 
 
-def build_ds_scene(stem: str, grid, palette=None) -> None:
-    """Emit one DS scene: characters, a row-major tilemap, collision, height.
+def build_ds_scene(scene: DSScene) -> None:
+    """Emit one DS scene: characters, a row-major tilemap, collision, height, cast.
 
     Not the full M2 backend -- no DS palette encoding and no header generation
     yet.  This is what authoring a map needs in order to be validated at all,
     and it lands the row-major tilemap writer that M2 wants anyway.
+
+    A scene with `ground` set emits no ground of its own: it is another scene's
+    map under a different palette, so the characters, tilemap, collision and
+    height are byte-identical and duplicating them would be 28 KB of lie.
     """
     out = GEN / "ds"
     out.mkdir(parents=True, exist_ok=True)
+    grid = scene.grid()
     world, coll, hmap = build_world(grid)
-    chars, tilemap, n = dedupe_tilemap(world, layout="rowmajor")
-    write_bin(out / f"{stem}chr.bin", chars)
-    write_bin(out / f"{stem}map.bin", tilemap)
-    write_bin(out / f"{stem}coll.bin", coll)
-    write_bin(out / f"{stem}height.bin", hmap)
-    palette = palette or BG_GROUND
-    write_png(world, palette, SRC / f"ds_{stem}_preview.png")
-    walkable = sum(coll)
-    cw, chh = world.w // 8, world.h // 8
-    streams = "streams" if max(grid.w, grid.h) > DS_BG_TILES else "fits one BG"
-    print(f"ds/{stem}: {grid.w}x{grid.h} tiles, {world.w}x{world.h} px, "
-          f"{cw}x{chh} chars, {n} unique, {walkable} walkable, {streams}")
-    build_ds_cast(stem, grid, world, palette)
+    if scene.ground is None:
+        chars, tilemap, n = dedupe_tilemap(world, layout="rowmajor")
+        write_bin(out / f"{scene.name}chr.bin", chars)
+        write_bin(out / f"{scene.name}map.bin", tilemap)
+        write_bin(out / f"{scene.name}coll.bin", coll)
+        write_bin(out / f"{scene.name}height.bin", hmap)
+        write_png(world, scene.palette, SRC / f"ds_{scene.name}_preview.png")
+        streams = "streams" if max(grid.w, grid.h) > DS_BG_TILES else "fits one BG"
+        print(f"ds/{scene.name}: {grid.w}x{grid.h} tiles, {world.w}x{world.h} px, "
+              f"{world.w // 8}x{world.h // 8} chars, {n} unique, "
+              f"{sum(coll)} walkable, {streams}")
+    else:
+        # Still worth a preview: the palette is the whole difference and the
+        # only way to see whether it reads as the same place after dark.
+        write_png(world, scene.palette, SRC / f"ds_{scene.name}_preview.png")
+        print(f"ds/{scene.name}: {grid.w}x{grid.h} tiles, ground shared with "
+              f"{scene.ground} -- {scene.note}")
+    build_ds_cast(scene.name, grid, world, scene.palette, scene.props)
 
 
 def main() -> int:
@@ -2498,12 +2560,11 @@ def main() -> int:
     # assets/*.txt untouched, which is what holds its ROM byte-identical.
     # The palette is per-scene: the town reuses the island's sixteen slots with
     # different colours in them, so a preview drawn with the wrong one is
-    # unreadable even though the emitted indices are right.
-    for stem, fname, pal in (("island", "island.txt", BG_GROUND),
-                             ("town1", "town1.txt", BG_TOWN),
-                             ("town2", "town2.txt", BG_TOWN),
-                             ("town3", "town3.txt", BG_TOWN)):
-        build_ds_scene(stem, load_grid(fname, subdir="ds"), pal)
+    # unreadable even though the emitted indices are right.  And the night reuses
+    # the island's ground with nothing changed but those sixteen colours, which
+    # is what ds_scenes() exists to express.
+    for scene in ds_scenes():
+        build_ds_scene(scene)
     return 0
 
 

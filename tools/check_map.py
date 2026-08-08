@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from build_assets import (                  # noqa: E402
-    ACT, PROP_ACTOR, TERRAIN, derive_props, load_cast, load_grid,
+    ACT, PROP_ACTOR, TERRAIN, derive_props, ds_scenes, load_cast, load_grid,
 )
 
 MAX_STEP = 1
@@ -167,6 +167,17 @@ DS_ROUTES = {
         # The treehouse floor, its treetop and the lookout deck are not listed:
         # the cloth, the egg and the rope stand on them, so the cast covers them.
     },
+    # The night is the island's map, so the same connectivity has to hold -- but
+    # for a different reason, and that reason is the whole scene: Riku is past
+    # the bridge and Kairi is in the chamber, so if either route breaks the night
+    # cannot be finished.  Their own tiles are checked as cast; these are the
+    # steps in between, which no table mentions.
+    "night": {
+        "the cave passage": (11, 6),
+        "the plunge pool": (11, 8),
+        "the near end of the bridge": (44, 15),
+        "the far end of the bridge": (52, 15),
+    },
     "town1": {
         "the walkway (west end)": (30, 10),
         "the walkway (east end)": (43, 10),
@@ -309,7 +320,7 @@ def check(label: str, grid, spawn: tuple[int, int],
     return 0
 
 
-def check_ds(stem: str, routes: dict, adjacent: dict) -> int:
+def check_ds(scene, routes: dict, adjacent: dict) -> int:
     """Check one DS scene against its own cast file and the map it stands on.
 
     Nothing here is a mirror of anything: the props come off the map, the people
@@ -329,10 +340,10 @@ def check_ds(stem: str, routes: dict, adjacent: dict) -> int:
       5. The cast fits the actor pool, and no camera window holds more objects
          than the OBJ budget.
     """
-    grid = load_grid(f"{stem}.txt", subdir="ds")
-    cast = load_cast(stem)
-    props = derive_props(grid)
-    label = f"ds/{stem}"
+    grid = scene.grid()
+    cast = load_cast(scene.name)
+    props = derive_props(grid, scene.props)
+    label = f"ds/{scene.name}"
 
     sora = [(i, j) for name, i, j, _ in cast.base if name == "Sora"]
     if len(sora) != 1:
@@ -442,8 +453,9 @@ def main() -> int:
 
     # ...and the DS worlds, which are a different size, live beside them, and
     # carry their cast in data rather than in a table copied into this file.
-    for stem in ("island", "town1", "town2", "town3"):
-        bad |= check_ds(stem, DS_ROUTES.get(stem, {}), DS_ADJACENT.get(stem, {}))
+    for scene in ds_scenes():
+        bad |= check_ds(scene, DS_ROUTES.get(scene.name, {}),
+                        DS_ADJACENT.get(scene.name, {}))
     return bad
 
 

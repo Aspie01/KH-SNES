@@ -260,6 +260,39 @@ KH_TEST(actor_pool_is_larger_than_the_snes_and_for_a_reason) {
     CHECK(OBJ_BUDGET_SCENERY + TRANSIENT_ACTORS + 4 + 1 <= MAX_OBJECTS);
 }
 
+KH_TEST(night_density_is_per_screen_not_per_map) {
+    // SHADOW_MAX was one number because the night and the fragment ran on maps
+    // of similar size.  They no longer do, so it splits -- and the island's
+    // figure preserves tiles-per-Shadow, not the count, because a DS screen sees
+    // about 15% of the expanded island.
+    // See docs/behaviour/divergences/003-ds-night-density.md.
+    CHECK_EQ(SNES_SHADOW_MAX, 6);
+    CHECK_EQ(SHADOW_MAX_NIGHT, 20);
+    CHECK_EQ(SHADOW_MAX_FRAG, SNES_SHADOW_MAX);     // the map is unchanged
+
+    // 196 walkable tiles / 6 == 33 per Shadow.  670 / 20 == 33 as well, give or
+    // take the integer division -- that equality IS the derivation, so if either
+    // side moves the divergence note has to be rewritten and not just the number.
+    CHECK_EQ(196 / SNES_SHADOW_MAX, 32);            // 32.67
+    CHECK_EQ(670 / SHADOW_MAX_NIGHT, 33);           // 33.5
+
+    // Twenty of them need somewhere to come up, and the table is data now, so
+    // this constant is only the buffer it is read into.
+    CHECK_EQ(SNES_NIGHT_SPOTS, 10);
+    CHECK(SHADOW_MAX_NIGHT <= MAX_SPOTS);
+    CHECK(35 <= MAX_SPOTS);                         // what the island carries
+
+    // Both budgets hold, which is why the argument above had to be about the
+    // scene rather than about the hardware.
+    CHECK(69 + 6 + SHADOW_MAX_NIGHT + TRANSIENT_ACTORS <= MAX_ACTORS);
+    CHECK(29 + SHADOW_MAX_NIGHT <= OBJ_BUDGET_SCENERY);
+
+    // The gap scales with how long the map takes to cross, not with the count.
+    CHECK_EQ(SNES_SHADOW_GAP, 70);
+    CHECK_EQ(SHADOW_GAP, 42);
+    CHECK(SHADOW_MAX_NIGHT * SHADOW_GAP <= 2 * SNES_SHADOW_MAX * SNES_SHADOW_GAP);
+}
+
 KH_TEST(actor_pool_still_refuses_past_the_new_ceiling) {
     // Raising the ceiling must not have turned the refusal into a wrap: a pool
     // that quietly recycled slot 0 would overwrite whatever stood there.

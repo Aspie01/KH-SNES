@@ -1,0 +1,19 @@
+# The last piece of the island -- Nintendo DS cast.  Tiles into assets/fragment.txt.
+#
+# NOT assets/ds/fragment.txt: there isn't one.  The fragment is deliberately
+# unexpanded, so this scene reads the SNES map.  It is the last scrap of ground
+# after the island comes apart, sized so Darkside can stand on it and Sora
+# cannot retreat; making it bigger would undo the scene.  See docs/WORLD_SIZES.md.
+#
+# The one tree still standing on it comes off the map's T tile, like every other
+# prop.  fragSpawns listed it by hand and this does not need to.
+#
+# Darkside is [boss] rather than [base] because Sora lands here alone and it
+# rises out of the ground afterwards -- placing it on entry would have it already
+# waiting.  night.s spawned it from the stage machine for the same reason.
+
+[base]
+Sora        15 12         # where he comes down, at the southern lip
+
+[boss]
+Darkside    15  7         # rises in the middle, with the sea behind it

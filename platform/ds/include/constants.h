@@ -312,9 +312,40 @@ constexpr World TAG_Y = World::fromRaw(448);
 constexpr int RACE_WPS = 20;            // RACE_WPS
 
 // The night
-constexpr int SHADOW_MAX = 6;           // SHADOW_MAX  alive at once
-constexpr int SHADOW_GAP = 70;          // SHADOW_GAP  frames between arrivals
-constexpr int NIGHT_SPOTS = 10;         // NIGHT_SPOTS
+//
+// SHADOW_MAX was one number on the SNES because the night and the fragment ran
+// on maps of similar size.  They no longer do: the island is four times what it
+// was and the fragment is deliberately untouched, so one constant would either
+// leave the island deserted or bury the fragment.
+//
+// The island's figure preserves PER-SCREEN density rather than the count.  Six
+// Shadows over 196 walkable tiles is one per 33; 670 walkable tiles at the same
+// density is 20.  That matters because a DS screen shows 17x13 tiles -- about
+// 15% of the expanded island -- so six spread over the whole of it means
+// typically ONE on screen, and the night's tension is being hunted.
+//
+// SHADOW_GAP scales with the same argument, not with the count: the fill should
+// still take about as long as crossing the map. The island is twice as wide and
+// twice as tall, so ~2x the SNES's 420 frames, which at 20 alive is a gap of 42.
+//
+// BOTH of these are balance and neither has been played on hardware.  Treat them
+// as the derivation's answer, not as measured -- see
+// docs/behaviour/divergences/003-ds-night-density.md.
+constexpr int SNES_SHADOW_MAX = 6;      // SHADOW_MAX, for the oracle fixtures
+constexpr int SHADOW_MAX_NIGHT = 20;    // the expanded island
+constexpr int SHADOW_MAX_FRAG = 6;      // unchanged, because the map is unchanged
+constexpr int SHADOW_GAP = 42;          // SHADOW_GAP was 70
+constexpr int SNES_SHADOW_GAP = 70;
+
+// The spot table is DATA now -- assets/gen/ds/nightspots.bin, terminated -- so
+// the count comes from the file and this is only the buffer it is read into.
+// The island carries 35 of them against the SNES's 10, because spots are where
+// the Shadows come up and four times the ground needs four times the places or
+// they all arrive in the same corner.
+constexpr int SNES_NIGHT_SPOTS = 10;    // NIGHT_SPOTS, for the oracle fixtures
+constexpr int MAX_SPOTS = 64;
+static_assert(SHADOW_MAX_NIGHT <= MAX_SPOTS,
+              "more Shadows alive than there are places for them to come up");
 constexpr int DARK_HOLD = 96;           // DARK_HOLD
 constexpr int FLASH_LEN = 8;            // FLASH_LEN
 constexpr int FLASH_GAP_MIN = 150;      // FLASH_GAP_MIN

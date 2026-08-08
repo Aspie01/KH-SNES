@@ -142,6 +142,10 @@ What that bought:
 | --- | --- | --- | --- | --- |
 | SNES island | 8 | 9 | 10 | 25 |
 | **DS island** | **69** | 9 | 10 | **90** |
+| SNES night | 8 | 6 | 10 | 20 |
+| **DS night** | **69** | 6 | **35** | **75** |
+| SNES fragment | 1 | 1 | – | 8 |
+| DS fragment | 1 | 1 | – | 3 |
 | SNES district (1/2/3) | 2 / 2 / 2 | 3 / 0 / 2 | – / 8 / – | 6 / 5 / 7 |
 | **DS district (1/2/3)** | **13 / 13 / 12** | 8 / 1 / 1 | – / **12** / – | 21 / 14 / 15 |
 
@@ -157,6 +161,59 @@ it.
 
 Placement is reviewed by looking at it. `assets/src/ds_<scene>_cast.png` is the
 ground with a marker stamped on every cast entry, colour-keyed by kind.
+
+### A scene is not a map
+
+The night is the same island. Its tiles, tilemap, collision and height are
+*byte-identical* to the two days' — what makes it night is one palette upload,
+which is how the SNES did it too. So a DS scene is a record rather than a
+filename: it names a map, a palette, a cast, and optionally another scene whose
+ground it shares and therefore does not re-emit. Three consequences fall out of
+that, and each of them was a bug waiting to happen:
+
+- **The night does not duplicate 28 KB of ground.** Sharing is declared, not
+  inferred from the maps happening to match.
+- **The night's palms are bare.** The map says `Y` — a palm carrying coconuts —
+  but by nightfall day two has picked them, and `night.s` accordingly spawned a
+  plain `ACT_PALM` at both trees the days give a `PALMC`. The scene carries a
+  prop override for that: `Y → Palm`. Seven coconut palms become seven plain ones
+  and nothing else changes. Derived props would otherwise have quietly restored
+  fruit the player harvested.
+- **The fragment reads `assets/fragment.txt`**, from the SNES directory, because
+  there is no expanded version and there should not be. A scene naming its map
+  makes that expressible; a scene *being* its map would have needed a special
+  case.
+
+Two of the night's actors are deliberately not in its cast file, because they are
+**transformed rather than placed** and doing both would double them: the columns
+of darkness (`night.s` reads Riku's position, deletes him, and spawns a `Dark` on
+the spot — then the same to Kairi), and the open door, which retypes the `Door`
+already standing on the wall.
+
+### The night's Shadows are a scene decision, not a scaling factor
+
+`SHADOW_MAX = 6` was tuned against a map where one screen showed nearly the whole
+island. On the expanded one a screen shows about 15% of it, so six spread over
+the whole map means typically **one on screen** — in the scene whose entire
+mechanic is being hunted across ground you cannot fight back on until the
+Keyblade arrives.
+
+The DS figure preserves **tiles per Shadow** rather than the count: 196 walkable
+over 6 is one per 33, and 670 at that density is 20. `SHADOW_GAP` follows the
+same argument and not the count — the fill should still take about as long as
+crossing the map, so roughly 2× the SNES's 420 frames, which at 20 alive is 42.
+The spot table went from 10 to 35 because spots are places, and ten of them over
+four times the ground would cluster every arrival into one quarter of the island.
+
+The fragment keeps six, because its map is unchanged — so the one SNES constant
+splits into `SHADOW_MAX_NIGHT` and `SHADOW_MAX_FRAG`. One number for both would
+either desert the island or bury the fragment.
+
+**None of this has been played.** It is the derivation's answer with its
+reasoning attached, not a measured result, and the difficulty half of the
+original six is not something the density argument speaks to at all. See
+`docs/behaviour/divergences/003-ds-night-density.md`, and amend that file rather
+than quietly changing the constants.
 
 ### The pool had to grow, and that is a divergence
 
@@ -194,11 +251,11 @@ size does and does not do to the oracle.
   it could not have told them apart. The field is filled in and nothing consumes
   it until M5. It is there now because adding it later means re-authoring every
   file.
-- **The night is not populated.** It runs on the island's map with its own cast —
-  Riku, Kairi, the columns of darkness, and far more Heartless than the two days
-  ever show — and that is a fifth cast file that does not exist yet. The pool was
-  sized with it in mind (90 of 128 used by the busiest daytime scene), but the
-  numbers are unverified until it is written.
+- **The Stations of Awakening have no cast.** They are the last three scenes
+  without one. `dive.s` places three pedestals, three dream weapons, the Shadows
+  in Darkside's craters and Darkside itself, on maps that are deliberately not
+  expanded — so it is the smallest of the remaining cast files and the only one
+  whose props are not derivable, because a station has no prop tiles.
 - **Sprite VRAM is still M4's problem.** Instances share tiles, so the 69 palms
   and rocks cost per *type* and not per actor — but the bank map that says where
   those tiles live has not been written, and the OBJ budget check above says
