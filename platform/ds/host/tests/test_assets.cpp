@@ -14,6 +14,15 @@
 #include "gen/assets.h"
 #include "hostblob.h"
 
+// AFTER gen/assets.h, and that ordering is the point.  vram_map.h's reservation
+// for object VRAM has to agree with the boundary and the resident byte count
+// this pipeline emits, but vram_map.h must also compile standalone -- the device
+// tier includes it before anything else exists.  So the cross-file assertions
+// are guarded on KH_ASSETS_H_INCLUDED and fire exactly where the two headers
+// meet, which is here.  test_vram.cpp includes them the other way round and so
+// proves the standalone case instead.
+#include "vram_map.h"
+
 using namespace kh;
 
 namespace {

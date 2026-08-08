@@ -385,7 +385,53 @@ section it tests.
 
 ---
 
-# §M4 — The VRAM map — **Tier 1 (a header), blocking all of Tier 2**
+# §M4 — The VRAM map — **LANDED**
+
+**Done.** `platform/ds/include/vram_map.h`, `host/tests/test_vram.cpp` — 8 cases.
+The allocation, and the constraint that forces each line of it:
+
+| Bank | Size | Use | MST | Why it could not be elsewhere |
+| --- | --- | --- | --- | --- |
+| A | 128K | 3D texture, slot 0 | 3 | texture is A–D only and the granule is a whole bank |
+| B | 128K | main BG @ `0x06000000` | 1 | the least flexible large bank — B is main BG, main OBJ or texture and nothing else |
+| C | 128K | LCDC, held | 0 | the only 128K bank that can be sub BG |
+| D | 128K | LCDC, held | 0 | the only 128K bank that can be sub OBJ |
+| E | 64K | main OBJ @ `0x06400000` | 2 | sprites are A/B/E/F/G only; 64K is exactly the reach at boundary 64 |
+| F | 16K | texture palette, slot 0 | 3 | 512 bytes needed; spending E here would cost the sprite bank |
+| G | 16K | LCDC, held | 0 | the only remaining main OBJ extended palette |
+| H | 32K | sub BG @ `0x06200000` | 1 | H can be LCDC, sub BG or sub BG ext palette and nothing else |
+| I | 16K | sub OBJ @ `0x06600000` | 2 | 512 sprite numbers; the alternative is D, worth more held |
+
+Four things a later milestone must not re-derive:
+
+- **C and D cannot be main OBJ.** GBATEK's main-OBJ rows list A, B, E, F, G and
+  no others, which is what stops the two big idle banks taking the sprites. The
+  header encodes the whole capability matrix so that mapping is a *compile*
+  error — an illegal MST does not fault on hardware, the bank simply is not
+  there and the layer draws whatever was.
+- **Everything stays under 62 KiB in a BG window.** The map base is five bits of
+  2 KiB units, so that is BGxCNT's reach; past it a region needs DISPCNT's
+  64 KiB term, which is engine-wide and moves all four layers — and engine B has
+  no such term at all. Both DISPCNT base fields stay zero.
+- **Both `GroundRenderer`s are live at once and neither needs a remap.** The 2D
+  one uses `GROUND_CHR` and `GROUND_MAP`; the 3D one uses BG0 and the texture
+  slot. Disjoint, so switching is a call and not a VRAMCNT write.
+- **The 3D layer cannot be mosaicked**, and the Shatter and the Tear both
+  coarsen the ground with mosaic. That is why the 2D ground's regions are
+  reserved even in a build that intends to ship 3D. See divergence 006.
+
+Three assertions were broken on purpose and reported: an overlap (moving
+`BOX_MAP` onto the streaming window fired *the streaming window over the box
+map* and *BG map base*), an illegal MST (assigning the sprites to bank C fired
+*a bank is assigned a use its silicon does not implement*), and a base past
+BGxCNT's reach. All reverted. A fourth attempt — raising the 1D boundary in
+`ds_encode.py` — **did not fire**, which found a real defect: `OBJ_REACH` was
+emitted as a literal rather than derived from `OBJ_BOUNDARY`, so the two could
+disagree silently. It is derived now, and boundary 128 fails the build.
+
+---
+
+## The original brief
 
 **One agent. One file. Never edited again.**
 

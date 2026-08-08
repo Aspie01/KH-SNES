@@ -23,6 +23,12 @@
 
 #include <cstdint>
 
+// vram_map.h checks its object-VRAM reservation against OBJ_REACH and
+// OBJ_RESIDENT_BYTES below, but only when this header has been included --
+// it has to stay standalone, because the device tier includes it before
+// anything else exists.  This is how it knows.
+#define KH_ASSETS_H_INCLUDED 1
+
 namespace kh {
 
 // Which ENTRY of a DS text background's map holds character (x, y).
@@ -61,7 +67,13 @@ constexpr int BG_BLOCK_ENTRIES = 1024;      // 32x32 characters, 2 KiB
 // Whatever sets DISPCNT must set it to OBJ_BOUNDARY, because dsTileFor()
 // below is derived from it: at 64 every cel's tile number halves.
 constexpr int OBJ_BOUNDARY = 32;
-constexpr int OBJ_REACH = 32768;
+// DERIVED, not emitted as a literal.  A literal here can disagree with the
+// boundary above, and that disagreement is invisible: every tile number is
+// still in range, the budget check still passes, and the sprites are simply
+// at the wrong addresses.  Deriving it means changing the boundary moves the
+// reach with it, and vram_map.h's reservation check sees the new value.
+constexpr int OBJ_REACH = (MAP_TILE_MASK + 1) * OBJ_BOUNDARY;
+static_assert(OBJ_REACH == 32768, "regenerate: the boundary changed");
 constexpr int OBJ_CEL_BYTES = 512;          // 32x32 at 4bpp
 constexpr int OBJ_CEL_TILES = OBJ_CEL_BYTES / OBJ_BOUNDARY;
 
