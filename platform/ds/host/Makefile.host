@@ -1,0 +1,56 @@
+# Host build of the platform-neutral tier.
+#
+#   make -f platform/ds/host/Makefile.host
+#   make -f platform/ds/host/Makefile.host run
+#
+# devkitPro is not installed in the development container and cannot be
+# installed there (see platform/ds/README.md), so the whole simulation -- fixed
+# point, actors, collision, camera, the scene machines -- is built and tested
+# with the system compiler against the SNES oracle.  Only rendering, VRAM, input
+# and audio need the real toolchain.
+#
+# The flags mirror the device tier's prohibitions rather than being merely
+# strict: no exceptions, no RTTI.  Code that compiles here compiles there.
+
+# Resolve paths from this makefile's own location, so it works from any working
+# directory -- agents will invoke it from the repository root.
+HERE  := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
+DS    := $(HERE)/..
+BUILD := $(HERE)/build
+
+CXX      := g++
+CXXFLAGS := -std=c++17 -O2 -g \
+            -Wall -Wextra -Werror \
+            -Wshadow -Wconversion -Wsign-conversion -Wold-style-cast \
+            -fno-exceptions -fno-rtti \
+            -I$(DS)/include -I$(HERE)
+
+# Globbed, never listed.  Adding a source or a test must not require editing
+# this file: eight tasks share it and four of them run concurrently.
+SRCS := $(HERE)/check.cpp \
+        $(wildcard $(DS)/source/*.cpp) \
+        $(wildcard $(DS)/source/*/*.cpp) \
+        $(wildcard $(HERE)/tests/*.cpp)
+OBJS := $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(SRCS)))
+TARGET := $(BUILD)/hosttests
+
+VPATH := $(HERE) $(HERE)/tests $(DS)/source $(wildcard $(DS)/source/*)
+
+.PHONY: all run clean
+
+all: $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: %.cpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(TARGET): $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJS)
+
+run: $(TARGET)
+	@$(TARGET)
+
+clean:
+	rm -rf $(BUILD)

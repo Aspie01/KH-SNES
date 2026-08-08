@@ -195,9 +195,24 @@ address. That was built to chase a bug and turns out to be half the test rig.
 
 ```
 platform/ds/
-  include/fixed.h    the fixed-point scalar; read the header comment
-  README.md          this file
+  include/fixed.h       the fixed-point scalar; read the header comment
+  include/constants.h   every tuning number, ported from game.inc
+  include/actor.h       the actor table and the four type tables
+  source/actor.cpp
+  host/Makefile.host    the host build; globs its sources
+  host/check.h  .cpp    the test harness: a registry and an assertion
+  host/tests/           one file per task, self-registering
+  README.md             this file
 ```
+
+Build and run the host tier from the repository root:
+
+```sh
+make -f platform/ds/host/Makefile.host run
+```
+
+Milestones M0 (host build, fixed-point parity) and M1 (the data model) are done:
+16 cases, 239 checks. M2 onward are in the brief.
 
 Shared with the SNES target, one level up:
 

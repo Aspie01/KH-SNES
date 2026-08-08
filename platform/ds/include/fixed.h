@@ -41,12 +41,20 @@ public:
     constexpr Fixed() : v_(0) {}
 
     static constexpr Fixed fromRaw(int32_t raw) { return Fixed(raw, Raw{}); }
+
+    // ONE is a multiply, not a shift, and that is deliberate: left-shifting a
+    // negative value is undefined before C++20, so `whole << F` makes every
+    // negative coordinate ill-formed in a constant expression -- which the
+    // engine has, because a hurt box centred near the west edge subtracts past
+    // zero.  The compiler emits the same shift either way.
+    static constexpr int32_t ONE = 1 << F;
+
     static constexpr Fixed fromInt(int32_t whole) {
-        return Fixed(whole << F, Raw{});
+        return Fixed(whole * ONE, Raw{});
     }
     // Whole pixels plus a fraction of 1/2^F, spelled out at the call site.
     static constexpr Fixed fromParts(int32_t whole, int32_t frac) {
-        return Fixed((whole << F) + frac, Raw{});
+        return Fixed(whole * ONE + frac, Raw{});
     }
 
     constexpr int32_t raw() const { return v_; }
@@ -69,8 +77,14 @@ public:
     // Scaling by a plain count is not a fixed-point multiply and should not
     // pay for one.
     constexpr Fixed operator*(int32_t n) const { return fromRaw(v_ * n); }
+    // Right shift of a negative is implementation-defined rather than
+    // undefined, and every compiler that matters makes it arithmetic, which is
+    // what a truncating halve needs.  Left shift is the undefined one, so it
+    // multiplies.
     constexpr Fixed operator>>(int n) const { return fromRaw(v_ >> n); }
-    constexpr Fixed operator<<(int n) const { return fromRaw(v_ << n); }
+    constexpr Fixed operator<<(int n) const {
+        return fromRaw(v_ * (int32_t(1) << n));
+    }
 
     constexpr Fixed& operator+=(Fixed o) { v_ += o.v_; return *this; }
     constexpr Fixed& operator-=(Fixed o) { v_ -= o.v_; return *this; }
@@ -96,7 +110,7 @@ using Render = Fixed<12>;       // the DS's 1.19.12 vertex and matrix format
 // The only sanctioned crossing between the two, and it is a widening shift so
 // it is exact.  Nothing converts the other way: rendering never feeds back
 // into the simulation.
-constexpr Render toRender(World w) { return Render::fromRaw(w.raw() << 8); }
+constexpr Render toRender(World w) { return Render::fromRaw(w.raw() * 256); }
 
 // Geometry constants, straight from docs/BEHAVIOUR.md §1.  Tiles are 16 px, so
 // a tile index is a shift of the whole part -- four bits of fraction plus four
