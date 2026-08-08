@@ -368,12 +368,33 @@ This is the largest milestone and the most parallel: the four scene scripts are
 independent of each other once §M1 and §M3 exist. One agent per scene, plus one
 for the dialogue interpreter.
 
+**Already landed — do not rewrite these:**
+
+| File | What it is |
+| --- | --- |
+| `include/pad.h` | `Pad` — held and pressed, SNES bit order, and `consume()` |
+| `include/text.h`, `source/text.cpp` | the dialogue interpreter, complete |
+| `include/scene.h`, `source/scene.cpp` | `SceneGround`, `spawnCast`, `readSpots`, `readDoors` |
+| `host/hostblob.h` | reading a scene's tables off disk, host tier only |
+| `host/tests/test_text.cpp`, `test_scene.cpp` | 24 cases against the real emitted data |
+
+What that leaves for this milestone is the **four stage machines**, and the
+scripts themselves as `constexpr` byte arrays.
+
 - Stage machines as `enum class`, transitions exactly as `BEHAVIOUR.md` §6 gives
   them — **and read `BEHAVIOUR-AUDIT.md` findings 7, 8, 14, 15, 16 first**, which
   correct that section's day-change and race transitions.
 - The dialogue script format is unchanged: bytes ≥ 32 are characters, below are
   control codes (`SC_END`, `SC_NL`, `SC_PAGE`). The scripts themselves port
-  verbatim from the assembly's `.byte` runs.
+  verbatim from the assembly's `.byte` runs, and `BEHAVIOUR.md` §13 now specifies
+  the interpreter — that section did not exist when this brief was written.
+- **`SC_PAGE` works here and did not on the SNES**, which means a conversation
+  holds its scene for several times as many frames as the oracle's did. That is
+  divergence 005 and it is the one a trace diff cannot be told to ignore; read it
+  before writing a stage machine that waits on `TextBusy`.
+- **`SceneGround` needs `spawnCast` to have run before anything reads an actor's
+  height.** `spawnCast` resolves it once, at spawn, because that is where the
+  scene is; the version that runs during movement is §M3's `SetActorZ`.
 - **Spawn tables do not port. They are already data.** `tools/build_assets.py`
   emits them from `assets/ds/<scene>_cast.txt` into `assets/gen/ds/` as
   `(type, i, j, variant)` rows terminated by `$FF` — the same three-byte walk

@@ -18,12 +18,18 @@ HERE  := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
 DS    := $(HERE)/..
 BUILD := $(HERE)/build
 
+# Where the pipeline puts the DS scene data.  Absolute, resolved from this
+# makefile's own location, so a test that loads a real cast table does not depend
+# on the working directory the suite happens to be run from.
+ASSETS := $(abspath $(HERE)/../../../assets/gen/ds)
+
 CXX      := g++
 CXXFLAGS := -std=c++17 -O2 -g \
             -Wall -Wextra -Werror \
             -Wshadow -Wconversion -Wsign-conversion -Wold-style-cast \
             -fno-exceptions -fno-rtti \
-            -I$(DS)/include -I$(HERE)
+            -I$(DS)/include -I$(HERE) \
+            -DKH_ASSET_DIR='"$(ASSETS)"'
 
 # -MMD -MP so a header change rebuilds what included it.  Without this, editing
 # constants.h relinked stale objects against fresh tests and the suite reported

@@ -427,3 +427,63 @@ a damage source where there is not one today.
 2. **A death on the island restarts the scene without the day's item table**, so
    the remaining collectables are destroyed permanently and the day cannot be
    completed. Unreachable only because nothing damages Sora during the two days.
+
+## 13. The dialogue system
+
+The audit's last finding asked for this section: the dialogue box gates every
+scene transition, so it is part of the specification and not presentation. This
+was derived from `text.s` and then **verified against the running ROM**, which
+is how the bug below was found.
+
+A script is a byte stream. Anything **≥ 32 is a character**; anything below is a
+control code. Only three codes exist:
+
+| | | |
+| --- | --- | --- |
+| `SC_END` | `0` | the message is over |
+| `SC_NL` | `1` | newline |
+| `SC_PAGE` | `2` | *intended*: wait, clear the text area, keep going |
+
+`txtState` runs `TS_CLOSED → TS_REVEAL → TS_WAIT → (TS_PROMPT) → TS_CLOSED`.
+
+- **`TS_REVEAL`** emits one script byte, then waits `REVEAL_DELAY = 1` frames —
+  so **one character every two frames**. A press of A or B instead calls
+  `RevealAll`, which dumps the rest of the page in a single frame, bounded at 512
+  iterations against a script with no terminator.
+- **`txtHold`** blocks input until the button that opened the box is *released*.
+  Without it the press that started a conversation would also dismiss it.
+- **`TS_WAIT`** is entered by both `SC_END` and `SC_PAGE`. A press closes the box
+  for `TM_MESSAGE`, or raises the selector for a prompt mode.
+- **`TS_PROMPT`** tests Up, then Down, then the confirm, and **each returns** — so
+  a frame carrying both Up and A moves the cursor and does not answer. `txtResult`
+  is `choice + 1`, because 0 has to mean "not answered yet".
+- **`TextClose` masks A and B out of `padPressed`.** This is a write to shared
+  input state and scenes depend on it: without it, the press that closed a
+  message immediately starts the next conversation.
+
+Layout is 28 characters by 5 lines. `PutChar` wraps **mid-word** at column 28;
+`NewLine` **clamps** at the last line rather than scrolling, so a page that runs
+long overwrites its own bottom row. `asciiToTile` folds lower case onto upper and
+maps everything unrecognised to `CH_BLANK`.
+
+### `SC_PAGE` does not page. 63% of the dialogue is unreachable
+
+There is **no path from `TS_WAIT` back to `TS_REVEAL`**. `SC_PAGE` sets
+`TS_WAIT`; the next press reaches the `TM_MESSAGE` branch and calls `TextClose`.
+`ClearTextArea` is called from `TextOpen` and from nowhere else.
+
+So a page break ends the message, and **everything after the first `SC_PAGE` in
+every script is dead**. 54 of the 70 scripts use it. Counting the characters:
+1831 are reachable and **3213 are never shown**.
+
+Verified, not deduced: booting the ROM shows the Dive's opening line, and one
+press closes the box instead of advancing to "DON'T BE AFRAID."
+
+This is the one place the audit was wrong — finding 41 recorded `SC_PAGE` as
+"waits then clears", which is what `text.inc`'s comment claims and not what the
+code does. Corrected as audit finding 42.
+
+**The SNES build is not fixed.** It is frozen as the behavioural oracle and its
+ROM must stay byte-identical, so the fix would have to be a deliberate,
+separately-decided change. The DS port implements paging as intended and files
+it as `docs/behaviour/divergences/005-sc-page.md`.

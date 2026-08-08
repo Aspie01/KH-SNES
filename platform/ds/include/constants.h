@@ -105,6 +105,35 @@ static_assert(DIVE_CX - DIVE_R >= DIVE_CAM_X
 constexpr int MAX_STEP = 1;             // MAX_STEP  height steps a move may cross
 
 // ---------------------------------------------------------------------------
+// The dialogue box
+//
+// Geometry in characters, from text.inc.  The box's PLACEMENT on screen is a
+// rendering decision and belongs to the device tier -- and on the DS it is a
+// different decision anyway, because the box shares the bottom screen with the
+// HUD instead of sitting over the world.  What the interpreter needs is only how
+// many characters fit on a line and how many lines fit before a page break.
+// ---------------------------------------------------------------------------
+constexpr int TEXT_W = 28;              // TEXT_W  characters per line
+constexpr int TEXT_H = 5;               // TEXT_H  lines before the box must page
+constexpr int REVEAL_DELAY = 1;         // REVEAL_DELAY  one character every 2 frames
+constexpr int REVEAL_BACKSTOP = 512;    // iterations RevealAll gives up after
+
+// Glyph numbers in the 2 bpp font page, in the order build_assets.py emits them.
+constexpr uint8_t CH_BLANK = 0;
+constexpr uint8_t CH_A = 1;             // A..Z run from here
+constexpr uint8_t CH_0 = 27;            // 0..9 run from here
+constexpr uint8_t CH_DOT = 37;
+constexpr uint8_t CH_COMMA = 38;
+constexpr uint8_t CH_BANG = 39;
+constexpr uint8_t CH_QUERY = 40;
+constexpr uint8_t CH_APOS = 41;
+constexpr uint8_t CH_DASH = 42;
+constexpr uint8_t CH_COLON = 43;
+constexpr uint8_t CH_SLASH = 44;
+constexpr uint8_t CH_CURSOR = 45;       // menu selection arrow
+constexpr uint8_t CH_ADVANCE = 46;      // "press a button" indicator
+
+// ---------------------------------------------------------------------------
 // Actor pool
 //
 // The SNES held 32.  That was never an OAM limit -- an ordinary actor is a
