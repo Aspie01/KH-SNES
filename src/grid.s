@@ -1,22 +1,20 @@
 ;=============================================================================
-; iso.s -- isometric geometry, camera, and ground collision
+; grid.s -- ground geometry, camera, and collision
 ;
-; Screen space is the authority: actors store world *pixel* coordinates in
-; Q12.4 fixed point, so drawing needs no projection at all.  The isometric
-; grid only comes back into play when we ask "what tile am I standing on",
-; which inverts
+; The view is three-quarters overhead, so screen space *is* world space: actors
+; store world pixel coordinates in Q12.4 fixed point and drawing needs no
+; projection at all.  The map only comes back into play when we ask "what tile
+; am I standing on", and on a square lattice of 16x16 tiles that inverts
 ;
-;   world_x = (i - j) * 16 + ORIGIN_X
-;   world_y = (i + j) * 8
+;   world_x = i * 16      world_y = j * 16
 ;
-; into
+; into two shifts,
 ;
-;   a = world_x - ORIGIN_X
-;   i = (a + 2 * world_y) >> 5
-;   j = (2 * world_y - a) >> 5
+;   i = world_x >> 4      j = world_y >> 4
 ;
-; Both divisions are exact powers of two, so a standing-on-tile query costs a
-; handful of shifts instead of a divide.
+; so a standing-on-tile query is a lookup rather than a calculation.  Both
+; shifts turn a negative coordinate into a large unsigned one, which the range
+; check that follows rejects along with anything past the edge of the map.
 ;=============================================================================
 .p816
 .include "snes.inc"
@@ -24,24 +22,9 @@
 .include "ram.inc"
 .include "macros.inc"
 
-.export UpdateCamera, TileWalkable, TryMoveActor, IsoToWorld, TileHeight
+.export UpdateCamera, TileWalkable, TryMoveActor, TileToWorld, TileHeight
 
 .segment "CODE"
-
-; Arithmetic (sign-preserving) shift right by one, 16-bit accumulator.
-; CMP #$8000 sets carry exactly when bit 15 is set, and ROR feeds it back in.
-.macro ASR16
-    cmp #$8000
-    ror a
-.endmacro
-
-.macro ASR16_5
-    ASR16
-    ASR16
-    ASR16
-    ASR16
-    ASR16
-.endmacro
 
 ;-----------------------------------------------------------------------------
 ; UpdateCamera -- centre the view on the player and clamp to the world.
@@ -66,12 +49,16 @@
     lsr a                       ; Q12.4 -> whole pixels
     sec
     sbc #(SCREEN_W / 2)
-    bpl @cx_lo_ok
-    lda #0
-@cx_lo_ok:
-    cmp #(CAM_MAX_X + 1)
+    bmi @cx_lo                  ; a negative centre is below any bound
+    cmp camLoX
+    bcs @cx_hi
+@cx_lo:
+    lda camLoX
+    bra @cx_done
+@cx_hi:
+    cmp camHiX
     bcc @cx_done
-    lda #CAM_MAX_X
+    lda camHiX
 @cx_done:
     sta camX
     ; shakeX is a signed byte, normally zero; the shatter drives it.
@@ -96,12 +83,16 @@
     lsr a
     sec
     sbc #(SCREEN_H / 2)
-    bpl @cy_lo_ok
-    lda #0
-@cy_lo_ok:
-    cmp #(CAM_MAX_Y + 1)
+    bmi @cy_lo
+    cmp camLoY
+    bcs @cy_hi
+@cy_lo:
+    lda camLoY
+    bra @cy_done
+@cy_hi:
+    cmp camHiY
     bcc @cy_done
-    lda #CAM_MAX_Y
+    lda camHiY
 @cy_done:
     sta camY
     ; BGnVOFS displays background line (value + 1), so bias by one.
@@ -115,35 +106,31 @@
 .endproc
 
 ;-----------------------------------------------------------------------------
-; IsoToWorld -- convert isometric tile coordinates to a world pixel position.
+; TileToWorld -- the centre of a map cell, in world pixels.
 ; In:  tmp0 = i, tmp1 = j (16-bit)
 ; Out: tmp0 = world X, tmp1 = world Y (whole pixels)
 ; A16/I16.
 ;-----------------------------------------------------------------------------
-.proc IsoToWorld
+.proc TileToWorld
     .a16
     .i16
     lda tmp0
-    sec
-    sbc tmp1
     asl a
     asl a
     asl a
-    asl a                       ; (i - j) * 16
+    asl a                       ; i * TILE_PX
     clc
-    adc #ORIGIN_X
-    sta tmp2                    ; stash: tmp0 is still needed
-
-    lda tmp0
-    clc
-    adc tmp1
-    asl a
-    asl a
-    asl a                       ; (i + j) * 8
-    sta tmp1
-
-    lda tmp2
+    adc #(TILE_PX / 2)
     sta tmp0
+
+    lda tmp1
+    asl a
+    asl a
+    asl a
+    asl a
+    clc
+    adc #(TILE_PX / 2)
+    sta tmp1
     rts
 .endproc
 
@@ -151,50 +138,37 @@
 ; TileIndex -- which map cell does this world pixel fall in?
 ; In:  tmp0 = world X, tmp1 = world Y (whole pixels, signed)
 ; Out: carry set and Y = j * MAP_W + i, or carry clear if off the map
-; A16/I16.  Clobbers A, tmp2, tmp3, tmp4.
+; A16/I16.  Clobbers A, tmp2.
 ;-----------------------------------------------------------------------------
 .proc TileIndex
     .a16
     .i16
-    lda tmp1
-    asl a
-    sta tmp3                    ; t = 2 * world_y
-
     lda tmp0
-    sec
-    sbc #ORIGIN_X
-    sta tmp2                    ; a = world_x - ORIGIN_X
-
-    ; IsoToWorld puts a tile's *corner* at (i-j)*16 + ORIGIN_X, (i+j)*8, so a
-    ; point at the middle of a diamond sits half a tile past that origin along
-    ; both axes.  Bias by that half tile or every lookup lands on the diamond
-    ; down and to the right of the one the actor is really standing in.
-    clc
-    adc tmp3
-    sec
-    sbc #16
-    ASR16_5                     ; i = (a + t - 16) >> 5
-    ; An out-of-range or negative i wraps to a large unsigned value, so one
-    ; unsigned compare rejects both.
+    lsr a
+    lsr a
+    lsr a
+    lsr a                       ; i = world_x >> 4
+    ; A negative coordinate shifts to a large unsigned value, so one unsigned
+    ; compare rejects both "off the west edge" and "off the east edge".
     cmp #MAP_W
     bcs @off
-    sta tmp4
+    sta tmp2
 
-    lda tmp3
-    sec
-    sbc tmp2
-    clc
-    adc #16
-    ASR16_5                     ; j = (t - a + 16) >> 5
+    lda tmp1
+    lsr a
+    lsr a
+    lsr a
+    lsr a                       ; j = world_y >> 4
     cmp #MAP_H
     bcs @off
 
     asl a
     asl a
     asl a
-    asl a                       ; j * MAP_W (MAP_W is 16)
+    asl a
+    asl a                       ; j * MAP_W (MAP_W is 32)
     clc
-    adc tmp4
+    adc tmp2
     tay
     sec
     rts
@@ -208,7 +182,7 @@
 ; TileWalkable -- is this world pixel standing on walkable ground?
 ; In:  tmp0 = world X, tmp1 = world Y (whole pixels, signed)
 ; Out: carry set when walkable, and tmp2 = that tile's height
-; A16/I16.  Clobbers A, tmp2, tmp3, tmp4, Y.
+; A16/I16.  Clobbers A, tmp2, Y.
 ;-----------------------------------------------------------------------------
 .proc TileWalkable
     .a16
@@ -244,7 +218,7 @@
 ; TileHeight -- ground height under a world pixel, in eight-pixel steps.
 ; In:  tmp0 = world X, tmp1 = world Y (whole pixels)
 ; Out: A = height (zero off the map)
-; A16/I16.  Clobbers tmp2, tmp3, tmp4, Y.
+; A16/I16.  Clobbers tmp2, Y.
 ;-----------------------------------------------------------------------------
 .proc TileHeight
     .a16
@@ -268,7 +242,7 @@
 ; In:  tmp0/tmp1 = candidate position (whole pixels), stepZ = current height
 ; Out: carry set when the tile is walkable and within one step of stepZ;
 ;      tmp2 = the tile's height
-; A16/I16.  Clobbers A, tmp2, tmp3, tmp4, Y.
+; A16/I16.  Clobbers A, tmp2, Y.
 ;-----------------------------------------------------------------------------
 .proc StepOk
     .a16

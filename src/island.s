@@ -25,7 +25,7 @@
 
 .import TextOpen, TextBusy
 .import HudUpdate
-.import SpawnActor, IsoToWorld, ClearActors, InitWorld
+.import SpawnActor, TileToWorld, ClearActors, InitWorld
 .import SetActorZ
 
 .export IslandInit, IslandUpdate, UpdateRiku
@@ -59,7 +59,7 @@
 .endproc
 
 ;-----------------------------------------------------------------------------
-; SpawnItems -- walk a table of (type, isometric i, isometric j) triples until
+; SpawnItems -- walk a table of (type, tile i, tile j) triples until
 ; $FF.  In (A8/I16): tmp8 = the table's address in this bank.
 ;-----------------------------------------------------------------------------
 .proc SpawnItems
@@ -88,20 +88,15 @@
     lda tmp5
     and #$00FF
     sta tmp1
-    jsr IsoToWorld
-    ; IsoToWorld lands on the diamond's top corner; step to its centre and
-    ; convert to Q12.4.
+    jsr TileToWorld
+    ; TileToWorld hands back whole pixels; actors are Q12.4.
     lda tmp0
-    clc
-    adc #16
     asl a
     asl a
     asl a
     asl a
     sta tmp0
     lda tmp1
-    clc
-    adc #8
     asl a
     asl a
     asl a
@@ -351,7 +346,7 @@
     bpl :+
     eor #$FFFF
     inc a
-:   lsr a                       ; the ground is squashed 2:1 across X
+:
     cmp tmp2
     bcs @miss
 
@@ -594,7 +589,7 @@
     bpl :+
     eor #$FFFF
     inc a
-:   lsr a                       ; the ground is squashed 2:1 across X
+:
     sta tmp4
     lda actY,x
     sec
@@ -602,21 +597,10 @@
     bpl :+
     eor #$FFFF
     inc a
-:   ; Neighbouring props on an isometric wall sit one diagonal apart, which
-    ; shifts |dx|/2 and |dy| by the same amount -- a plain Manhattan sum ties
-    ; right along the wall and the lowest actor index always wins.  The
-    ; octagonal max + min/2 separates them and costs one shift.
-    cmp tmp4
-    bcs @tall
-    lsr a                       ; the vertical gap is the smaller one
+:   ; Both axes are the same scale, so a plain |dx| + |dy| separates the three
+    ; drawings: they sit side by side along the wall, one tile apart.
     clc
     adc tmp4
-    bra @score
-@tall:
-    lsr tmp4
-    clc
-    adc tmp4
-@score:
     cmp tmp6
     bcs @keep
     sta tmp6
@@ -1035,7 +1019,7 @@
     bpl :+
     eor #$FFFF
     inc a
-:   lsr a                       ; the ground is squashed 2:1 across X
+:
     cmp tmp2
     bcs @no
     lda tmp5
@@ -1271,36 +1255,39 @@
 ; Scene data
 ;=============================================================================
 
-; A course marker, from isometric tile coordinates to the middle of that
-; diamond in Q12.4 world pixels.
+; A course marker, from tile coordinates to the middle of that cell in Q12.4
+; world pixels.
 .macro WP i, j
-    .word ((((i) - (j)) * 16 + ORIGIN_X + 16) * 16)
-    .word ((((i) + (j)) * 8 + 8) * 16)
+    .word CELL_X(i)
+    .word CELL_Y(j)
 .endmacro
 
 .segment "RODATA"
 
-; Out along the east shore, over the bridge, round the paopu tree and back.
-; Riku runs these in order; Sora may take any line he likes.
+; East along the beach, over the footbridge, up the spit, across the big
+; bridge, round the paopu tree and back.  Riku runs these in order; Sora may
+; take any line he likes.
 raceWp:
-    WP  9, 10
-    WP 10,  9
-    WP 11,  8
-    WP 11,  6
-    WP 11,  4
-    WP 10,  3
-    WP 10,  2
-    WP 11,  2
-    WP 12,  1
-    WP 11,  2
-    WP 10,  2
-    WP 10,  3
-    WP 11,  4
-    WP 11,  6
-    WP 11,  8
-    WP 10,  9
-    WP  9, 10
-    WP  8, 10
+    WP 16, 12
+    WP 18, 12
+    WP 20, 12
+    WP 20, 10
+    WP 20,  8
+    WP 22,  8
+    WP 25,  8
+    WP 28,  8
+    WP 28,  6
+    WP 26,  6
+    WP 25,  8
+    WP 22,  8
+    WP 20,  8
+    WP 20, 10
+    WP 20, 12
+    WP 18, 12
+    WP 16, 12
+    WP 14, 12
+    WP 13, 12
+    WP 12, 12
 raceWpEnd:
 .assert ((raceWpEnd - raceWp) / 4) = RACE_WPS, error, "RACE_WPS"
 
@@ -1313,23 +1300,23 @@ namedLines:
     .word .loword(scriptNamedExcalibur)
     .word .loword(scriptNamedRagnarok)
 
-; type, isometric i, isometric j -- terminated by $FF
+; type, tile i, tile j -- terminated by $FF
 day1Spawns:
-    .byte ACT_LOG,     11, 11        ; the shore past the little bridge
-    .byte ACT_LOG,     12,  2        ; the small island where Riku sits
-    .byte ACT_CLOTH,    7,  6        ; inside the treehouse
-    .byte ACT_ROPE,     3,  6        ; the high platform, beside Tidus
+    .byte ACT_LOG,     20, 12        ; the shore past the little footbridge
+    .byte ACT_LOG,     28,  9        ; the small island where Riku sits
+    .byte ACT_CLOTH,   12,  4        ; inside the treehouse
+    .byte ACT_ROPE,     8,  4        ; the lookout platform, beside Tidus
     .byte $FF
 
 day2Spawns:
-    .byte ACT_FISH,     4, 11        ; the shallows off the south beach
-    .byte ACT_FISH,     3, 10
-    .byte ACT_FISH,    12, 10        ; ...and off the east one
-    .byte ACT_MUSH,     6, 11        ; the hollow behind the rock by Kairi
-    .byte ACT_MUSH,     4,  5        ; the bushes at the foot of the tower
-    .byte ACT_MUSH,     1,  7        ; inside the Secret Place
-    .byte ACT_EGG,      7,  2        ; the nest atop the leaning tree
-    .byte ACT_BOTTLE,   2,  7        ; under the waterfall
+    .byte ACT_FISH,     4, 12        ; the shallows off the west beach
+    .byte ACT_FISH,     6, 13        ; ...the south one
+    .byte ACT_FISH,    17, 13        ; ...and the inlet under the footbridge
+    .byte ACT_MUSH,     9, 12        ; the hollow behind the rock by Kairi
+    .byte ACT_MUSH,     6,  4        ; the bushes at the foot of the tower
+    .byte ACT_MUSH,     2,  7        ; inside the Secret Place
+    .byte ACT_EGG,     21,  6        ; the nest atop the leaning tree
+    .byte ACT_BOTTLE,   4,  7        ; under the waterfall
     .byte $FF
 
 ; Kairi has four lines a day: rest, the list, that's everything, and a nudge.

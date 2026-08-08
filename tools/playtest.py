@@ -3,7 +3,7 @@
 and dump frames as PNGs.
 
 This is the only way to check the parts that cannot be verified statically:
-whether the isometric ground lands where it should, whether depth sorting puts
+whether the ground lands where it should, whether depth sorting puts
 Sora behind the right palm, and whether the swing connects.
 
   python3 tools/playtest.py kh.sfc --out shots/

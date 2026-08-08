@@ -1,7 +1,7 @@
-# Destiny Islands -- the play space, 16x16 isometric tiles.
+# Destiny Islands -- the play space, 32x16 tiles of 16x16 pixels.
 #
-# Row index is j, column index is i.  On screen +i runs down-right and +j runs
-# down-left, so this square grid renders as a diamond.
+# Row index is j, column index is i, and the view is three-quarters overhead:
+# +i runs right and +j runs down, so what you read here is what you see.
 #
 # Ground level:
 #   ~  deep water     (blocked)
@@ -10,8 +10,7 @@
 #   ,  grass          (walkable)
 #   =  wood dock      (walkable)
 #   W  waterfall pool (walkable) -- fill the bottle standing here
-#   C  cave floor     (walkable) -- the Secret Place, behind the fall,
-#                       a small chamber walled in by the tower
+#   C  cave floor     (walkable) -- the Secret Place, behind the fall
 #   T  grass, blocked -- a palm stands here
 #   Y  grass, blocked -- a palm with coconuts to knock down
 #   R  grass, blocked -- a boulder stands here
@@ -21,7 +20,7 @@
 # Raised, in eight-pixel steps.  A move is allowed only between tiles whose
 # heights differ by at most one, so a deck two steps up can only be reached
 # over its step tile:
-#   B  wooden bridge  (walkable, +1)
+#   B  wooden bridge  (walkable, +1) -- planks over the water it crosses
 #   L  wooden step    (walkable, +1)
 #   P  wooden platform deck (walkable, +2)
 #   H  treehouse deck (walkable, +2)
@@ -30,19 +29,31 @@
 #   #  cliff rock     (blocked, +3)
 #   F  cliff rock with the waterfall coming down it (blocked, +3)
 #
-~~~~~~~~~~~~~~~~
-~~~~~~~~~~~..T~~
-~~~--LMKBBB..~~~
-~~--.......--~~~
-~~-..,T,,,..-~~~
-###P,b,,,,T.-~~~
-CCFPb,HH,,,.-~~~
-CCWPT,HH,,,.-~~~
-~~.L,,L,R,,.-~~~
-~~-..,,Y,Y,.-~~~
-~~--...r....-~~~
-~~~--.....B.~~~~
-~~~~--===--~~~~~
-~~~~~~=~~~~~~~~~
-~~~~~~~~~~~~~~~~
-~~~~~~~~~~~~~~~~
+# A raised tile is painted 8*h pixels above its cell with a cliff face filling
+# the gap, which is what makes a ledge read as a ledge -- and it means the tile
+# covers 8*h pixels of whatever is north of it.  Two rules follow, and the
+# layout below obeys both:
+#
+#   * The cell(s) north of a raised structure must be blocked -- water, rock,
+#     or more of the same structure.  One row for +1 and +2, two for +3.  The
+#     Secret Place is therefore walled to the north and west and open to the
+#     sea, and both wooden decks are built over the head of a cove.
+#   * Nothing walkable above row 4, because a sprite standing on a +2 deck is
+#     lifted 16 px and the HUD owns the top 24 px of the screen.
+#
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~------------~~~~~~~~~~~~~~~
+~~###------------~~~~~~~~~~~~~~~
+#####..-------,,..--~~~~~~~~~~~~
+#####b,PP..HHH,T,..--~~~~~~~~~~~
+#####,,PP,,HHH,,,,..--~~~-....-~
+#CCCF,,L,,,LH,,,,,.LMK---.,,,,-~
+#CCCW,T,,,,,,,,,,,,..----.,T,.-~
+~~~~~,,,,,,,,,,,,,...BBBB.,,,.-~
+~~~~-,,,,,,,,,,R,,,..----.,,,.-~
+~~~-..,,,Y,,,Y,,T,..-----.,,,.-~
+~~~--...,,,,,,,,,--..----.,,,.-~
+~~~~-...r........BB..---~~~~~~~~
+~~~~~--......===.--..--~~~~~~~~~
+~~~~~~~-------=------~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

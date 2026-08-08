@@ -35,6 +35,10 @@ camX:         .res 2
 camY:         .res 2
 bgHOfs:       .res 2
 bgVOfs:       .res 2
+camLoX:       .res 2
+camHiX:       .res 2
+camLoY:       .res 2
+camHiY:       .res 2
 
 streamPend:   .res 1            ; non-zero: NMI should upload a Sora frame
 streamSrc:    .res 2

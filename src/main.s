@@ -269,6 +269,20 @@ MainLoop:
     lda #^flatHeights
     sta heightPtr+2
 
+    ; A Station of Awakening is narrower than the screen, so the camera is
+    ; pinned on it and the void around it never scrolls into view.  The island
+    ; is the default: the whole 512x256 is in play.
+    rep #$20
+    .a16
+    lda #DIVE_CAM_X
+    sta camLoX
+    sta camHiX
+    lda #DIVE_CAM_Y
+    sta camLoY
+    sta camHiY
+    sep #$20
+    .a8
+
     ; Every branch is longer than a short branch can clear, so the dispatch
     ; hops through jmps.
     lda sceneId
@@ -342,6 +356,16 @@ MainLoop:
     sta heightPtr+1
     lda #^heightMap
     sta heightPtr+2
+    rep #$20
+    .a16
+    stz camLoX
+    stz camLoY
+    lda #CAM_MAX_X
+    sta camHiX
+    lda #CAM_MAX_Y
+    sta camHiY
+    sep #$20
+    .a8
     ; The islanders take over OBJ palette 1 for the day.
     DMA_CGRAM (128 + 16), islePal, 32
 

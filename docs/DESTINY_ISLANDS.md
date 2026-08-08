@@ -64,10 +64,12 @@ the island falls, which is a later state of the same map.
 `tools/build_assets.py` emits it as `heightmap.bin` beside the collision map.
 Three things use it:
 
-- **Painting.** A raised tile's diamond is drawn `8 * height` pixels higher,
-  with the side of the block filled in underneath, so the deck sits on posts.
-  Because the block still reaches back down to where the tile would sit at
-  ground level, the existing back-to-front paint order needs no changes.
+- **Painting.** A raised tile is drawn `8 * height` pixels higher, with a cliff
+  face filling the gap back down to where the tile would sit at ground level.
+  Painting north to south then needs no other depth logic -- but it does mean a
+  raised tile covers `8 * height` pixels of whatever is north of it, so the map
+  puts water, rock or more of the same structure there. Both wooden decks are
+  built over the head of a cove for exactly that reason.
 - **Walking.** A move is refused unless the destination is within one step of
   where the actor is standing. A deck at +2 is therefore sealed off except
   across its +1 step tile, which is what makes a ladder out of a plank.
@@ -96,15 +98,15 @@ without a lookup.
 
 | Where | What |
 | --- | --- |
-| `(8,10)` beach | Kairi — gives the list, checks it off |
-| `(12,1)` small island | Riku, past the raised bridge |
-| `(3,5)` high platform | Tidus, with the rope beside him |
-| `(7,12)` dock | Selphie |
-| `(11,10)` past the footbridge | Wakka |
-| `(11,11)` | Log — the shore past the little wooden bridge |
-| `(12,2)` | Log — the small island where Riku sits |
-| `(7,6)` treehouse deck | Cloth |
-| `(3,6)` high platform | Rope |
+| `(12,12)` beach | Kairi — gives the list, checks it off |
+| `(27,8)` small island | Riku, past the raised bridge |
+| `(7,4)` lookout platform | Tidus, with the rope beside him |
+| `(14,13)` dock | Selphie |
+| `(19,12)` past the footbridge | Wakka |
+| `(20,12)` | Log — the shore past the little footbridge |
+| `(28,9)` | Log — the small island where Riku sits |
+| `(12,4)` treehouse deck | Cloth |
+| `(8,4)` lookout platform | Rope |
 
 Handing the list in ends the day: the screen dims, the island is rebuilt with
 day two's set, and it comes back up on the morning after.
@@ -113,37 +115,45 @@ day two's set, and it comes back up on the morning after.
 
 | Where | What |
 | --- | --- |
-| `(4,11)`, `(3,10)`, `(12,10)` shallows | Fish ×3 — swing at them from the shore |
-| `(6,11)` | Mushroom, in the hollow behind the rock by Kairi |
-| `(4,5)` | Mushroom, in the bushes at the foot of the tower |
-| `(1,7)` | Mushroom, inside the Secret Place |
-| `(7,9)`, `(9,9)` | Coconut palms — swing until the gold ones come down |
-| `(7,2)` treetop | Seagull egg, up the leaning tree by the bridge |
-| `(2,7)` pool | Bottle, under the waterfall |
+| `(4,12)`, `(6,13)`, `(17,13)` shallows | Fish ×3 — swing at them from the shore |
+| `(9,12)` | Mushroom, in the hollow behind the rock by Kairi |
+| `(6,4)` | Mushroom, in the bushes at the foot of the tower |
+| `(2,7)` | Mushroom, inside the Secret Place |
+| `(9,10)`, `(13,10)` | Coconut palms — swing until the gold ones come down |
+| `(21,6)` treetop | Seagull egg, up the leaning tree by the bridge |
+| `(4,7)` pool | Bottle, under the waterfall |
 
 Handing day two's list in is what Riku has been waiting for.
 
 Three of these needed terrain that did not exist:
 
-- a **rock tower** at `(2,5)`/`(1,6)` with the **waterfall** coming down
-  `(2,6)`, and its **pool** at `(2,7)`;
-- the **Secret Place** at `(1,7)`, walled in by the tower on every side but
-  the pool, so the only way in is through the fall;
-- a **leaning tree** by the bridge — trunk sections at `+1` and `+2` and a
-  leafy top at `+3`, which the one-step rule turns into a climb.
+- the **west cliff**, three steps up, with the **waterfall** coming down its
+  face at `(4,6)` into a **pool** at `(4,7)`;
+- the **Secret Place** at `(1..3, 6..7)`, walled by the cliff to the north and
+  west and open to the sea to the south, so the only way in is through the
+  pool under the fall;
+- a **leaning tree** by the bridge — a step at `+1`, trunk at `+2` and a leafy
+  top at `+3`, which the one-step rule turns into a climb.
+
+The back wall of the chamber carries the three drawings, at `(1,6)`, `(2,6)`
+and `(3,6)`. They are `AF_FLAT`, so they keep a height of zero and land on the
+face of the cliff behind them rather than on top of it, and being one tile
+apart along a straight wall is what lets a plain nearest-wins scan tell them
+apart.
 
 ## The race
 
 Talking to Kairi once day two is in triggers it. Both boys are put on the
 start line beside her, she counts down on the HUD row, and the course runs out
-along the east shore, over the raised bridge, round the paopu tree on the small
-island and back to her.
+along the east shore, over the footbridge and the raised bridge, round the paopu tree on
+the small island and back to her.
 
-Riku follows eighteen markers laid over that route, closing the gap to each one
+Riku follows twenty markers laid over that route, closing the gap to each one
 by at most one step a frame. He ignores the ground: every marker sits on a
-walkable tile by construction, so steering him round the boulder would cost
-more than it is worth. He is a little slower than a clean line, which is what
-makes the race winnable without making it free.
+walkable tile and every straight line between two of them stays on land, so
+steering him round the boulder would cost more than it is worth. He runs at
+about seven-tenths of Sora's pace, which is what makes the race winnable
+without making it free.
 
 Sora has no markers — he can take any line he likes. Getting within reach of
 the paopu tree flips the objective, and getting back to Kairi after that wins.

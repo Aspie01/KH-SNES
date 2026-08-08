@@ -7,7 +7,7 @@
 .include "ram.inc"
 .include "macros.inc"
 
-.import TryMoveActor, IsoToWorld, TileHeight
+.import TryMoveActor, TileToWorld, TileHeight
 .import UpdateRiku
 .import HudUpdate
 .import TextBusy
@@ -20,12 +20,12 @@ ATK_ACTIVE   = 12               ; timer value on which the swing connects
 ; The swing is generous on purpose: the arc is centred just off Sora's body
 ; rather than out at arm's length, so an enemy pressed right up against him is
 ; still inside it.
-ATK_REACH_X  = 320              ; Q12.4, compared after un-squashing X
-ATK_REACH_Y  = 240
-TOUCH_X      = 176
-TOUCH_Y      = 144
-HEART_DEAD_X = 384              ; AI deadzone, Q12.4
-HEART_DEAD_Y = 192
+ATK_REACH_X  = 272              ; Q12.4 half-extents of the arc's hit box
+ATK_REACH_Y  = 272
+TOUCH_X      = 160
+TOUCH_Y      = 160
+HEART_DEAD_X = 208              ; AI deadzone, Q12.4
+HEART_DEAD_Y = 208
 KNOCKBACK    = 3                ; velocity multiplier on a hit
 
 .segment "CODE"
@@ -55,7 +55,7 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     sta tmp6                    ; type
     iny
 
-    ; isometric tile coordinates -> world pixels
+    ; tile coordinates -> world pixels
     rep #$20
     .a16
     lda spawnTable,y
@@ -67,21 +67,16 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     sta tmp1                    ; j
     iny
     sty tmp7                    ; SpawnActor clobbers Y, so park the cursor
-    jsr IsoToWorld
+    jsr TileToWorld
 
-    ; IsoToWorld lands on the diamond's top corner; step to its centre and
-    ; convert to Q12.4.
+    ; TileToWorld hands back whole pixels; actors are Q12.4.
     lda tmp0
-    clc
-    adc #16
     asl a
     asl a
     asl a
     asl a
     sta tmp0
     lda tmp1
-    clc
-    adc #8
     asl a
     asl a
     asl a
@@ -857,8 +852,7 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     bpl :+
     eor #$FFFF
     inc a
-:   lsr a
-    cmp #DS_HURT_X
+:   cmp #DS_HURT_X
     bcs @miss
     lda actY,x
     sec
@@ -1084,7 +1078,7 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     bpl :+
     eor #$FFFF
     inc a
-:   lsr a                       ; the ground is squashed 2:1 across X
+:
     cmp #SWEEP_X
     bcs @no
     lda actY,x
@@ -1593,8 +1587,7 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     bpl :+
     eor #$FFFF
     inc a
-:   lsr a
-    cmp #TOUCH_X
+:   cmp #TOUCH_X
     bcs @clear
     lda actY,x
     sec
@@ -1636,7 +1629,6 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     eor #$FFFF
     inc a
 @xpos:
-    lsr a                       ; the ground is squashed 2:1 horizontally
     cmp #ATK_REACH_X
     bcs @miss
 
@@ -2057,18 +2049,18 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 ;=============================================================================
 .segment "RODATA"
 
-; Screen-space velocity per facing, Q12.4.  Horizontal steps are twice the
-; vertical ones because the isometric ground plane is squashed 2:1, which
-; keeps the apparent ground speed equal in all eight directions.
-dirVelX:    .word   0,  34,  48,  34,   0, .loword(-34), .loword(-48), .loword(-34)
+; Velocity per facing, Q12.4.  The ground is square, so both axes carry
+; WALK_SPEED and a diagonal is that scaled by 1/sqrt(2) -- which keeps the
+; apparent speed equal in all eight directions.
+dirVelX:    .word   0,  17,  24,  17,   0, .loword(-17), .loword(-24), .loword(-17)
 dirVelY:    .word  24,  17,   0, .loword(-17), .loword(-24), .loword(-17),   0,  17
 
-; Offset from Sora to the centre of a swing, Q12.4.
+; Offset from Sora to the centre of a swing, Q12.4 -- one tile ahead of him.
 atkOfsX:    .word   0, 176, 256, 176,   0, .loword(-176), .loword(-256), .loword(-176)
-atkOfsY:    .word 128,  88,   0, .loword(-88), .loword(-128), .loword(-88),    0,  88
+atkOfsY:    .word 256, 176,   0, .loword(-176), .loword(-256), .loword(-176), 0, 176
 
 ; Screen offsets of the three arcs the sweep leaves behind, Q12.4.
-sweepOfs:   .word .loword(-448), 0, 448
+sweepOfs:   .word .loword(-384), 0, 384
 
 ; (vertical bucket * 3 + horizontal bucket) -> facing; $FF means "standing".
 dirTable:   .byte DIR_NW, DIR_N, DIR_NE
@@ -2147,28 +2139,27 @@ typeHPEnd:
 .assert (typeFlagsEnd - typeFlags) = (ACT_SCRIBBLE + 1), error, "typeFlags"
 .assert (typeHPEnd    - typeHP)    = (ACT_SCRIBBLE + 1), error, "typeHP"
 
-; type, isometric i, isometric j -- terminated by $FF
+; type, tile i, tile j -- terminated by $FF
 ; Sora wakes on the sand. No Heartless: they arrive the night the island
 ; falls, which is a later state of this same map.
 spawnTable:
-    .byte ACT_SORA,     5, 10
-    .byte ACT_PALM,     6,  4
-    .byte ACT_PALM,    10,  5
-    .byte ACT_PALM,     4,  7
-    .byte ACT_PALM,    13,  1        ; out on the small island, over Riku
-    .byte ACT_PALM,     6,  6        ; the tree the treehouse is built round
-    .byte ACT_PALMC,    7,  9        ; the two by Kairi still carry coconuts
-    .byte ACT_PALMC,    9,  9
-    .byte ACT_ROCKBIG,  8,  8
-    .byte ACT_ROCK,     7, 10
+    .byte ACT_SORA,    11, 12        ; Kairi is standing right over him
+    .byte ACT_PALM,    15,  4        ; the tree the treehouse is built round
+    .byte ACT_PALM,     6,  7
+    .byte ACT_PALM,    16, 10
+    .byte ACT_PALM,    27,  7        ; the paopu tree, out on the small island
+    .byte ACT_PALMC,    9, 10        ; the two by Kairi still carry coconuts
+    .byte ACT_PALMC,   13, 10
+    .byte ACT_ROCKBIG, 15,  9
+    .byte ACT_ROCK,     8, 12
     ; the five islanders
-    .byte ACT_KAIRI,    8, 10        ; down by the water
-    .byte ACT_RIKU,    12,  1        ; the small island past the bridge
-    .byte ACT_TIDUS,    3,  5        ; up on the far-left platform
-    .byte ACT_SELPHIE,  7, 12        ; out on the dock
-    .byte ACT_WAKKA,   11, 10        ; across the little footbridge
+    .byte ACT_KAIRI,   12, 12        ; down by the water
+    .byte ACT_RIKU,    27,  8        ; the small island past the bridge
+    .byte ACT_TIDUS,    7,  4        ; up on the lookout platform
+    .byte ACT_SELPHIE, 14, 13        ; out on the dock
+    .byte ACT_WAKKA,   19, 12        ; across the little footbridge
     ; the back wall of the Secret Place
-    .byte ACT_FACES,    0,  5
-    .byte ACT_DOOR,     1,  5
-    .byte ACT_SCRIBBLE, 2,  5
+    .byte ACT_FACES,    1,  6
+    .byte ACT_DOOR,     2,  6
+    .byte ACT_SCRIBBLE, 3,  6
     .byte $FF

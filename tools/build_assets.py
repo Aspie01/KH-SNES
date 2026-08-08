@@ -22,10 +22,13 @@ from pixel import (                                    # noqa: E402
     palette_bytes, tile_4bpp, write_bin, write_png,
 )
 
-MAP_W = MAP_H = 16
-ORIGIN_X = (MAP_H - 1) * 16
+TILE = 16                               # ground tile, square
+MAP_W, MAP_H = 32, 16
 TILEMAP_W, TILEMAP_H = 64, 32           # PPU tilemap, in 8x8 characters
 WORLD_W, WORLD_H = TILEMAP_W * 8, TILEMAP_H * 8
+assert (MAP_W * TILE, MAP_H * TILE) == (WORLD_W, WORLD_H)
+
+STEP = 8                                # pixels one height step lifts a tile
 
 # Ground palette indices, named for legibility below.
 SAND_L, SAND_M, SAND_D = 1, 2, 3
@@ -45,7 +48,9 @@ TERRAIN = {
     ".": (SAND_L, SAND_M, SAND_D, True, 0),
     ",": (GRASS_L, GRASS_M, GRASS_D, True, 0),
     "=": (WOOD_L, WOOD_L, WOOD_D, True, 0),
-    "#": (ROCK_L, ROCK_D, ROCK_D, False, 0),
+    # A cliff top is the lit surface; its face below is the dark one, which is
+    # the whole of what makes a ledge read as a ledge from overhead.
+    "#": (ROCK_L, ROCK_L, OUTLINE, False, 3),
     "T": (GRASS_L, GRASS_M, GRASS_D, False, 0),
     "R": (GRASS_L, GRASS_M, GRASS_D, False, 0),
     "r": (SAND_L, SAND_M, SAND_D, False, 0),
@@ -60,92 +65,141 @@ TERRAIN = {
     "Y": (GRASS_L, GRASS_M, GRASS_D, False, 0),  # a palm carrying coconuts
     "M": (WOOD_L, WOOD_L, WOOD_D, True, 2),      # the leaning trunk
     "K": (GRASS_L, GRASS_M, GRASS_D, True, 3),   # its leafy top
-    "F": (ROCK_L, ROCK_D, ROCK_D, False, 3),     # cliff with the waterfall
+    "F": (ROCK_L, ROCK_L, OUTLINE, False, 3),    # cliff with the waterfall
 }
 
 
 # ---------------------------------------------------------------------------
-# Isometric ground
+# Ground
+#
+# Seen from three-quarters overhead, the way A Link to the Past and Secret of
+# Mana are.  A tile is a plain 16x16 square, so the map is a lookup rather
+# than a projection, and the whole terrain vocabulary folds down to a few
+# dozen 8x8 characters.
+#
+# Height still matters: a tile at h steps is painted 8*h pixels higher than
+# its cell with a cliff face filling the gap back down, which is what turns a
+# height difference into a visible ledge.
 # ---------------------------------------------------------------------------
-
-def diamond_span(y: int, h: int = 16, w: int = 32) -> tuple[int, int]:
-    """Half-open [x0, x1) span of a 32x16 isometric diamond at row y."""
-    hw = 2 * (y + 1) if y < h // 2 else 2 * (h - y)
-    return w // 2 - hw, w // 2 + hw
-
 
 # Tiles only need a rim where they meet a *different* surface.  Drawing the
 # bevel unconditionally turns the ground into a visible lattice, which is the
-# usual way isometric tiling gives itself away.
+# usual way square tiling gives itself away.
 GROUP = {"~": "water", "-": "water", ".": "sand", "r": "sand",
          ",": "grass", "T": "grass", "R": "grass", "=": "wood", "#": "rock",
          "B": "wood", "L": "wood", "P": "wood", "H": "wood",
-         "W": "water", "C": "rock", "b": "grass", "Y": "grass",
+         "W": "water", "C": "cave", "b": "grass", "Y": "grass",
          "M": "wood", "K": "grass", "F": "rock"}
 
-SAND_SPECKLE = (((11, 6), SAND_L), ((20, 9), SAND_L), ((15, 11), SAND_L),
-                ((9, 9), SAND_L), ((18, 5), SAND_D), ((13, 10), SAND_D))
-GRASS_SPECKLE = (((10, 7), GRASS_D), ((19, 6), GRASS_D), ((14, 10), GRASS_D),
-                 ((22, 9), GRASS_D), ((16, 5), GRASS_L), ((12, 9), GRASS_L))
+# What the side of a raised block is made of.  The leafy top of the climbing
+# tree is grass, but what holds it up is a trunk; a bridge has nothing under
+# it but the water it crosses.
+FACE = {"B": "water", "L": "wood", "P": "wood", "H": "wood", "M": "wood",
+        "K": "wood", "#": "rock", "F": "rock"}
+
+# Tiles whose whole shape is the drawing, so a border would only fight it.
+NO_RIM = "K"
+
+# Speckle is per-tile rather than per-cell so that every sand tile is the same
+# four characters.  Two phases, alternating on (i + j), is enough to break up
+# the repeat without doubling the budget twice over.
+SAND_SPECKLE = ((((3, 4), SAND_L), ((11, 6), SAND_L), ((7, 11), SAND_L),
+                 ((13, 12), SAND_D), ((5, 8), SAND_D)),
+                (((6, 3), SAND_L), ((13, 8), SAND_L), ((2, 12), SAND_L),
+                 ((9, 5), SAND_D), ((11, 13), SAND_D)))
+GRASS_SPECKLE = ((((4, 3), GRASS_D), ((12, 5), GRASS_D), ((7, 10), GRASS_D),
+                  ((2, 8), GRASS_L), ((14, 12), GRASS_L)),
+                 (((9, 2), GRASS_D), ((3, 7), GRASS_D), ((13, 11), GRASS_D),
+                  ((6, 13), GRASS_L), ((11, 6), GRASS_L)))
 
 
-def draw_diamond(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
-    """One 32x16 ground tile, aware of what it borders on each of its edges."""
+def water_texture(c: Canvas, phase: int, light: int) -> None:
+    """Drifting highlights, so open water is not a flat field."""
+    if phase == 0:
+        c.hline(2, 7, 4, light)
+        c.hline(9, 13, 9, light)
+        c.hline(4, 6, 12, light)
+    else:
+        c.hline(8, 13, 3, light)
+        c.hline(1, 5, 8, light)
+        c.hline(10, 14, 13, light)
+
+
+def plank_texture(c: Canvas) -> None:
+    """Boards running east-west, with a seam every four pixels."""
+    for y in range(0, 16, 4):
+        c.hline(0, 15, y, WOOD_D)
+    c.vline(7, 0, 15, WOOD_D)
+
+
+def draw_tile(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
+    """One 16x16 ground tile, aware of what it borders on each side."""
     light, mid, dark, _, _ = TERRAIN[code]
     me = GROUP[code]
-    c = Canvas(32, 16)
+    c = Canvas(TILE, TILE, mid)
 
-    for y in range(16):
-        x0, x1 = diamond_span(y)
-        for x in range(x0, x1):
-            c.set(x, y, mid)
-
-    if code in "~-W":
-        # Drifting highlights so open water is not a flat field.
-        if phase == 0:
-            c.hline(12, 19, 5, WATER_L)
-            c.hline(10, 14, 9, WATER_L)
-        else:
-            c.hline(13, 18, 4, WATER_L)
-            c.hline(16, 21, 10, WATER_L)
+    if code in "~-":
+        water_texture(c, phase, light)
     elif code == "W":
-        pass                    # handled with the water above
+        # The plunge pool: churned white, not the flat sea.
+        water_texture(c, phase, FOAM)
+        for (px, py) in ((3, 3), (12, 6), (6, 12), (13, 12)):
+            c.ellipse(px, py, 2.2, 1.4, FOAM)
     elif code in ".r":
-        for (tx, ty), col in SAND_SPECKLE:
+        for (tx, ty), col in SAND_SPECKLE[phase]:
             c.set(tx, ty, col)
     elif code in ",TRY":
-        for (tx, ty), col in GRASS_SPECKLE:
+        for (tx, ty), col in GRASS_SPECKLE[phase]:
             c.set(tx, ty, col)
     elif code == "b":
         # A bush: three overlapping clumps, so it reads as foliage and not
         # just a darker patch of lawn.
-        for (bx, by, r) in ((12, 8, 3.6), (19, 7, 3.4), (16, 10, 3.8)):
-            c.ellipse(bx, by, r, r * 0.62, GRASS_D)
-            c.ellipse(bx, by - 1, r * 0.6, r * 0.38, GRASS_M)
-        c.set(11, 6, GRASS_L)
-        c.set(20, 5, GRASS_L)
-    elif code in "=BLPHM":
-        for y in range(0, 16, 4):
-            x0, x1 = diamond_span(y)
-            for x in range(x0, x1):
-                c.set(x, y, WOOD_D)
-    elif code in "#F":
+        for (bx, by, r) in ((5, 9, 4.2), (11, 7, 4.0), (8, 4, 3.6)):
+            c.ellipse(bx, by, r, r * 0.8, GRASS_D)
+            c.ellipse(bx, by - 1, r * 0.6, r * 0.5, GRASS_M)
+        c.set(3, 6, GRASS_L)
+        c.set(13, 4, GRASS_L)
+    elif code == "K":
+        # A canopy seen from above.  Round, with the corners left dark, or a
+        # treetop is indistinguishable from a square of lawn.
+        c.rect(0, 0, 15, 15, OUTLINE)
+        c.ellipse(7.5, 7.5, 8.6, 8.6, GRASS_D)
+        for (fx, fy) in ((4, 5), (11, 4), (12, 10), (6, 11), (8, 7)):
+            c.ellipse(fx, fy, 3.2, 2.6, GRASS_M)
+            c.ellipse(fx, fy - 1, 2.0, 1.4, GRASS_L)
+    elif code in "=LPHM":
+        plank_texture(c)
+    elif code == "B":
+        # A bridge is planks laid over the water it crosses, so the tile has
+        # to paint both: open sea to either side of the walkway, and a rope
+        # rail along each edge.
+        for y in range(16):
+            for x in range(16):
+                c.set(x, y, WATER_D)
+        water_texture(c, phase, WATER_M)
+        c.rect(0, 2, 15, 13, WOOD_L)
         for y in range(3, 13, 3):
-            x0, x1 = diamond_span(y)
-            for x in range(x0 + 2, x1 - 2, 3):
+            c.hline(0, 15, y, WOOD_D)
+        c.hline(0, 15, 2, WOOD_D)
+        c.hline(0, 15, 13, WOOD_D)
+        c.hline(0, 15, 1, ROCK_D)               # the rails
+        c.hline(0, 15, 14, ROCK_D)
+    elif code in "#F":
+        for y in range(2, 15, 4):
+            for x in range((y // 2) % 3, 16, 5):
                 c.set(x, y, ROCK_D)
+        c.set(3, 11, ROCK_D)
+        c.set(12, 5, ROCK_D)
     elif code == "C":
         # Dirt trodden flat over years, so the chamber floor reads as
         # something other than more of the rock around it.
-        for (tx, ty) in ((10, 6), (19, 5), (14, 9), (22, 8), (12, 11)):
+        for (tx, ty) in ((3, 4), (11, 3), (6, 9), (14, 11), (8, 13)):
             c.set(tx, ty, OUTLINE)
-        c.set(16, 4, SAND_L)
-        c.set(20, 10, SAND_L)
-    elif code == "K":
-        # Fronds, drawn as clumps rather than the flat speckle grass uses.
-        for (cxx, cyy) in ((10, 6), (16, 4), (22, 7), (13, 10), (19, 10)):
-            c.ellipse(cxx, cyy, 3.4, 2.0, GRASS_L)
-            c.ellipse(cxx, cyy + 1, 2.4, 1.2, GRASS_D)
+        c.set(5, 6, SAND_M)
+        c.set(12, 8, SAND_M)
+
+    if code in NO_RIM:
+        return c
 
     def edge_colour(neighbour: str | None, upper: bool) -> int | None:
         if neighbour is None:
@@ -157,88 +211,84 @@ def draw_diamond(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
             return FOAM                 # a shoreline, not just a seam
         return light if upper else dark
 
-    nw = edge_colour(edges["nw"], True)
-    ne = edge_colour(edges["ne"], True)
-    sw = edge_colour(edges["sw"], False)
-    se = edge_colour(edges["se"], False)
-
-    for y in range(16):
-        x0, x1 = diamond_span(y)
-        left, right = (nw, ne) if y < 8 else (sw, se)
-        if left is not None:
-            c.set(x0, y, left)
-            c.set(x0 + 1, y, left)
-        if right is not None:
-            c.set(x1 - 1, y, right)
-            c.set(x1 - 2, y, right)
-
+    # Lit from the north-west, so the two near edges catch the light and the
+    # two far ones fall away.
+    n = edge_colour(edges["n"], True)
+    w = edge_colour(edges["w"], True)
+    s = edge_colour(edges["s"], False)
+    e = edge_colour(edges["e"], False)
+    if n is not None:
+        c.hline(0, 15, 0, n)
+    if w is not None:
+        c.vline(0, 0, 15, w)
+    if s is not None:
+        c.hline(0, 15, 15, s)
+    if e is not None:
+        c.vline(15, 0, 15, e)
     return c
 
 
-def diamond_bottom(x: int) -> int:
-    """Last row of a 32x16 diamond that contains column x."""
-    return 8 + (x if x < 16 else 31 - x) // 2
+def draw_block(code: str, phase: int, edges: dict[str, str | None],
+               height: int) -> Canvas:
+    """A ground tile plus, for a raised one, the cliff face under it.
 
-
-def draw_column(code: str, phase: int, edges: dict[str, str | None],
-                height: int) -> Canvas:
-    """A ground tile plus, for a raised one, the side of the block under it.
-
-    The canvas is tall enough to reach back down to where the tile would sit
-    at ground level, so the caller blits it at `wy - 8 * height` and the
-    support lands exactly on the tiles behind it.
+    The canvas reaches back down to where the tile would sit at ground level,
+    so the caller blits it at `wy - STEP * height` and the face lands exactly
+    on the cell the tile belongs to.
     """
-    top = draw_diamond(code, phase, edges)
-    lift = 8 * height
+    top = draw_tile(code, phase, edges)
+    lift = STEP * height
     if lift == 0:
         return top
 
-    # Stone gets a stone face; anything else is held up on posts.
-    if GROUP[code] == "rock":
-        dark, light, period = ROCK_D, ROCK_L, 7
+    c = Canvas(TILE, TILE + lift)
+    kind = FACE.get(code, "rock")
+    if kind == "rock":
+        c.rect(0, TILE, TILE - 1, TILE + lift - 1, ROCK_D)
+        for (cx, cy) in ((3, 2), (3, 3), (3, 4), (10, 1), (10, 2), (10, 3),
+                         (6, 5), (13, 4), (13, 5)):
+            if cy < lift:
+                c.set(cx, TILE + cy, OUTLINE)   # cracks down the face
+    elif kind == "water":
+        # A bridge stands on nothing: what shows under the planks is the
+        # water, in shadow.
+        c.rect(0, TILE, TILE - 1, TILE + lift - 1, WATER_D)
     else:
-        dark, light, period = WOOD_D, WOOD_L, 5
-
-    c = Canvas(32, 16 + lift)
-    for x in range(32):
-        y0 = diamond_bottom(x) + 1
-        for y in range(y0, y0 + lift):
-            c.set(x, y, dark)
-        # A seam every few columns, and a lip under the top, so the support
-        # reads as posts or strata rather than a solid slab.
-        if x % period == 2:
-            for y in range(y0, y0 + lift):
-                c.set(x, y, light)
-        c.set(x, y0, light if x % period == 2 else dark)
-        c.set(x, y0 + lift - 1, OUTLINE)
+        # A skirt of boards with the corner posts picked out, which is how the
+        # island's walkways are built.
+        c.rect(0, TILE, TILE - 1, TILE + lift - 1, WOOD_D)
+        c.vline(3, TILE, TILE + lift - 1, WOOD_L)
+        c.vline(11, TILE, TILE + lift - 1, WOOD_L)
+    c.hline(0, TILE - 1, TILE, OUTLINE)         # the lip under the top face
+    if kind != "water":
+        c.hline(0, TILE - 1, TILE + lift - 1, OUTLINE)      # and its shadow
 
     if code == "F":
         # The fall itself: a column of white water down the cliff, edged in
         # blue and breaking into spray where it lands.
-        for x in range(13, 20):
-            y0 = diamond_bottom(x) + 1
-            for y in range(y0 - 1, y0 + lift):
-                if x in (13, 19):
+        for x in range(4, 12):
+            for y in range(TILE - 2, TILE + lift):
+                if x in (4, 11):
                     col = WATER_M
                 elif (x * 3 + y * 5) % 7 == 0:
                     col = WATER_L
                 else:
                     col = FOAM
                 c.set(x, y, col)
-        base = diamond_bottom(16) + lift
-        c.ellipse(16, base - 1, 6.0, 1.8, FOAM)
-        c.ellipse(16, base, 8.0, 1.4, WATER_L)
-    c.blit(top, 0, 0)
+        c.ellipse(8, TILE + lift - 2, 6.0, 2.0, FOAM)
+        c.ellipse(8, TILE + lift - 1, 7.0, 1.4, WATER_L)
+
+    c.blit(top, 0, 0, transparent=-1)
     if code == "F":
         # ...and over the lip, so the water reads as coming off the top.
-        for x in range(14, 19):
-            for y in range(diamond_bottom(x) - 4, diamond_bottom(x) + 1):
+        for x in range(5, 11):
+            for y in range(TILE - 5, TILE):
                 c.set(x, y, FOAM if (x + y) % 3 else WATER_L)
     return c
 
 
 def build_world(grid: list[str]) -> tuple[Canvas, bytes, bytes]:
-    """Paint the island, back to front, and derive collision and height maps."""
+    """Paint the island, north to south, and derive collision and height maps."""
     world = Canvas(WORLD_W, WORLD_H, WATER_D)
 
     def at(i: int, j: int) -> str | None:
@@ -246,22 +296,18 @@ def build_world(grid: list[str]) -> tuple[Canvas, bytes, bytes]:
             return grid[j][i]
         return None
 
-    order = sorted(((i, j) for j in range(MAP_H) for i in range(MAP_W)),
-                   key=lambda t: t[0] + t[1])
-    for i, j in order:
-        code = grid[j][i]
-        height = TERRAIN[code][4]
-        wx = (i - j) * 16 + ORIGIN_X
-        wy = (i + j) * 8
-        # On screen +i runs down-right and +j runs down-left, so the four
-        # neighbours land on the diamond's four edges.
-        edges = {"nw": at(i - 1, j), "ne": at(i, j - 1),
-                 "se": at(i + 1, j), "sw": at(i, j + 1)}
-        tile = draw_column(code, (i + j) % 2, edges, height)
-        # Skip index 0: a diamond's 32x16 bounding box has empty corners that
-        # sit on top of the neighbours already painted there, and copying them
-        # punches the bottom half out of every tile behind this one.
-        world.blit(tile, wx, wy - 8 * height, transparent=0)
+    # North to south, so a raised block paints over the bottom of whatever is
+    # behind it and is painted over in turn by whatever is in front.  That
+    # single ordering is the whole of the depth logic for the ground.
+    for j in range(MAP_H):
+        for i in range(MAP_W):
+            code = grid[j][i]
+            height = TERRAIN[code][4]
+            edges = {"n": at(i, j - 1), "s": at(i, j + 1),
+                     "w": at(i - 1, j), "e": at(i + 1, j)}
+            tile = draw_block(code, (i + j) & 1, edges, height)
+            world.blit(tile, i * TILE, j * TILE - STEP * height,
+                       transparent=-1)
 
     coll = bytearray(MAP_W * MAP_H)
     hmap = bytearray(MAP_W * MAP_H)
@@ -276,8 +322,8 @@ def dedupe_tilemap(world: Canvas) -> tuple[bytes, bytes, int]:
     """Slice the painted world into 8x8 characters and fold duplicates.
 
     Matching is done against horizontal, vertical and both flips, since the
-    tilemap carries a flip bit for each axis -- on symmetric isometric art
-    that roughly halves the character count.
+    tilemap carries a flip bit for each axis -- on ground art that is mostly
+    symmetric, that folds out a good third of the characters.
     """
     chars: list[bytes] = []
     index: dict[bytes, tuple[int, int]] = {}
@@ -689,9 +735,10 @@ def draw_slash(frame: int) -> Canvas:
 import math                                             # noqa: E402
 
 DIVE_CX, DIVE_CY = 256.0, 128.0
-# Sized so most of the platform is on screen at once: the SNES cannot pull
-# the camera back, so the platform has to come to it.
-DIVE_RX, DIVE_RY = 168.0, 84.0      # a circle seen at 2:1
+# Seen from overhead the station is a circle, not an ellipse, so the radius is
+# capped by the shorter axis of the world.  The SNES cannot pull the camera
+# back, so this is as large as the platform can be and still be read as round.
+DIVE_RX = DIVE_RY = 110.0
 
 # Glass palette indices, named.
 V_VOID, G_DEEP, G_MID, G_LIGHT = 0, 1, 2, 3
@@ -713,11 +760,11 @@ WEDGE_COLOURS_3 = (G_RED, G_DEEP, G_VIOLET, G_DEEP, G_GOLD_D, G_DEEP,
 
 def dive_medallion(r: float, ang: float, nx: float, ny: float,
                    station: int = 1) -> int | None:
-    """The figure at the centre of the platform, in un-squashed coordinates.
+    """The figure at the centre of the platform.
 
-    nx/ny are -1..1 across the medallion with the isometric squash undone, so
-    the drawing below is composed as if seen head-on and comes out foreshortened
-    on the platform, which is how the stations read in the source game.
+    nx/ny run -1..1 across the medallion, so the drawing below is composed as
+    if seen head-on and is laid flat onto the glass, which is how the stations
+    read in the source game.
     """
     # Pale radiating backdrop.
     base = G_PALE if int((ang / (2 * math.pi)) * 24) % 2 == 0 else G_WHITE
@@ -773,7 +820,7 @@ def dive_medallion(r: float, ang: float, nx: float, ny: float,
 
 
 def build_dive_platform(station: int = 1) -> tuple[Canvas, bytes]:
-    """Paint the platform and derive which isometric tiles are standable."""
+    """Paint the platform and derive which ground tiles are standable."""
     world = Canvas(WORLD_W, WORLD_H, V_VOID)
 
     for y in range(WORLD_H):
@@ -815,10 +862,10 @@ def build_dive_platform(station: int = 1) -> tuple[Canvas, bytes]:
     coll = bytearray(MAP_W * MAP_H)
     for j in range(MAP_H):
         for i in range(MAP_W):
-            wx = (i - j) * 16 + ORIGIN_X + 16
-            wy = (i + j) * 8 + 8
-            dx = (wx - DIVE_CX) / (DIVE_RX - 18)
-            dy = (wy - DIVE_CY) / (DIVE_RY - 9)
+            wx = i * TILE + TILE // 2
+            wy = j * TILE + TILE // 2
+            dx = (wx - DIVE_CX) / (DIVE_RX - 14)
+            dy = (wy - DIVE_CY) / (DIVE_RY - 14)
             coll[j * MAP_W + i] = 1 if dx * dx + dy * dy <= 1.0 else 0
     return world, bytes(coll)
 
@@ -832,12 +879,12 @@ D_BLUE, D_BLUE_D, D_GLOW, D_WOOD = 12, 13, 14, 15
 
 
 def draw_pedestal() -> Canvas:
-    """A short isometric dais for a weapon to hover over."""
+    """A short dais for a weapon to hover over."""
     c = Canvas(32, 32)
     # column
     c.rect(10, 18, 21, 27, D_STONE_D)
     c.rect(10, 18, 15, 27, D_STONE_M)
-    # top slab, an isometric diamond
+    # top slab, an ellipse -- a cylinder seen from three-quarters above
     for y in range(10):
         hw = 2 * (y + 1) if y < 5 else 2 * (10 - y)
         for x in range(16 - hw, 16 + hw):

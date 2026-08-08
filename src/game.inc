@@ -5,22 +5,27 @@
 GAME_INC = 1
 
 ;-----------------------------------------------------------------------------
-; Isometric world geometry
+; World geometry
 ;
-; The ground plane is built from 32x16 pixel diamonds.  That size is the whole
-; reason this works on a SNES: a 32x16 diamond lattice steps by 16 pixels
-; horizontally and 8 vertically, and both are multiples of 8 -- so every
-; isometric tile lands exactly on the PPU's 8x8 character grid and the ground
-; can live in an ordinary BG tilemap instead of costing sprites.
+; Three-quarters overhead, the way A Link to the Past and Secret of Mana are.
+; The ground is a square lattice of 16x16 tiles, so
 ;
-;   world_x = (i - j) * 16 + ORIGIN_X
-;   world_y = (i + j) * 8
+;   world_x = i * 16      world_y = j * 16
 ;
-; A 16x16 grid spans 512x256 pixels, which is one 64x32 tilemap exactly.
+; and the inverse -- which is what a collision query actually needs -- is two
+; shifts:
+;
+;   i = world_x >> 4      j = world_y >> 4
+;
+; 16 divides 8, so every tile still lands on the PPU's 8x8 character grid and
+; the ground lives in an ordinary BG tilemap instead of costing sprites.  A
+; 32x16 grid spans 512x256 pixels, which is one 64x32 tilemap exactly.
 ;-----------------------------------------------------------------------------
-MAP_W        = 16               ; isometric tiles along +i
-MAP_H        = 16               ; isometric tiles along +j
-ORIGIN_X     = 240              ; (MAP_H-1)*16, shifts world_x to 0..511
+TILE_PX      = 16               ; ground tile, square
+TILE_SHIFT   = 4                ; log2 TILE_PX
+MAP_W        = 32               ; tiles along +i (east)
+MAP_H        = 16               ; tiles along +j (south)
+MAP_W_SHIFT  = 5                ; log2 MAP_W, for row * MAP_W
 
 WORLD_W      = 512
 WORLD_H      = 256
@@ -30,6 +35,12 @@ SCREEN_H     = 224
 
 CAM_MAX_X    = WORLD_W - SCREEN_W       ; 256
 CAM_MAX_Y    = WORLD_H - SCREEN_H       ; 32
+
+; The Stations of Awakening are circles about 220 px across, centred on the
+; world.  That is smaller than the screen either way, so the Dive pins the
+; camera here instead of following Sora into the void.
+DIVE_CAM_X   = (WORLD_W - SCREEN_W) / 2         ; 128
+DIVE_CAM_Y   = (WORLD_H - SCREEN_H) / 2         ; 16
 
 ;-----------------------------------------------------------------------------
 ; VRAM map (word addresses)
@@ -230,10 +241,10 @@ DSS_SWEEP_HIT = 6
 
 DS_SWEEP_WIND = 26              ; shorter telegraph than the fist: it is the
 DS_SWEEP_HOLD = 16              ; punish for standing underneath
-SWEEP_X      = 700              ; Q12.4, compared after un-squashing X
-SWEEP_Y      = 420
-DS_HURT_X    = 480              ; Q12.4, generous: the body is 64 px wide
-DS_HURT_Y    = 400
+SWEEP_X      = 704              ; Q12.4 -- 44 px either side of the arm
+SWEEP_Y      = 640
+DS_HURT_X    = 576              ; Q12.4, generous: the body is 64 px wide
+DS_HURT_Y    = 512
 SHATTER_LEN  = 96               ; frames the platform takes to come apart
 
 ; actFlags bits
@@ -268,9 +279,9 @@ DIR_NW       = 5
 DIR_W        = 6
 DIR_SW       = 7
 
-; Movement speed, Q12.4 pixels per frame.  The ground plane is squashed 2:1,
-; so horizontal steps are twice the vertical ones for a uniform apparent speed.
-WALK_SPEED   = 24               ; 1.5 px/frame vertically
+; Movement speed, Q12.4 pixels per frame.  The ground is square, so the two
+; axes carry the same speed and a diagonal is the pair scaled by ~1/sqrt(2).
+WALK_SPEED   = 24               ; 1.5 px/frame
 
 ;-----------------------------------------------------------------------------
 ; Destiny Islands, day one: Kairi's list of raft materials
@@ -290,26 +301,30 @@ Q_NAMED      = 9
 COUNT_LEN    = 192              ; frames of countdown, 64 to a number
 ; Riku runs the course at a fixed pace.  He is a little slower than a clean
 ; line, so the race is winnable, and quick enough to punish wandering.
-RIKU_VX      = 30               ; Q12.4 per frame
-RIKU_VY      = 15
+RIKU_VX      = 17               ; Q12.4 per frame
+RIKU_VY      = 17
 RIKU_NEAR    = 40               ; Q12.4; how close counts as reaching a marker
-TAG_X        = 560              ; touching the paopu tree, Q12.4
-TAG_Y        = 360
-LINE_X       = 560              ; ...and the finish line back at Kairi
-LINE_Y       = 360
+TAG_X        = 448              ; touching the paopu tree, Q12.4
+TAG_Y        = 448
+LINE_X       = 448              ; ...and the finish line back at Kairi
+LINE_Y       = 448
 
-RACE_WPS     = 18               ; markers in the course
+RACE_WPS     = 20               ; markers in the course
 
 ; The start line by Kairi, the paopu tree that has to be tagged, and the
-; finish -- all Q12.4 world pixels.
-START_SORA_X = (16 * (8 - 11) + ORIGIN_X + 16) * 16
-START_SORA_Y = (8 * (8 + 11) + 8) * 16
-START_RIKU_X = (16 * (9 - 11) + ORIGIN_X + 16) * 16
-START_RIKU_Y = (8 * (9 + 11) + 8) * 16
-PAOPU_X      = (16 * (13 - 1) + ORIGIN_X + 16) * 16
-PAOPU_Y      = (8 * (13 + 1) + 8) * 16
-FINISH_X     = (16 * (8 - 10) + ORIGIN_X + 16) * 16
-FINISH_Y     = (8 * (8 + 10) + 8) * 16
+; finish -- all Q12.4 world pixels, taken from the centre of a map cell.
+; CELL_X/CELL_Y turn tile coordinates into that.
+.define CELL_X(ci) (((ci) * TILE_PX + TILE_PX / 2) * 16)
+.define CELL_Y(cj) (((cj) * TILE_PX + TILE_PX / 2) * 16)
+
+START_SORA_X = CELL_X(11)
+START_SORA_Y = CELL_Y(12)
+START_RIKU_X = CELL_X(13)
+START_RIKU_Y = CELL_Y(12)
+PAOPU_X      = CELL_X(27)
+PAOPU_Y      = CELL_Y(7)
+FINISH_X     = CELL_X(12)
+FINISH_Y     = CELL_Y(12)
 
 RAFT_HIGHWIND  = 1
 RAFT_EXCALIBUR = 2
@@ -327,18 +342,20 @@ NEED_WATER   = 1
 DAY_FADE     = 30               ; frames each half of the day change takes
 FISH_SWIM    = 16               ; Q12.4 per frame; fish drift, they do not race
 
-TALK_X       = 320              ; interaction range, Q12.4 (un-squashed X)
-TALK_Y       = 260
-PICK_X       = 260              ; a pickup is taken by walking into it
-PICK_Y       = 190
+; Interaction ranges, Q12.4 -- half-extents of a box around the player.  A
+; tile is 256 in these units, so 384 reaches a tile and a half.
+TALK_X       = 384
+TALK_Y       = 384
+PICK_X       = 224              ; a pickup is taken by walking into it
+PICK_Y       = 224
 ; The keyblade reaches further than an arm: fish are out in the shallows and
 ; coconuts are at the top of a palm.
-SWING_X      = 480
-SWING_Y      = 320
+SWING_X      = 544
+SWING_Y      = 544
 ; Looking at something on the cave wall is more forgiving than talking: the
 ; chamber is small and the walls are behind you as often as not.
-PROP_X       = 400
-PROP_Y       = 300
+PROP_X       = 416
+PROP_Y       = 416
 
 MAX_STEP     = 1                ; ground-height difference a step may cross
 

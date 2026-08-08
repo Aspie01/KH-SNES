@@ -12,7 +12,7 @@
 .include "macros.inc"
 .include "text.inc"
 
-.import SpawnActor, IsoToWorld, ClearActors, CountType, InitWorld
+.import SpawnActor, TileToWorld, ClearActors, CountType, InitWorld
 .import IslandInit
 .import LoadScene
 .import TextOpen, TextBusy, TextClose
@@ -20,8 +20,10 @@
 
 .export DiveInit, DiveUpdate, GameOverUpdate
 
-REACH_X = 320                   ; interaction range, Q12.4 (un-squashed X)
-REACH_Y = 260
+; A pedestal is a 32x32 sprite standing two tiles wide, so reaching it wants
+; more room than talking to somebody does: 28 px either way, Q12.4.
+REACH_X = 448
+REACH_Y = 448
 
 .segment "CODE"
 
@@ -63,7 +65,7 @@ REACH_Y = 260
 
 
 ;-----------------------------------------------------------------------------
-; SpawnFromTable -- walk a table of (type, isometric i, isometric j) triples
+; SpawnFromTable -- walk a table of (type, tile i, tile j) triples
 ; until $FF.  In (A8/I16): tmp8 = the table's address in this bank.
 ;-----------------------------------------------------------------------------
 .proc SpawnFromTable
@@ -92,21 +94,16 @@ REACH_Y = 260
     lda tmp5
     and #$00FF
     sta tmp1
-    jsr IsoToWorld
+    jsr TileToWorld
 
-    ; IsoToWorld lands on the diamond's top corner; step to its centre and
-    ; convert to Q12.4.
+    ; TileToWorld hands back whole pixels; actors are Q12.4.
     lda tmp0
-    clc
-    adc #16
     asl a
     asl a
     asl a
     asl a
     sta tmp0
     lda tmp1
-    clc
-    adc #8
     asl a
     asl a
     asl a
@@ -728,22 +725,18 @@ REACH_Y = 260
     .i16
     rep #$20
     .a16
-    lda #8                      ; isometric (8,3): the far side of the platform
+    lda #16                     ; tile (16,4): the far side of the platform
     sta tmp0
-    lda #3
+    lda #4
     sta tmp1
-    jsr IsoToWorld
+    jsr TileToWorld
     lda tmp0
-    clc
-    adc #16
     asl a
     asl a
     asl a
     asl a
     sta tmp0
     lda tmp1
-    clc
-    adc #8
     asl a
     asl a
     asl a
@@ -804,7 +797,7 @@ REACH_Y = 260
     bpl :+
     eor #$FFFF
     inc a
-:   lsr a                       ; the ground is squashed 2:1 across X
+:
     cmp #REACH_X
     bcs @miss
     lda actY,x
@@ -946,20 +939,20 @@ REACH_Y = 260
 ;=============================================================================
 .segment "RODATA"
 
-; type, isometric i, isometric j -- the platform centre is (7,7)/(8,8)
+; type, tile i, tile j -- the platform is a circle centred on tile (16,8)
 diveSpawns:
-    .byte ACT_SORA,      8, 10
-    .byte ACT_PEDESTAL,  4,  8
-    .byte ACT_SWORD,     4,  8
-    .byte ACT_PEDESTAL, 10,  4
-    .byte ACT_SHIELD,   10,  4
-    .byte ACT_PEDESTAL, 10, 10
-    .byte ACT_STAFF,    10, 10
+    .byte ACT_SORA,     16, 11
+    .byte ACT_PEDESTAL, 11,  8
+    .byte ACT_SWORD,    11,  8
+    .byte ACT_PEDESTAL, 19,  5
+    .byte ACT_SHIELD,   19,  5
+    .byte ACT_PEDESTAL, 19, 11
+    .byte ACT_STAFF,    19, 11
     .byte $FF
 
 ; The third station, and the boss retry: Sora on his own.
 soraOnlySpawns:
-    .byte ACT_SORA,    8, 10
+    .byte ACT_SORA,    16, 11
     .byte $FF
 
 ; Where each speck of light starts, relative to Sora, in Q12.4.  X spreads
@@ -973,10 +966,10 @@ moteOfsY:
 
 ; Station two: Sora lands alone, and three Shadows are already waiting.
 station2Spawns:
-    .byte ACT_SORA,    8, 10
-    .byte ACT_SHADOW,  5,  6
-    .byte ACT_SHADOW, 11,  6
-    .byte ACT_SHADOW,  8,  4
+    .byte ACT_SORA,   16, 11
+    .byte ACT_SHADOW, 11,  7
+    .byte ACT_SHADOW, 21,  7
+    .byte ACT_SHADOW, 16,  4
     .byte $FF
 
 ;--- scripts.  SC_NL breaks a line, SC_PAGE waits and clears, SC_END ends. ---

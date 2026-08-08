@@ -13,7 +13,7 @@ TARGET  := kh.sfc
 CFG     := kh.cfg
 BUILD   := build
 
-SRCS    := src/main.s src/nmi.s src/pad.s src/iso.s src/oam.s \
+SRCS    := src/main.s src/nmi.s src/pad.s src/grid.s src/oam.s \
            src/world.s src/hud.s src/text.s src/dive.s src/island.s \
            src/ram.s src/header.s src/gfxdata.s
 OBJS    := $(patsubst src/%.s,$(BUILD)/%.o,$(SRCS))

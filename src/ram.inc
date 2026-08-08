@@ -20,7 +20,13 @@ RAM_INC = 1
 ; camX/camY are the world pixel at the top-left of the screen.  bgHOfs/bgVOfs
 ; are the values the NMI pushes to the scroll registers -- precomputed on the
 ; main thread so the interrupt never has to touch shared scratch.
+;
+; camLo/camHi bound the scroll, and the scene sets them: the island wants the
+; whole 512x256, while a Station of Awakening is smaller than the screen and
+; wants the camera pinned so the void around it never comes into view.  Equal
+; bounds mean a fixed camera.
 .globalzp camX, camY, bgHOfs, bgVOfs
+.globalzp camLoX, camHiX, camLoY, camHiY
 
 ;--- Sora sprite streaming request (consumed by the NMI handler) -------------
 .globalzp streamPend, streamSrc, streamBank

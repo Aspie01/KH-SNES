@@ -1,6 +1,7 @@
 # Kingdom Hearts — SNES demake
 
-An isometric 2.5D demake of Kingdom Hearts for the Super Nintendo. This builds
+A top-down three-quarter demake of Kingdom Hearts for the Super Nintendo --
+the A Link to the Past / Secret of Mana view. This builds
 a real `.sfc` ROM that boots in any SNES emulator or on a flash cart — not a
 SNES-styled game running on a modern engine.
 
@@ -29,10 +30,11 @@ restarts from the boss rather than from the Shadows.
 Beat it and the light takes him: the screen washes to white, and he wakes on
 the beach at **Destiny Islands**.
 
-The island is currently a movement sandbox: Sora walks it in eight directions
-with depth sorting against palms and rocks, translucent shadows, and a Keyblade
-swing. It is not yet the real island opening -- there is nobody to talk to and
-nothing to collect. See `docs/DESTINY_ISLANDS.md` for what that needs.
+Two days of the island opening are playable. Kairi asks for the raft materials
+and checks them off on the HUD; the day turns over and asks for provisions;
+Riku races him round the island for the right to name the raft. Behind the
+waterfall is the Secret Place, with the chalk drawings and the door that has no
+handle. See `docs/DESTINY_ISLANDS.md`.
 
 ## Build
 
@@ -85,38 +87,56 @@ SDL_VIDEODRIVER=dummy mednafen -qtrecord rec.mov -qtrecord.vcodec raw kh.sfc
 python3 tools/recframes.py rec.mov --frames 250 --out shots/
 ```
 
-## How the isometric view works
+## How the view works
 
-The ground is a **background layer**, not sprites. That is possible because of
-one number: the isometric diamonds are **32×16 pixels**. A 32×16 diamond
-lattice steps 16 pixels horizontally and 8 vertically between tiles, and both
-are multiples of 8 — so every diamond lands exactly on the PPU's 8×8 character
-grid.
+Seen from three-quarters overhead, screen space *is* world space. The ground is
+a square lattice of **16×16 tiles**, so a 32×16 grid spans 512×256 pixels —
+exactly one 64×32 PPU tilemap — and the ground can be a **background layer**
+rather than sprites:
 
 ```
-world_x = (i - j) * 16 + ORIGIN_X
-world_y = (i + j) * 8
+world_x = i * 16      world_y = j * 16
 ```
+
+Which means a standing-on-tile query, the thing the engine asks constantly, is
+not a projection at all. It is two shifts:
+
+```
+i = world_x >> 4      j = world_y >> 4
+```
+
+Both shifts turn a negative coordinate into a large unsigned one, so the range
+check that follows rejects "off the west edge" and "off the east edge" in the
+same compare.
 
 `tools/build_assets.py` paints the whole island into a 512×256 image, slices it
 into 8×8 characters, and folds duplicates (matching against horizontal,
 vertical and both flips, since the tilemap carries a flip bit per axis). The
-entire island collapses to **56 unique characters**.
+island collapses to **236 unique characters** of the 512 BG1 holds.
 
 Everything that stands up off the ground — Sora, Heartless, palms, boulders —
-is a sprite, and sprites draw strictly in OAM order. Sorting actors by world Y
+is a sprite, and sprites draw strictly in OAM order: slot 0 is frontmost. From
+this angle, further down the screen means nearer, so sorting actors by world Y
 descending and writing them out in that order makes Sora pass behind a palm
 when he is north of it and in front when he is south, with no per-object layer
 authoring at all.
 
-Standing-on-tile queries invert the projection, and because both divisors are
-powers of two it costs shifts instead of a divide:
+### Height
 
-```
-a = world_x - ORIGIN_X
-i = (a + 2 * world_y) >> 5
-j = (2 * world_y - a) >> 5
-```
+`assets/island.txt` gives every terrain code a height in eight-pixel steps, and
+three things use it:
+
+- **Painting.** A tile at *h* steps is drawn `8h` pixels above its cell with a
+  cliff face filling the gap back down — which is what makes a ledge read as a
+  ledge, and means the tile covers `8h` pixels of whatever is north of it. The
+  map is authored around that: the cell above a raised structure is always
+  water, rock, or more of the same structure.
+- **Walking.** A move is refused unless the destination is within one step of
+  where the actor stands, so a deck at +2 is sealed off except across its +1
+  step tile. That is what turns a plank into a ladder.
+- **Drawing actors.** Each actor caches the height it stepped onto in `actZ`;
+  the sprite and its shadow are lifted by `8 * actZ`. Geometry and the depth
+  sort still see one flat plane.
 
 ## Hardware techniques used
 
@@ -150,7 +170,7 @@ j = (2 * world_y - a) >> 5
 src/
   main.s        reset, hardware bring-up, frame loop, scene loading
   nmi.s         vblank: OAM, scroll, sprite streaming, HUD and text upload
-  iso.s         isometric projection, camera, ground collision
+  grid.s        tile geometry, camera, ground collision
   oam.s         depth sort and sprite table construction
   world.s       actors, Sora, Heartless, combat
   dive.s        Station of Awakening: script, pedestals, weapon choice
@@ -180,10 +200,10 @@ assets/
 | Tilemap, collision, palettes | `$83` | 4.8 KiB |
 | Sora animation sheet | `$84` | 15 KiB |
 
-VRAM is fully mapped: BG1 characters at `$0000` (512 tiles -- the stained
-glass needs 299 of them where the island's terrain folds to 56), the 2bpp font
-at `$2000`, the ground tilemap at `$2400`, the BG3 tilemap at `$2C00`, and the
-sprite page at `$4000`.
+VRAM is fully mapped: BG1 characters at `$0000` (512 tiles -- the stained glass
+needs 258 of them where the island's terrain folds to 236), the 2bpp font at
+`$2000`, the ground tilemap at `$2400`, the BG3 tilemap at `$2C00`, and the two
+sprite pages at `$4000` and `$5000`.
 
 ## Scenes and dialogue
 
@@ -200,33 +220,36 @@ spawns and a few strings -- see `src/dive.s`.
 
 ## Editing the island
 
-`assets/island.txt` is a 16×16 grid of terrain codes; `make` recompiles the
-tilemap, the collision map and the tileset from it.
+`assets/island.txt` is a 32×16 grid of terrain codes -- what you read is what
+you see -- and `make` recompiles the tilemap, the collision map, the height map
+and the tileset from it.
 
 ```
-~  deep water     -  shallow water   .  sand      ,  grass    =  wood dock
-#  cliff rock     T  palm (blocked)  R  boulder   r  rock
+~  deep water     -  shallow water   .  sand      ,  grass     =  wood dock
+W  waterfall pool C  cave floor      b  bush      T  palm      Y  nut palm
+R  boulder        r  rock            #  cliff     F  cliff with the waterfall
+B  bridge +1      L  step +1         P  deck +2   H  treehouse +2
+M  trunk +2       K  treetop +3
 ```
 
-Actor spawns live in `spawnTable` at the bottom of `src/world.s`, in isometric
-tile coordinates.
+Actor spawns live in `spawnTable` at the bottom of `src/world.s` and in
+`day1Spawns` / `day2Spawns` in `src/island.s`, all in tile coordinates.
+`tools/check_map.py` flood-fills the map with the engine's own one-step rule and
+fails if any of them has become unreachable, which is cheaper than finding out
+by playing.
 
 ## Roadmap
 
-The slice is deliberately bounded by one constraint: a 64×32 tilemap is 512×256
-pixels, which is exactly one screen of isometric ground, so the world currently
-fits in VRAM with no streaming. In rough order:
+The slice is bounded by one constraint: a 64×32 tilemap is 512×256 pixels, so
+the whole world fits in VRAM with no streaming. In rough order:
 
-1. **The real Destiny Islands opening** — the arrival works, but the island is
-   still empty of people and things to do.
-2. **Dive polish** — a third station would close the sequence properly. Sora's
-   death is currently a dim and a retry; a proper collapse animation and a
+1. **The night the island falls** — the same map after dark, with the Shadows
+   arriving and the door in the Secret Place finally opening.
+2. **Tilemap streaming** — upload columns and rows as the camera crosses tile
+   boundaries, which lifts the world-size ceiling entirely and is what a second
+   world would need.
+3. **Dive polish** — Sora's death is a dim and a retry; a proper collapse and a
    CONTINUE / QUIT choice would sell it better.
-   The cast, both raft-material lists and where each piece is found are written
-   up in `docs/DESTINY_ISLANDS.md`. The blocker is multi-level terrain: the
-   rope and the bridge are not on the ground plane.
-3. **Tilemap streaming** — upload columns and rows as the camera crosses tile
-   boundaries, which lifts the world-size ceiling entirely.
 4. **Combat depth** — three-hit ground combo, lock-on targeting, MP and a magic
    slot, Heartless that telegraph and dodge.
 5. **Audio** — SPC700 driver, which is a self-contained project of its own.

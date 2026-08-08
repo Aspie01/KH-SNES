@@ -1,12 +1,13 @@
 ;=============================================================================
 ; oam.s -- depth sorting and sprite table construction
 ;
-; This is what sells the isometric illusion.  The ground is a background
-; layer, so everything that stands up off it -- Sora, Heartless, palms, rocks
-; -- is a sprite, and sprites are drawn strictly in OAM order: slot 0 is
-; frontmost.  Sorting actors by world Y descending and writing them out in
-; that order makes a character walk behind a palm when north of it and in
-; front of it when south, with no per-object layer authoring at all.
+; This is the whole of the depth logic.  The ground is a background layer, so
+; everything that stands up off it -- Sora, Heartless, palms, rocks -- is a
+; sprite, and sprites are drawn strictly in OAM order: slot 0 is frontmost.
+; Seen from three-quarters overhead, being further down the screen means being
+; nearer, so sorting actors by world Y descending and writing them out in that
+; order makes a character walk behind a palm when north of it and in front of
+; it when south, with no per-object layer authoring at all.
 ;
 ; Ground shadows are emitted after every actor, so they land in higher OAM
 ; slots and therefore behind all of them, while still sitting above BG1.
