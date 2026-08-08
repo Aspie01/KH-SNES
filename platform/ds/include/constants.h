@@ -82,6 +82,26 @@ constexpr int DIVE_CAM_Y = (WORLD_H - SCREEN_H) / 2;    // DIVE_CAM_Y; 32 on the
 constexpr int FRAG_CAM_X = 128;             // FRAG_CAM_X
 constexpr int FRAG_CAM_Y = 24;              // FRAG_CAM_Y -- see the divergence note
 
+// A Station of Awakening is a disc in a void, and "deliberately smaller than the
+// screen" stopped being true on the DS: at radius 110 it spans y 18..238, and a
+// camera pinned at 32 showing 192 lines sees 32..224 -- clipping the outer golden
+// lip and the spoked ring, which are the two things that make it read as glass.
+// So the DS draws a smaller one.  This is the first consequence of divergence 001
+// that broke something rather than merely widening a clamp.
+// See docs/behaviour/divergences/004-ds-station-radius.md.
+constexpr int DIVE_CX = 256;                // world pixels
+constexpr int DIVE_CY = 128;
+constexpr int SNES_DIVE_R = 110;            // DIVE_RX/DIVE_RY, for the oracle
+constexpr int DIVE_R = 92;                  // 184 px across, 4 px of void each end
+constexpr int DIVE_INSET = 14;              // how far inside the rim a tile centre
+                                            // must sit to be standable
+static_assert(DIVE_CY - DIVE_R >= DIVE_CAM_Y
+              && DIVE_CY + DIVE_R <= DIVE_CAM_Y + SCREEN_H,
+              "the station does not fit the screen it is pinned to");
+static_assert(DIVE_CX - DIVE_R >= DIVE_CAM_X
+              && DIVE_CX + DIVE_R <= DIVE_CAM_X + SCREEN_W,
+              "the station does not fit the screen it is pinned to");
+
 constexpr int MAX_STEP = 1;             // MAX_STEP  height steps a move may cross
 
 // ---------------------------------------------------------------------------

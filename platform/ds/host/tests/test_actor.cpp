@@ -260,6 +260,34 @@ KH_TEST(actor_pool_is_larger_than_the_snes_and_for_a_reason) {
     CHECK(OBJ_BUDGET_SCENERY + TRANSIENT_ACTORS + 4 + 1 <= MAX_OBJECTS);
 }
 
+KH_TEST(the_station_fits_the_screen_it_is_pinned_to) {
+    // The static_asserts in constants.h already prove containment, so what is
+    // left to check here is the thing they cannot: that the SNES radius would
+    // NOT have fitted, which is the entire reason the DS draws a smaller disc.
+    // See docs/behaviour/divergences/004-ds-station-radius.md.
+    CHECK_EQ(SNES_DIVE_R, 110);
+    CHECK_EQ(DIVE_R, 92);
+
+    CHECK_EQ(DIVE_CAM_Y, 32);
+    CHECK(DIVE_CY - SNES_DIVE_R < DIVE_CAM_Y);              // 18 < 32: clipped
+    CHECK(DIVE_CY + SNES_DIVE_R > DIVE_CAM_Y + SCREEN_H);   // 238 > 224: clipped
+    CHECK_EQ(DIVE_CAM_Y - (DIVE_CY - SNES_DIVE_R), 14);     // by 14 px each end
+    CHECK_EQ((DIVE_CY + SNES_DIVE_R) - (DIVE_CAM_Y + SCREEN_H), 14);
+
+    // ...and that it WOULD have fitted the SNES, by two pixels at each end --
+    // which is why this never showed up until the screen got shorter.
+    constexpr int SNES_DIVE_CAM_Y = (WORLD_H - SNES_SCREEN_H) / 2;   // 16
+    CHECK_EQ(SNES_DIVE_CAM_Y, 16);
+    CHECK(DIVE_CY - SNES_DIVE_R >= SNES_DIVE_CAM_Y);
+    CHECK(DIVE_CY + SNES_DIVE_R <= SNES_DIVE_CAM_Y + SNES_SCREEN_H);
+    CHECK_EQ((DIVE_CY - SNES_DIVE_R) - SNES_DIVE_CAM_Y, 2);
+
+    // The DS disc leaves 4 px of void at each end, and the standable radius is
+    // what the cast was re-placed against.
+    CHECK_EQ((DIVE_CY - DIVE_R) - DIVE_CAM_Y, 4);
+    CHECK_EQ(DIVE_R - DIVE_INSET, 78);
+}
+
 KH_TEST(night_density_is_per_screen_not_per_map) {
     // SHADOW_MAX was one number because the night and the fragment ran on maps
     // of similar size.  They no longer do, so it splits -- and the island's

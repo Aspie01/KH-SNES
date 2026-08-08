@@ -406,6 +406,18 @@ for the dialogue interpreter.
     did not. Read
     `docs/behaviour/divergences/003-ds-night-density.md` before touching either;
     both are derived, neither is measured.
+  - **The Stations of Awakening are drawn at radius 92, not 110**, because the
+    SNES's disc is clipped 14 px top and bottom on a 192-line screen. Four spawn
+    tiles moved inward as a result, and the emitted collision map has 76
+    standable tiles rather than 96. Do not "restore" the SNES coordinates from
+    `dive.s` — two of them are off the platform.
+    `docs/behaviour/divergences/004-ds-station-radius.md`.
+  - **A station has no map file.** Its ground is generated; `station<n>chr.bin`
+    and friends are emitted like any other scene's, and the cast has no derived
+    props because a disc of glass has no prop tiles.
+  - **A dream weapon and its dais share a tile on purpose.** Both appear at the
+    same coordinates in `station1cast.bin`; the weapon hovers over the stone.
+    Nothing else in any scene co-locates, and the checker enforces that.
   - `<scene>doors.bin` is `(i, j, land_i, land_j)`. It says where the doors are
     and where Sora stands beside one; it does **not** say what is on the other
     side. `town.s`'s `doorTable` carried a destination scene and a gating stage

@@ -277,6 +277,17 @@ def walk(grid, spawn: tuple[int, int]):
     return walkable, height, seen
 
 
+def stacks(below: str, above: str) -> bool:
+    """Is this pair of actors deliberately on one tile?
+
+    Exactly one pair is: a dream weapon hovers over its dais, and dive.s places
+    both at the same coordinates.  Nothing else may share a tile, so this is a
+    whitelist rather than a relaxed rule -- the check it guards is what caught
+    the Secret Place's mushroom sitting on the chalk faces.
+    """
+    return below == "Pedestal" and above in ("Sword", "Shield", "Staff")
+
+
 def neighbours(grid, pos):
     i, j = pos
     return [(i + di, j + dj) for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1))
@@ -372,7 +383,7 @@ def check_ds(scene, routes: dict, adjacent: dict) -> int:
                 bad.append(f"  {name} at {pos} stands on '{code}', which is a "
                            f"{PROP_ACTOR[code]} -- blocked, so it would be "
                            f"stuck inside one")
-            elif pos in at:
+            elif pos in at and not stacks(at[pos], name):
                 bad.append(f"  {name} at {pos} is on top of {at[pos]}")
             elif walkable[pos]:
                 if pos not in seen:

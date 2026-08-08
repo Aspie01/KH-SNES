@@ -1,0 +1,17 @@
+# The second Station of Awakening -- Nintendo DS cast.
+#
+# The first one shatters and he falls onto this: a different medallion, the same
+# circle.  He lands alone and three Shadows are already waiting, which is the
+# first time anything in the game is hostile -- so they are [base] and not a
+# deferred table.  station2Spawns placed them the same way.
+#
+# Coordinates re-placed for the DS's smaller disc; the two flanking Shadows sit
+# 72.4 px out and the third 56.6, so all three are comfortably on the glass.
+# See docs/behaviour/divergences/004-ds-station-radius.md.
+
+[base]
+Sora        16 11         # the southern edge again, so the fall reads as a landing
+
+Shadow      11  7         # west, across the glass
+Shadow      20  7         # east
+Shadow      16  4         # and one directly ahead of him

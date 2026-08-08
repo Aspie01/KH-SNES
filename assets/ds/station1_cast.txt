@@ -1,0 +1,28 @@
+# The first Station of Awakening -- Nintendo DS cast.
+#
+# There is no station1.txt.  A station is generated, not authored: a circle of
+# stained glass in a void, painted by build_dive_platform() and standable where
+# a tile centre sits inside the rim.  So it has no prop tiles either -- nothing
+# in this scene is derived, every actor below is placed.
+#
+# THE COORDINATES ARE NOT THE SNES'S.  The DS screen is 32 lines shorter, and the
+# SNES's 220 px disc is clipped 14 px top and bottom on 192.  The DS draws a
+# 184 px one, so the composition moved inward with it.  Scaled by the same
+# factor, which happens to land Sora and all three pedestals exactly 56.6 px from
+# the centre -- a better triangle than the original, by accident.
+# See docs/behaviour/divergences/004-ds-station-radius.md.
+#
+# A dream weapon and its dais share a tile ON PURPOSE: the weapon hovers above
+# the stone.  tools/check_map.py permits that one pairing and nothing else.
+
+[base]
+Sora        16 11         # he arrives at the southern edge of the glass, facing in
+
+Pedestal    12  8         # west
+Sword       12  8
+
+Pedestal    18  5         # north-east
+Shield      18  5
+
+Pedestal    18 10         # south-east
+Staff       18 10

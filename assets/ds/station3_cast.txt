@@ -1,0 +1,20 @@
+# The third Station of Awakening -- Nintendo DS cast.
+#
+# Sora on his own.  soraOnlySpawns held exactly one entry, and this scene is the
+# reason: the platform has to be empty when he lands, because what fills it comes
+# up out of his own shadow.
+#
+# [boss] rather than [base] for the same reason as on the fragment -- placing
+# Darkside on entry would have it standing there waiting instead of rising.  The
+# boss retry re-runs [base] alone, which is what makes a retry a retry.
+
+[base]
+Sora        16 11
+
+[boss]
+# Tile (16,7).  On the SNES this was as far down the platform as it could stand:
+# the sprite is 64 px above its feet and the HUD owned the top 24 px, so any
+# higher put its head behind the gauge whenever Sora backed off.  That reason is
+# gone -- the DS HUD is on the other screen -- but the position still reads, and
+# on the smaller disc it is all but dead centre, which is where it should rise.
+Darkside    16  7

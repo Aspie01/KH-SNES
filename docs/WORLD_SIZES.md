@@ -78,9 +78,22 @@ Two structural notes about the districts, both learned by getting them wrong:
 - **The three Stations of Awakening.** A station is a stained-glass disc in a
   void, deliberately smaller than the screen, with the camera pinned so the void
   never scrolls into view. Making one bigger would mean showing more nothing.
+
+  They did, however, have to be drawn **smaller** — which is a different thing,
+  and it is the first place divergence 001 broke something instead of merely
+  widening a clamp. "Smaller than the screen" was true by two pixels at each end
+  on the SNES: a 220 px disc inside 224 lines. On the DS's 192 it is clipped by
+  14 px top and bottom, and what gets clipped is the outer golden lip and the
+  spoked ring — the two features that make the thing read as stained glass rather
+  than as a coloured circle. So the DS draws a radius-92 disc, 184 px across, and
+  the cast moved inward with it because two spawn tiles fell off the standable
+  set. `build_dive_platform()` takes the radius as an argument defaulting to the
+  SNES's 110, so the frozen ROM is byte-identical.
+  See `docs/behaviour/divergences/004-ds-station-radius.md`.
 - **The island fragment.** It is the last scrap of ground left after the island
   comes apart, sized so Darkside can stand on it and Sora cannot retreat. Small
-  is the entire point.
+  is the entire point. It needed no redraw — it is authored, not generated, and
+  its walkable ground already sits well inside 192 lines.
 
 ## What had to change to allow any of this
 
@@ -148,6 +161,11 @@ What that bought:
 | DS fragment | 1 | 1 | – | 3 |
 | SNES district (1/2/3) | 2 / 2 / 2 | 3 / 0 / 2 | – / 8 / – | 6 / 5 / 7 |
 | **DS district (1/2/3)** | **13 / 13 / 12** | 8 / 1 / 1 | – / **12** / – | 21 / 14 / 15 |
+| station 1 / 2 / 3 | – | 7 / 4 / 2 | – | 7 / 4 / 2 |
+
+Every scene now has a cast. The stations are the only ones with **no props at
+all** — a disc of stained glass has no prop tiles — so they are also the only
+ones where every actor is placed by hand.
 
 The island's palms and rocks are placed by grove rather than on a lattice —
 evenly spaced trees read as an orchard — and each placement is flood-filled and
@@ -183,6 +201,13 @@ that, and each of them was a bug waiting to happen:
   there is no expanded version and there should not be. A scene naming its map
   makes that expressible; a scene *being* its map would have needed a special
   case.
+- **A station has no map at all.** There is no `station1.txt`: the glass is
+  generated from a circle, so the scene carries a *builder* rather than a
+  filename, and `grid_from_coll()` turns the resulting collision array into the
+  same `Grid` interface every authored map presents — `G` for standable glass,
+  `*` for the void, neither ever drawn. That is what lets the cast checker and
+  the reachability walk treat a station like anywhere else without knowing it is
+  procedural.
 
 Two of the night's actors are deliberately not in its cast file, because they are
 **transformed rather than placed** and doing both would double them: the columns
@@ -251,11 +276,16 @@ size does and does not do to the oracle.
   it could not have told them apart. The field is filled in and nothing consumes
   it until M5. It is there now because adding it later means re-authoring every
   file.
-- **The Stations of Awakening have no cast.** They are the last three scenes
-  without one. `dive.s` places three pedestals, three dream weapons, the Shadows
-  in Darkside's craters and Darkside itself, on maps that are deliberately not
-  expanded — so it is the smallest of the remaining cast files and the only one
-  whose props are not derivable, because a station has no prop tiles.
+- **Every scene has a cast, and none of them has a scene yet.** Nine cast files
+  exist and are validated; nothing loads one. `LoadScene` and the four stage
+  machines are M5, and until they run, the only thing that has been proven about
+  this data is that it is self-consistent and reachable — which is worth
+  something, and is not the same as playable.
+- **The station radius is settled but the fall between them is not measured.**
+  `FALL_LEN` is 170 frames with `MOTE_LIFE` specks rising past Sora from up to
+  160 px below him. On a screen 32 lines shorter they start further outside the
+  visible area and end in the same place, so nothing should need changing — but
+  that is derived, not seen.
 - **Sprite VRAM is still M4's problem.** Instances share tiles, so the 69 palms
   and rocks cost per *type* and not per actor — but the bank map that says where
   those tiles live has not been written, and the OBJ budget check above says

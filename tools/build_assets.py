@@ -137,6 +137,14 @@ TERRAIN = {
     "l": (COBBLE_L, COBBLE_M, COBBLE_D, False, 0),   # a lamp post
     "n": (PLASTER_L, PLASTER_M, PLASTER_D, False, 0),   # the fountain rim
     "v": (GLINT, DEEP, OUTLINE, False, 0),           # ...and what is in it
+    #--- Stations of Awakening ----------------------------------------------
+    # A station is painted by build_dive_platform() rather than by build_world(),
+    # so this code is never drawn and its colours are never read.  It exists so
+    # that a station can present the same (walkable, height) interface every
+    # authored map does -- see grid_from_coll() -- and so the checker's messages
+    # name something meaningful instead of a stand-in.  Off the platform is "*",
+    # the void, which already means exactly the right thing.
+    "G": (0, 0, 0, True, 0),                         # standable stained glass
 }
 
 
@@ -163,7 +171,8 @@ GROUP = {"~": "water", "-": "water", ".": "sand", "r": "sand",
          "M": "wood", "K": "grass", "F": "rock", "*": "void",
          "c": "cobble", "s": "pave", "q": "pave", "p": "pave",
          "w": "plaster", "e": "plaster", "o": "beam", "d": "door",
-         "x": "beam", "l": "cobble", "n": "plaster", "v": "water"}
+         "x": "beam", "l": "cobble", "n": "plaster", "v": "water",
+         "G": "void"}    # never drawn; see TERRAIN
 
 # What the side of a raised block is made of.  The leafy top of the climbing
 # tree is grass, but what holds it up is a trunk; a bridge has nothing under
@@ -939,6 +948,19 @@ DIVE_CX, DIVE_CY = 256.0, 128.0
 # back, so this is as large as the platform can be and still be read as round.
 DIVE_RX = DIVE_RY = 110.0
 
+# ...and the DS screen is 32 lines shorter, which this does not survive.  A
+# 220 px disc fits the SNES's 224 lines by two pixels at each end; on 192 it is
+# clipped by 14 top and bottom, and a Station of Awakening with its golden rim
+# cut off is not a station.  So the DS draws a smaller one.  The SNES keeps 110
+# and its ROM stays byte-identical.  See
+# docs/behaviour/divergences/004-ds-station-radius.md.
+DS_DIVE_R = 92.0
+
+# How far inside the rim a tile centre has to sit to be standable.  Absolute
+# rather than proportional: it is a margin for the sprite's feet, not a fraction
+# of the disc.
+DIVE_INSET = 14.0
+
 # Glass palette indices, named.
 V_VOID, G_DEEP, G_MID, G_LIGHT = 0, 1, 2, 3
 G_GOLD, G_GOLD_D, G_RED, G_RED_D = 4, 5, 6, 7
@@ -1018,14 +1040,20 @@ def dive_medallion(r: float, ang: float, nx: float, ny: float,
     return base
 
 
-def build_dive_platform(station: int = 1) -> tuple[Canvas, bytes]:
-    """Paint the platform and derive which ground tiles are standable."""
+def build_dive_platform(station: int = 1,
+                        radius: float = DIVE_RX) -> tuple[Canvas, bytes]:
+    """Paint the platform and derive which ground tiles are standable.
+
+    The radius is a parameter because the DS screen is 32 lines shorter and the
+    SNES's disc does not fit on it.  Defaulted, so the SNES call sites are
+    unchanged and its ROM stays byte-identical.
+    """
     world = Canvas(WORLD_W, WORLD_H, V_VOID)
 
     for y in range(WORLD_H):
         for x in range(WORLD_W):
-            dx = (x + 0.5 - DIVE_CX) / DIVE_RX
-            dy = (y + 0.5 - DIVE_CY) / DIVE_RY
+            dx = (x + 0.5 - DIVE_CX) / radius
+            dy = (y + 0.5 - DIVE_CY) / radius
             r = math.sqrt(dx * dx + dy * dy)
             if r > 1.0:
                 continue
@@ -1063,8 +1091,8 @@ def build_dive_platform(station: int = 1) -> tuple[Canvas, bytes]:
         for i in range(MAP_W):
             wx = i * TILE + TILE // 2
             wy = j * TILE + TILE // 2
-            dx = (wx - DIVE_CX) / (DIVE_RX - 14)
-            dy = (wy - DIVE_CY) / (DIVE_RY - 14)
+            dx = (wx - DIVE_CX) / (radius - DIVE_INSET)
+            dy = (wy - DIVE_CY) / (radius - DIVE_INSET)
             coll[j * MAP_W + i] = 1 if dx * dx + dy * dy <= 1.0 else 0
     return world, bytes(coll)
 
@@ -2247,26 +2275,33 @@ def cast_bytes(rows) -> bytes:
 CAST_MARKERS = [
     (0, 0, 0),              # 16: outline, so a marker reads on any ground
     (255, 208, 64),         # 17: somebody who can be talked to
-    (96, 232, 255),         # 18: something that can be picked up
-    (120, 200, 120),        # 19: a derived prop
+    (96, 232, 255),         # 18: something that can be taken
+    (120, 200, 120),        # 19: a derived prop, or scenery placed by hand
     (255, 96, 96),          # 20: where a Heartless comes up
     (255, 255, 255),        # 21: a door, and the tile it lands on
     (255, 128, 255),        # 22: the wall of the Secret Place
     (255, 144, 32),         # 23: Sora
+    (176, 0, 96),           # 24: a boss
 ]
 MARK_OUTLINE, MARK_PERSON, MARK_ITEM, MARK_PROP = 16, 17, 18, 19
-MARK_SPOT, MARK_DOOR, MARK_WALL, MARK_SORA = 20, 21, 22, 23
+MARK_SPOT, MARK_DOOR, MARK_WALL, MARK_SORA, MARK_BOSS = 20, 21, 22, 23, 24
 
 
 def _marker_of(name: str) -> int:
     if name == "Sora":
         return MARK_SORA
-    if name in PROP_ACTOR.values():
+    if name in ("Darkside", "Armor", "Gauntlet"):
+        return MARK_BOSS
+    # A pedestal is scenery, not somebody -- and gold-on-gold is invisible on a
+    # Station of Awakening, which is the only place either of these appears.
+    if name in PROP_ACTOR.values() or name == "Pedestal":
         return MARK_PROP
-    if is_pickup(name) or name == "Fish":
+    if is_pickup(name) or name in ("Fish", "Sword", "Shield", "Staff"):
         return MARK_ITEM
     if name in ("Door", "Faces", "Scribble", "DoorOpen"):
         return MARK_WALL
+    if name == "Shadow":
+        return MARK_SPOT
     return MARK_PERSON
 
 
@@ -2300,20 +2335,39 @@ def draw_cast(world, rows, marker_of=_marker_of) -> None:
                     world.set(x, y, mark if d <= 3 else MARK_OUTLINE)
 
 
+def grid_from_coll(coll: bytes, w: int, h: int, name: str = "") -> Grid:
+    """A Grid standing in for a map that was generated rather than authored.
+
+    The Stations of Awakening have no text map: build_dive_platform() paints the
+    glass and derives the standable set from a circle.  Everything downstream --
+    the cast checker, the prop derivation, the reachability walk -- wants a Grid,
+    and there is no reason for any of them to know the difference, so make one.
+    'G' is standable glass and '*' is the void, and neither is ever drawn.
+    """
+    return Grid(["".join("G" if coll[j * w + i] else "*" for i in range(w))
+                 for j in range(h)], name)
+
+
 class DSScene:
     """A DS scene: a map, a palette, a cast, and possibly somebody else's ground.
 
-    Two scenes can share one map.  The night runs on the island's tiles, tilemap,
-    collision and height -- what makes it night is one palette upload, exactly as
-    on the SNES -- so it must not re-emit 28 KB of identical ground, and it must
-    not be given the island's cast either.  Hence a scene is a record and not
-    just a filename.
+    Three things stop this from being just a filename:
+
+    - Two scenes can share one map.  The night runs on the island's tiles,
+      tilemap, collision and height -- what makes it night is one palette upload,
+      exactly as on the SNES -- so it must not re-emit 28 KB of identical ground,
+      and it must not be given the island's cast either.
+    - A map need not be authored.  A station is generated from a circle, so the
+      scene carries a builder instead of a filename.
+    - A map need not live in assets/ds/.  The fragment is deliberately
+      unexpanded and reads the SNES one.
     """
 
-    __slots__ = ("name", "map", "subdir", "palette", "ground", "props", "note")
+    __slots__ = ("name", "map", "subdir", "palette", "ground", "props",
+                 "note", "build")
 
     def __init__(self, name, map_, subdir, palette,
-                 ground=None, props=None, note=""):
+                 ground=None, props=None, note="", build=None):
         self.name = name
         self.map = map_
         self.subdir = subdir
@@ -2321,14 +2375,42 @@ class DSScene:
         self.ground = ground        # emit our own if None, else share that scene's
         self.props = props          # PROP_ACTOR override
         self.note = note
+        self.build = build          # () -> (world, coll, height, grid)
+
+    def painted(self):
+        """The scene's ground: painted canvas, collision, height, and a Grid."""
+        if self.build is not None:
+            return self.build()
+        grid = load_grid(self.map, subdir=self.subdir)
+        world, coll, hmap = build_world(grid)
+        return world, coll, hmap, grid
 
     def grid(self):
-        return load_grid(self.map, subdir=self.subdir)
+        return self.painted()[3]
+
+
+def _station(n: int):
+    """The nth Station of Awakening, at the radius the DS screen can show."""
+    def build():
+        world, coll = build_dive_platform(station=n, radius=DS_DIVE_R)
+        grid = grid_from_coll(coll, MAP_W, MAP_H, f"station{n}")
+        return world, coll, bytes(len(coll)), grid       # flat glass: height 0
+    return build
 
 
 def ds_scenes():
     """Every DS scene, in build order.  check_map.py walks the same list."""
     return (
+        # The three Stations of Awakening.  Not expanded -- a station is a disc
+        # in a void, deliberately smaller than the screen -- but REDRAWN, because
+        # the SNES's 220 px disc does not fit the DS's 192 lines.  See
+        # docs/behaviour/divergences/004-ds-station-radius.md.
+        DSScene("station1", None, "", BG_DIVE, build=_station(1),
+                note="the dais and the three dream weapons"),
+        DSScene("station2", None, "", BG_DIVE, build=_station(2),
+                note="he lands alone, and three of them are already waiting"),
+        DSScene("station3", None, "", BG_DIVE, build=_station(3),
+                note="Darkside"),
         DSScene("island", "island.txt", "ds", BG_GROUND),
         # The two days' island, at night, with the coconuts gone.
         DSScene("night", "island.txt", "ds", BG_NIGHT,
@@ -2392,8 +2474,7 @@ def build_ds_scene(scene: DSScene) -> None:
     """
     out = GEN / "ds"
     out.mkdir(parents=True, exist_ok=True)
-    grid = scene.grid()
-    world, coll, hmap = build_world(grid)
+    world, coll, hmap, grid = scene.painted()
     if scene.ground is None:
         chars, tilemap, n = dedupe_tilemap(world, layout="rowmajor")
         write_bin(out / f"{scene.name}chr.bin", chars)
