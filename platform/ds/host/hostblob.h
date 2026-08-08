@@ -32,4 +32,16 @@ inline kh::Blob load(const char* name, unsigned char* buf, size_t cap) {
     return kh::Blob{buf, n};
 }
 
+// ...and the SNES artefacts, one directory up, for the one test that compares
+// the two encoders against each other on art both machines paint.
+inline kh::Blob loadSnes(const char* name, unsigned char* buf, size_t cap) {
+    char path[512];
+    std::snprintf(path, sizeof path, "%s/../%s", KH_ASSET_DIR, name);
+    std::FILE* f = std::fopen(path, "rb");
+    if (!f) return {};
+    const size_t n = std::fread(buf, 1, cap, f);
+    std::fclose(f);
+    return kh::Blob{buf, n};
+}
+
 }  // namespace khhost

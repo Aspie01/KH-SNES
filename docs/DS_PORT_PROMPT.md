@@ -255,37 +255,50 @@ totals what you expect. Gate 0 passes.
 
 ---
 
-# §M2 — A DS backend for the asset pipeline — **Tier 1**
+# §M2 — A DS backend for the asset pipeline — **LANDED**
 
-`tools/build_assets.py` currently emits SNES formats. Add a second backend so the
-same `assets/*.txt` produce DS-consumable data.
+**Done.** `tools/ds_encode.py` (the DS formats, kept out of the frozen
+`pixel.py`), a DS pass in `tools/build_assets.py`, `include/gen/assets.h`, and
+`host/tests/test_assets.cpp`.
 
-**Read `tools/build_assets.py` before deciding what to change.** The
-platform-neutral half — `load_grid`, `TERRAIN`, `GROUP`, `FACE`, the `draw_*`
-tile art, `build_world` — is reused unchanged. Only the encoding is
-SNES-specific: `tile_4bpp`, the 4 bpp packing, and critically
-`dedupe_tilemap`'s output ordering, which interleaves two 32×32 screens because
-that is how the SNES PPU stores a 64×32 map. **The DS does not use that
-layout.** Read the comment at that code and understand it before you write the
-DS emitter.
+`python3 tools/build_assets.py` emits both targets; `--target snes` is a true
+subset for the oracle. `--target ds` also regenerates the SNES artefacts as a
+by-product — the DS pass consumes canvases the SNES pass paints — and says so
+rather than pretending otherwise.
 
-Deliverables:
+**Three formats differ, and every one of them fails by producing a plausible
+picture rather than an error:**
 
-- A `--target ds` flag (default stays `snes`, and the SNES path must be
-  bit-identical afterwards — Gate 0 proves it).
-- DS output: tile character data, a tilemap in the DS's own screen layout, and
-  palettes in DS 15-bit BGR order. Collision and height maps are plain
-  `MAP_W * MAP_H` byte arrays and carry over unchanged.
-- A `.h`/`.bin` pair per scene, or a single archive — your choice, but document
-  it and keep it stable.
+| | SNES | DS |
+| --- | --- | --- |
+| 4bpp character | **planar** — bitplanes 0/1 interleaved by row for 16 bytes, then 2/3 | **linear** — two pixels a byte, left pixel in the low nibble |
+| map entry | bit 15 V, 14 H, 13 priority, 12–10 palette | bit 11 V, **10 H**, **15–12 palette** |
+| palette entry | 15-bit BGR little-endian | **identical** — the bytes are reused verbatim |
 
-**Exit criteria.** `python3 tools/build_assets.py` with no flag reproduces
-`docs/oracle-baseline.sha256` exactly. `--target ds` emits files for all five
-maps. `python3 tools/check_map.py` still passes. A host test loads a generated
-collision map and asserts a known-walkable and a known-blocked tile from
-`assets/island.txt`.
+Two more things a later milestone will trip over:
 
----
+- **The emitted map is ROW-MAJOR and that is not the hardware layout.** A text
+  background is built from 32×32-character blocks; every scene but the stations
+  and the fragment is wider than the 64 characters one background holds, so the
+  map cannot be uploaded as-is whatever order it is in. `bgOffset()` in
+  `gen/assets.h` is where the block layout is defined, once, for the streamer and
+  for anything uploading directly.
+- **1D sprite mapping renumbers the objects.** A 32×32 sprite is sixteen
+  *consecutive* characters, so the object pages are re-serialised cel-contiguous.
+  `actor.h`'s `tileFor()` still returns SNES page offsets — they are cited against
+  the assembly and should stay citable — and `dsTileFor()` is the translation.
+  Sora's sheet needed no reordering: the SNES already stored it cel-contiguous.
+
+**How far the verification goes, and where it stops.** The encoders are
+cross-checked against the *known-good SNES ones* on the fragment, which is the
+one scene both machines paint from the same map: 112 characters, decoded with
+each machine's own decoder, pixel-for-pixel equal. Every scene's emitted bytes
+are also decoded back and compared against the painted world, so an encoding and
+a packing error would have to compensate exactly to survive. **What none of that
+proves is that these are the formats the hardware wants** — only that the
+pipeline is self-consistent and agrees with the SNES. Confirm the nibble order
+and the flip-bit positions against GBATEK or libnds before trusting §M7's first
+frame, and if either is wrong, `ds_encode.py` is the only file that changes.
 
 # §M3 — Movement, collision and the camera — **LANDED**
 

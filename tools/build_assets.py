@@ -16,6 +16,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from ds_encode import (                                # noqa: E402
+    DS_BG_MAX_CHARS, decode_tile_4bpp_ds, dedupe_tilemap_ds, encode_cels_ds,
+    encode_page_ds,
+)
 from pixel import (                                    # noqa: E402
     BG_DIVE, BG_GROUND, BG_NIGHT, BG_TOWN, HUD_PAL, OBJ_ARMOR, OBJ_DIVE,
     OBJ_FX, OBJ_HEART, OBJ_ISLE, OBJ_NIGHT, OBJ_SCENE, OBJ_SCENE_NIGHT,
@@ -2461,7 +2465,195 @@ def build_ds_cast(stem: str, grid, world, palette, props=None) -> tuple[Cast, in
     return cast, peak
 
 
-def build_ds_scene(scene: DSScene) -> None:
+def verify_ds_roundtrip(scene, world) -> None:
+    """Decode the emitted bytes back and compare against the painted world.
+
+    Neither the character encoding nor the map packing can be checked against
+    hardware from here, and both fail by producing a plausible picture rather
+    than an error -- a planar tile read as linear is a recognisable pattern in
+    the wrong shape.  A round trip is the strongest check available without a
+    DS: if the bytes decode to the pixels that went in, the only way they are
+    still wrong is if BOTH halves are wrong in exactly compensating ways.
+    """
+    out = GEN / "ds"
+    chars = (out / f"{scene.name}chr.bin").read_bytes()
+    tmap = (out / f"{scene.name}map.bin").read_bytes()
+    cw, ch = world.w // 8, world.h // 8
+    for ty in range(ch):
+        for tx in range(cw):
+            k = (ty * cw + tx) * 2
+            e = tmap[k] | (tmap[k + 1] << 8)
+            tile = decode_tile_4bpp_ds(chars, (e & 0x03FF) * 32)
+            if e & (1 << 10):
+                tile = [list(reversed(r)) for r in tile]
+            if e & (1 << 11):
+                tile = list(reversed(tile))
+            for y in range(8):
+                for x in range(8):
+                    if tile[y][x] != world.px[ty * 8 + y][tx * 8 + x]:
+                        raise SystemExit(
+                            f"ds/{scene.name}: character ({tx},{ty}) does not "
+                            f"decode back to the pixels that went in")
+
+
+def build_ds_sprites(sora, obj, obj2, objtown, font) -> list[tuple[str, str]]:
+    """The sprite pages and the font, re-encoded for the DS.
+
+    CEL ORDERING IS THE TRAP.  Under the DS's 1D sprite mapping a 32x32 sprite is
+    sixteen CONSECUTIVE characters.  The SNES object pages are 16-character-wide
+    grids in which a 32x32 object occupies a 4x4 block, so serialising one
+    row-major gives four characters of one object followed by four of the next
+    and every sprite comes out as a stripe of four different things.
+
+    Sora's sheet needs no reordering -- the SNES already stored it cel-contiguous
+    because its streaming DMA uploaded a frame as four 128-byte rows -- but the
+    object pages do, and reordering them RENUMBERS every object.  The translation
+    is emitted as dsTileFor() rather than by renumbering actor.h's forty-one
+    tileFor() values, because those are cited against the assembly and should stay
+    citable.
+    """
+    out = GEN / "ds"
+    out.mkdir(parents=True, exist_ok=True)
+    made: list[tuple[str, str]] = []
+
+    write_bin(out / "sorachr.bin", encode_cels_ds(sora, 32, 6, 5))
+    made.append(("sorachr", "30 cels of 32x32, six frames by five drawn facings"))
+
+    for name, page in (("objchr", obj), ("obj2chr", obj2),
+                       ("objtownchr", objtown)):
+        write_bin(out / f"{name}.bin", encode_cels_ds(page, 32, 4, 4))
+        made.append((name, "16 cels of 32x32, re-serialised cel-contiguous"))
+
+    # The font is addressed one character at a time, so row-major is right and
+    # cel ordering would be meaningless.  It goes from 2bpp to 4bpp because a DS
+    # text background has no 2bpp mode -- twice the bytes, same picture.
+    write_bin(out / "hudchr.bin", encode_page_ds(font))
+    made.append(("hudchr", "128 characters, 4bpp because the DS has no 2bpp BG"))
+    return made
+
+
+def build_ds_palettes() -> list[tuple[str, int]]:
+    """Every palette the DS needs, in the format it already had.
+
+    Fifteen-bit BGR little-endian is byte-identical between the two machines, so
+    these are the SNES bytes unchanged.  Which slot each one occupies in palette
+    RAM is NOT decided here -- that is the VRAM map's business (§M4), and guessing
+    it now would be a number two files disagree about later.
+    """
+    out = GEN / "ds"
+    out.mkdir(parents=True, exist_ok=True)
+    pals = (("bgpal", BG_GROUND, 16), ("nightpal", BG_NIGHT, 16),
+            ("townpal", BG_TOWN, 16), ("divepal", BG_DIVE, 16),
+            ("objpal", OBJ_SCENE, 16), ("nightobjpal", OBJ_SCENE_NIGHT, 16),
+            ("townobjpal", OBJ_TOWN, 16), ("islepal", OBJ_ISLE, 16),
+            ("sorapal", OBJ_SORA, 16), ("shadowpal", OBJ_SHADOW, 16),
+            ("divobjpal", OBJ_DIVE, 16), ("armorpal", OBJ_ARMOR, 16),
+            ("fxpal", OBJ_FX, 16), ("heartpal", OBJ_HEART, 16),
+            ("nightscenepal", OBJ_NIGHT, 16),
+            ("hudpal", HUD_PAL, 16))
+    made = []
+    for name, pal, count in pals:
+        write_bin(out / f"{name}.bin", palette_bytes(pal, count))
+        made.append((name, count))
+    return made
+
+
+def emit_ds_asset_header(scenes, sprites, palettes) -> None:
+    """One header naming every DS asset, so nothing is addressed by filename.
+
+    The brief asks for "a .h/.bin pair per scene, or a single archive -- your
+    choice, but document it and keep it stable".  This is the .h half, one file
+    for all of them: the binaries stay separate so a scene loads only its own,
+    and the header is what says which those are and what shape they have.
+    """
+    path = ROOT / "platform" / "ds" / "include" / "gen" / "assets.h"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    L: list[str] = []
+    w = L.append
+    w("#pragma once")
+    w("// GENERATED by tools/build_assets.py -- do not edit.")
+    w("//")
+    w("// Every DS asset the pipeline emits, with its shape.  The bytes live in")
+    w("// assets/gen/ds/ as separate files so a scene loads only its own; this")
+    w("// header is the record of what those files are.")
+    w("//")
+    w("// FORMATS (tools/ds_encode.py has the reasoning):")
+    w("//   chr     4bpp LINEAR, 32 bytes a character, left pixel in the low")
+    w("//           nibble.  NOT the SNES's planar layout.")
+    w("//   map     16-bit entries, ROW-MAJOR and not in hardware block order --")
+    w("//           every scene but the stations and the fragment is wider than")
+    w("//           the 64 characters one background holds, so the renderer")
+    w("//           streams a window through bgOffset() below.")
+    w("//           Entry: bits 0-9 character, 10 H flip, 11 V flip, 12-15 palette.")
+    w("//   pal     15-bit BGR little-endian -- byte-identical to the SNES word.")
+    w("//   coll    one byte a tile, non-zero means standable.")
+    w("//   height  one byte a tile, in eight-pixel steps.")
+    w("")
+    w("#include <cstdint>")
+    w("")
+    w("namespace kh {")
+    w("")
+    w("// Where a character sits in a DS text background's map.  A background is")
+    w("// built from 32x32-character BLOCKS, not rows; writing row-major shreds a")
+    w("// 512-wide map into diagonal bands.  Defined once, here, for the streamer")
+    w("// and for anything that uploads a map directly.")
+    w("constexpr int bgOffset(int x, int y, int widthChars, int heightChars) {")
+    w("    return ((x >= 32 ? 1 : 0)")
+    w("            + (y >= 32 ? (widthChars > 32 ? 2 : 1) : 0)) * 1024")
+    w("           + (y % 32) * 32 + (x % 32) + 0 * heightChars;")
+    w("}")
+    w("")
+    w("constexpr uint16_t MAP_TILE_MASK = 0x03FF;")
+    w("constexpr uint16_t MAP_FLIP_H = 1 << 10;")
+    w("constexpr uint16_t MAP_FLIP_V = 1 << 11;")
+    w("constexpr int MAP_PAL_SHIFT = 12;")
+    w("constexpr int BG_MAX_CHARS = %d;" % DS_BG_MAX_CHARS)
+    w("")
+    w("// A 32x32 object is sixteen CONSECUTIVE characters under 1D mapping, so")
+    w("// the object pages are re-serialised cel-contiguous and every object's")
+    w("// index moves.  actor.h's tileFor() still returns the SNES page offsets --")
+    w("// they are cited against the assembly and should stay citable -- so this")
+    w("// is the translation.  A SNES page is a 16-character-wide grid in which a")
+    w("// 32x32 object occupies a 4x4 block.")
+    w("constexpr int dsTileFor(int snesTile) {")
+    w("    return (((snesTile / 64) * 4) + ((snesTile % 64) / 4)) * 16;")
+    w("}")
+    w("")
+    w("struct SceneAsset {")
+    w("    const char* name;")
+    w("    uint16_t tilesW;")
+    w("    uint16_t tilesH;")
+    w("    uint16_t chars;         // unique characters, 0 if the ground is shared")
+    w("    const char* groundFrom; // nullptr unless it borrows another scene's")
+    w("    bool streams;           // wider than one background")
+    w("};")
+    w("")
+    w("constexpr SceneAsset SCENE_ASSETS[] = {")
+    for name, gw, gh, chars, shared, streams in scenes:
+        share = f'"{shared}"' if shared else "nullptr"
+        w(f'    {{"{name}", {gw}, {gh}, {chars}, {share}, '
+          f'{"true" if streams else "false"}}},')
+    w("};")
+    w("")
+    w("struct PaletteAsset { const char* name; uint16_t entries; };")
+    w("constexpr PaletteAsset PALETTE_ASSETS[] = {")
+    for name, count in palettes:
+        w(f'    {{"{name}", {count}}},')
+    w("};")
+    w("")
+    w("struct SpriteAsset { const char* name; const char* shape; };")
+    w("constexpr SpriteAsset SPRITE_ASSETS[] = {")
+    for name, shape in sprites:
+        w(f'    {{"{name}", "{shape}"}},')
+    w("};")
+    w("")
+    w("}  // namespace kh")
+    text = "\n".join(L) + "\n"
+    if not path.exists() or path.read_text() != text:
+        path.write_text(text)
+
+
+def build_ds_scene(scene: DSScene):
     """Emit one DS scene: characters, a row-major tilemap, collision, height, cast.
 
     Not the full M2 backend -- no DS palette encoding and no header generation
@@ -2476,26 +2668,68 @@ def build_ds_scene(scene: DSScene) -> None:
     out.mkdir(parents=True, exist_ok=True)
     world, coll, hmap, grid = scene.painted()
     if scene.ground is None:
-        chars, tilemap, n = dedupe_tilemap(world, layout="rowmajor")
+        # dedupe_tilemap_ds, not dedupe_tilemap: the DS's characters are LINEAR
+        # 4bpp where the SNES's are planar, and its map entries carry the flip
+        # bits at 10 and 11 where the SNES has them at 14 and 15.  Reusing the
+        # SNES encoder produces a recognisable but wrong picture, which is worse
+        # than noise.  See tools/ds_encode.py.
+        chars, tilemap, n = dedupe_tilemap_ds(world)
         write_bin(out / f"{scene.name}chr.bin", chars)
         write_bin(out / f"{scene.name}map.bin", tilemap)
         write_bin(out / f"{scene.name}coll.bin", coll)
         write_bin(out / f"{scene.name}height.bin", hmap)
+        # Fifteen-bit BGR, little-endian -- byte-identical to the SNES word, so
+        # the encoder is reused verbatim.  This is the one format the two
+        # machines share exactly.
+        write_bin(out / f"{scene.name}pal.bin", palette_bytes(scene.palette))
         write_png(world, scene.palette, SRC / f"ds_{scene.name}_preview.png")
         streams = "streams" if max(grid.w, grid.h) > DS_BG_TILES else "fits one BG"
         print(f"ds/{scene.name}: {grid.w}x{grid.h} tiles, {world.w}x{world.h} px, "
               f"{world.w // 8}x{world.h // 8} chars, {n} unique, "
               f"{sum(coll)} walkable, {streams}")
+        verify_ds_roundtrip(scene, world)
+        shape = (scene.name, grid.w, grid.h, n, None,
+                 max(world.w // 8, world.h // 8) > DS_BG_MAX_CHARS)
     else:
         # Still worth a preview: the palette is the whole difference and the
         # only way to see whether it reads as the same place after dark.
         write_png(world, scene.palette, SRC / f"ds_{scene.name}_preview.png")
+        # ...and the palette itself, which IS the difference, so it is the one
+        # thing a ground-sharing scene still emits.
+        write_bin(out / f"{scene.name}pal.bin", palette_bytes(scene.palette))
         print(f"ds/{scene.name}: {grid.w}x{grid.h} tiles, ground shared with "
               f"{scene.ground} -- {scene.note}")
+        shape = (scene.name, grid.w, grid.h, 0, scene.ground,
+                 max(world.w // 8, world.h // 8) > DS_BG_MAX_CHARS)
     build_ds_cast(scene.name, grid, world, scene.palette, scene.props)
+    return shape
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    """--target snes | ds | both.
+
+    The default is BOTH, which is not what the brief guessed, and the reason is
+    that the DS output already has consumers: the host tests read the emitted
+    collision maps and cast tables, so a default that skipped them would make
+    `make -f Makefile.host run` fail on a clean tree.
+
+    `--target snes` is a true subset: it writes the oracle's artefacts and
+    nothing else.  `--target ds` IS NOT the mirror of it -- it writes the DS
+    assets, and regenerates the SNES ones as a by-product, because the DS pass
+    consumes canvases the SNES pass paints and separating them would mean
+    threading a suppression flag through thirty-five write sites for no gain.
+    The by-product is byte-identical, which Gate 0 checks, so the only cost is a
+    few hundred milliseconds.  Said plainly here because a flag that quietly does
+    more than its name is worse than one that admits it.
+    """
+    argv = sys.argv[1:] if argv is None else argv
+    target = "both"
+    for i, a in enumerate(argv):
+        if a == "--target" and i + 1 < len(argv):
+            target = argv[i + 1]
+    if target not in ("snes", "ds", "both"):
+        raise SystemExit(f"--target must be snes, ds or both, not {target!r}")
+
     GEN.mkdir(parents=True, exist_ok=True)
     SRC.mkdir(parents=True, exist_ok=True)
     grid = load_grid()
@@ -2644,8 +2878,18 @@ def main() -> int:
     # unreadable even though the emitted indices are right.  And the night reuses
     # the island's ground with nothing changed but those sixteen colours, which
     # is what ds_scenes() exists to express.
-    for scene in ds_scenes():
-        build_ds_scene(scene)
+    if target == "snes":
+        print("ds/       skipped (--target snes)")
+        return 0
+    if target == "ds":
+        print("ds/       (the SNES artefacts above were regenerated as a "
+              "by-product; see main.__doc__)")
+    shapes = [build_ds_scene(scene) for scene in ds_scenes()]
+    sprites = build_ds_sprites(sheet, page, page2, town_page, font)
+    palettes = build_ds_palettes()
+    emit_ds_asset_header(shapes, sprites, palettes)
+    print(f"ds/       {len(sprites)} sprite pages, {len(palettes)} palettes, "
+          f"platform/ds/include/gen/assets.h")
     return 0
 
 
