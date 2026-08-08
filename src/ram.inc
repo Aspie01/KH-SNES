@@ -39,6 +39,7 @@ RAM_INC = 1
 .globalzp screenBright, mosaicAmt, shatterTimer, bossHP, shakeX
 .globalzp fadeTimer, coldataAmt, deadFlag, fallTimer
 .globalzp questState, questDay, dayTimer, pendTalk
+.globalzp raceLeg, rikuWp, raceWon, raftName
 .globalzp itemCount
 
 ;--- buffers (BSS) -----------------------------------------------------------

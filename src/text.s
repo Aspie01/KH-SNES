@@ -364,8 +364,7 @@ REVEAL_DELAY = 1                ; frames between characters
     lda tmp2
     beq @out
     lda txtMode
-    cmp #TM_PROMPT
-    bne @closeit
+    beq @closeit                ; TM_MESSAGE just goes away
     lda #TS_PROMPT
     sta txtState
     jsr DrawOptions
@@ -377,23 +376,43 @@ REVEAL_DELAY = 1                ; frames between characters
 
     ;--- yes/no selector ---------------------------------------------------
 @prompt:
+    jsr MenuCount
+    sta tmp3                    ; how many choices this menu has
     rep #$20
     .a16
     lda padPressed
-    and #(PAD_UP | PAD_DOWN)
+    and #PAD_UP
+    sep #$20
+    .a8
+    beq @down
+    lda txtChoice
+    bne :+
+    lda tmp3                    ; wrap round the top
+:   dec a
+    sta txtChoice
+    jsr DrawOptions
+    rts
+@down:
+    rep #$20
+    .a16
+    lda padPressed
+    and #PAD_DOWN
     sep #$20
     .a8
     beq @confirm
     lda txtChoice
-    eor #$01
-    sta txtChoice
+    inc a
+    cmp tmp3
+    bcc :+
+    lda #0
+:   sta txtChoice
     jsr DrawOptions
     rts
 @confirm:
     lda tmp2
     beq @out2
     lda txtChoice
-    inc a                       ; 1 = yes, 2 = no; 0 means "no answer yet"
+    inc a                       ; 1-based; 0 means "no answer yet"
     sta txtResult
     jsr TextClose
 @out2:
@@ -515,49 +534,155 @@ REVEAL_DELAY = 1                ; frames between characters
 
 
 ;-----------------------------------------------------------------------------
-; DrawOptions -- YES / NO with the cursor on the highlighted line.  A8/I16.
+; A prompt shows a short list of choices.  Yes/no is just the shortest list;
+; the mode picks which one, so a scene asks for a menu by opening the box with
+; TM_RAFT instead of TM_PROMPT.
 ;-----------------------------------------------------------------------------
 OPT_COL  = TEXT_COL + 16
-OPT_YES  = ((TEXT_ROW + PROMPT_ROW) * 32 + OPT_COL) * 2
-OPT_NO   = ((TEXT_ROW + PROMPT_ROW + 1) * 32 + OPT_COL) * 2
 
+;-----------------------------------------------------------------------------
+; MenuCount -- how many choices the open prompt offers.  A8/I16, result in A.
+;-----------------------------------------------------------------------------
+.proc MenuCount
+    .a8
+    .i16
+    lda txtMode
+    rep #$20
+    .a16
+    and #$00FF
+    dec a                       ; TM_PROMPT is menu 0
+    tax
+    sep #$20
+    .a8
+    lda menuCount,x
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; DrawOptions -- the choices, with the cursor on the highlighted one.  A8/I16.
+;-----------------------------------------------------------------------------
 .proc DrawOptions
     .a8
     .i16
-    rep #$30
+    lda txtMode
+    rep #$20
     .a16
-    .i16
+    and #$00FF
+    dec a
+    tax
+    sep #$20
+    .a8
+    lda menuCount,x
+    sta tmp3                    ; number of choices
+    lda menuRow,x
+    sta tmp4                    ; first box row they occupy
+    txa
+    asl a
+    rep #$20
+    .a16
+    and #$00FF
+    tax
+    lda menuList,x
+    sta tmp5                    ; the choices, as a table of addresses
+    sep #$20
+    .a8
 
-    ldx #OPT_YES
-    lda txtChoice
+    stz tmp2                    ; which choice we are drawing
+@opt:
+    ; txtBuf offset of this choice's line
+    rep #$20
+    .a16
+    lda tmp4
+    and #$00FF
+    clc
+    adc tmp2
+    and #$00FF
+    clc
+    adc #TEXT_ROW
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a                       ; * 32 cells a row
+    clc
+    adc #OPT_COL
+    asl a                       ; two bytes a cell
+    sta tmp6
+
+    ; the cursor, on this line only if it is the one selected
+    tax
+    sep #$20
+    .a8
+    lda tmp2
+    cmp txtChoice
+    rep #$20
+    .a16
     bne :+
     lda #(TXT_ATTR | CH_CURSOR)
     bra :++
 :   lda #(TXT_ATTR | CH_BLANK)
 :   sta txtBuf,x
-    lda #(TXT_ATTR | (CH_A + 'Y' - 'A'))
-    sta txtBuf+2,x
-    lda #(TXT_ATTR | (CH_A + 'E' - 'A'))
-    sta txtBuf+4,x
-    lda #(TXT_ATTR | (CH_A + 'S' - 'A'))
-    sta txtBuf+6,x
 
-    ldx #OPT_NO
-    lda txtChoice
-    beq :+
-    lda #(TXT_ATTR | CH_CURSOR)
-    bra :++
-:   lda #(TXT_ATTR | CH_BLANK)
-:   sta txtBuf,x
-    lda #(TXT_ATTR | (CH_A + 'N' - 'A'))
-    sta txtBuf+2,x
-    lda #(TXT_ATTR | (CH_A + 'O' - 'A'))
-    sta txtBuf+4,x
-    lda #(TXT_ATTR | CH_BLANK)
-    sta txtBuf+6,x
-
+    ; ...then the text, padded out so a longer choice above is erased
+    lda tmp2
+    and #$00FF
+    asl a
+    tay
+    lda (tmp5),y                ; this choice's text
+    sta tmp7
     sep #$20
     .a8
+
+    ldy #0
+@char:
+    lda (tmp7),y
+    cmp #$FF
+    beq @pad
+    rep #$20
+    .a16
+    and #$00FF
+    ora #TXT_ATTR
+    sta tmp8
+    tya
+    asl a
+    clc
+    adc tmp6
+    clc
+    adc #2                      ; past the cursor cell
+    tax
+    lda tmp8
+    sta txtBuf,x
+    sep #$20
+    .a8
+    iny
+    bra @char
+
+@pad:
+    cpy #OPT_W
+    bcs @next
+    rep #$20
+    .a16
+    tya
+    asl a
+    clc
+    adc tmp6
+    clc
+    adc #2
+    tax
+    lda #(TXT_ATTR | CH_BLANK)
+    sta txtBuf,x
+    sep #$20
+    .a8
+    iny
+    bra @pad
+
+@next:
+    inc tmp2
+    lda tmp2
+    cmp tmp3
+    bcs @done
+    jmp @opt
+@done:
     lda #$01
     sta txtDirty
     rts
@@ -568,6 +693,21 @@ OPT_NO   = ((TEXT_ROW + PROMPT_ROW + 1) * 32 + OPT_COL) * 2
 ; without a glyph becomes a space.
 ;=============================================================================
 .segment "RODATA"
+
+;--- the menus a prompt can show ---------------------------------------------
+menuCount:  .byte 2, 3
+menuRow:    .byte PROMPT_ROW, MENU_ROW
+menuList:   .word .loword(optYesNo), .loword(optRaft)
+
+optYesNo:   .word .loword(sYes), .loword(sNo)
+optRaft:    .word .loword(sHighwind), .loword(sExcalibur), .loword(sRagnarok)
+
+sYes:       TXTSTR "YES"
+sNo:        TXTSTR "NO"
+sHighwind:  TXTSTR "HIGHWIND"
+sExcalibur: TXTSTR "EXCALIBUR"
+sRagnarok:  TXTSTR "RAGNAROK"
+
 asciiToTile:
     ;      sp   !   "   #   $   %   &   '   (   )   *   +   ,   -   .   /
     .byte   0, 39,  0,  0,  0,  0,  0, 41,  0,  0,  0,  0, 38, 42, 37, 44

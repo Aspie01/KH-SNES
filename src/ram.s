@@ -92,6 +92,10 @@ questState:   .res 1            ; Q_IDLE / Q_ACTIVE / Q_DONE / the day change
 questDay:     .res 1            ; 1 or 2
 dayTimer:     .res 1            ; frames left in the current half of a fade
 pendTalk:     .res 1            ; islander the A press landed on
+raceLeg:      .res 1            ; 0 out to the paopu tree, 1 back
+rikuWp:       .res 1            ; which marker Riku is running for
+raceWon:      .res 1            ; 0 undecided, 1 Sora, 2 Riku
+raftName:     .res 1            ; RAFT_*, once it has one
 ; One slot per collectable, indexed by (actor type - ACT_LOG), so a pickup
 ; tallies itself without a lookup.
 itemCount:    .res 8

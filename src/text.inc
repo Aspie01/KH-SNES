@@ -52,6 +52,8 @@ TEXT_ROW     = 1                ; first box-relative row of the text area
 TEXT_W       = 28               ; characters per line
 TEXT_H       = 5                ; lines before the box has to page
 PROMPT_ROW   = 3                ; yes/no sits below a three-line question
+MENU_ROW     = 2                ; a three-way menu needs the line above too
+OPT_W        = 11               ; cells an option's text may occupy
 
 ;--- script control codes (anything below 32 is a code, not a character) -----
 SC_END       = $00              ; end of message
@@ -65,7 +67,28 @@ TS_WAIT      = 2                ; message finished, waiting for a button
 TS_PROMPT    = 3                ; yes/no selector is up
 
 ;--- txtMode -----------------------------------------------------------------
+; Anything above TM_MESSAGE is a prompt; the mode doubles as the menu id, so
+; TM_PROMPT shows yes/no and TM_RAFT the three names for the raft.
 TM_MESSAGE   = 0
 TM_PROMPT    = 1
+TM_RAFT      = 2
+
+;--- assembling a run of font tiles from a plain string ----------------------
+; Only the characters the HUD and the menus actually use are mapped; the run
+; is terminated by $FF.
+.macro TXTSTR str
+    .repeat .strlen(str), i
+    .if .strat(str, i) = 32
+        .byte CH_BLANK
+    .elseif .strat(str, i) = 47
+        .byte CH_SLASH
+    .elseif .strat(str, i) < 65
+        .byte CH_0 + .strat(str, i) - 48
+    .else
+        .byte CH_A + .strat(str, i) - 65
+    .endif
+    .endrepeat
+    .byte $FF
+.endmacro
 
 .endif ; TEXT_INC

@@ -26,8 +26,9 @@
 .import TextOpen, TextBusy
 .import HudUpdate
 .import SpawnActor, IsoToWorld, ClearActors, InitWorld
+.import SetActorZ
 
-.export IslandInit, IslandUpdate
+.export IslandInit, IslandUpdate, UpdateRiku
 
 .segment "CODE"
 
@@ -137,6 +138,21 @@
     rts                         ; somebody is talking
 
 @free:
+    ; The race owns the scene from the countdown until the raft has a name.
+    lda questState
+    cmp #Q_RACE_SET
+    bne :+
+    jmp Countdown
+:   cmp #Q_RACE_RUN
+    bne :+
+    jmp RaceRun
+:   cmp #Q_RACE_OVER
+    bne :+
+    jmp AfterRace
+:   cmp #Q_NAMING
+    bne :+
+    jmp TakeName
+:
     ; Day one finished and its last line dismissed: turn in for the night.
     lda questState
     cmp #Q_DONE
@@ -147,7 +163,14 @@
     jmp BeginNight
 
 @play:
-    jsr CheckPickups
+    ; Once the raft has a name there is nothing left to gather, and during the
+    ; race Sora has better things to do than talk.
+    lda questState
+    cmp #Q_RACE_SET
+    bcc :+
+    cmp #Q_NAMED
+    bne @out
+:   jsr CheckPickups
     bcs @out                    ; something was just picked up
 
     rep #$20
@@ -578,11 +601,20 @@
     .a8
     .i16
     lda questState
+    cmp #Q_NAMED
+    beq @allset
     cmp #Q_DONE
     bne @asked
     ldx #0                      ; the rest-up line
-    bra @say
+    jmp @say
 
+@allset:
+    rep #$20
+    .a16
+    lda #.loword(scriptAllSet)
+    jmp Say
+
+    .a8
 @asked:
     cmp #Q_ACTIVE
     beq @check
@@ -605,6 +637,18 @@
     ldx #6                      ; still something missing
 
 @say:
+    ; Day two's list handed in and acknowledged: Riku wants his race.
+    lda questDay
+    cmp #2
+    bne @lines
+    lda questState
+    cmp #Q_DONE
+    bne @lines
+    cpx #0                      ; the rest-up line is where the offer lands
+    bne @lines
+    jmp OfferRace
+
+@lines:
     lda questDay
     cmp #2
     beq @day2
@@ -665,10 +709,470 @@
     rts
 .endproc
 
+
+;=============================================================================
+; The race, and what it decides
+;=============================================================================
+
+;-----------------------------------------------------------------------------
+; OfferRace -- line the two of them up and start Kairi counting.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc OfferRace
+    .a8
+    .i16
+    lda #Q_RACE_SET
+    sta questState
+    lda #COUNT_LEN
+    sta dayTimer
+    stz raceLeg
+    stz rikuWp
+    stz raceWon
+    jsr PlaceRacers
+    jsr HudUpdate
+    rep #$20
+    .a16
+    lda #.loword(scriptChallenge)
+    jmp Say
+.endproc
+
+;-----------------------------------------------------------------------------
+; PlaceRacers -- both of them onto the start line by Kairi.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc PlaceRacers
+    .a8
+    .i16
+    rep #$20
+    .a16
+    lda #START_SORA_X
+    sta tmp0
+    lda #START_SORA_Y
+    sta tmp1
+    sep #$20
+    .a8
+    lda playerIdx
+    jsr PutActor
+
+    rep #$20
+    .a16
+    lda #START_RIKU_X
+    sta tmp0
+    lda #START_RIKU_Y
+    sta tmp1
+    sep #$20
+    .a8
+    ldx #0
+@find:
+    lda actType,x
+    cmp #ACT_RIKU
+    beq @got
+    inx
+    cpx #MAX_ACTORS
+    bcc @find
+    rts
+@got:
+    txa
+    jmp PutActor
+.endproc
+
+;-----------------------------------------------------------------------------
+; PutActor -- drop an actor at tmp0/tmp1 (Q12.4).  In (A8/I16): A = index.
+;-----------------------------------------------------------------------------
+.proc PutActor
+    .a8
+    .i16
+    pha
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda tmp0
+    sta actX,x
+    lda tmp1
+    sta actY,x
+    stz actVX,x
+    stz actVY,x
+    sep #$20
+    .a8
+    pla
+    rep #$20
+    .a16
+    and #$00FF
+    tax
+    sep #$20
+    .a8
+    jsr SetActorZ
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; Countdown -- three, two, one.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc Countdown
+    .a8
+    .i16
+    lda dayTimer
+    beq @go
+    dec dayTimer
+    jsr HudUpdate               ; the number on the race row
+    rts
+@go:
+    lda #Q_RACE_RUN
+    sta questState
+    jsr HudUpdate
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; RaceRun -- watch for either of them reaching the end of the course.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc RaceRun
+    .a8
+    .i16
+    lda rikuWp
+    cmp #RACE_WPS
+    bcc @sora
+    lda #2                      ; Riku is home
+    sta raceWon
+    jmp RaceOver
+
+@sora:
+    rep #$20
+    .a16
+    lda #TAG_X
+    sta tmp2
+    lda #TAG_Y
+    sta tmp3
+    sep #$20
+    .a8
+    lda raceLeg
+    bne @home
+
+    rep #$20
+    .a16
+    lda #PAOPU_X
+    sta tmp4
+    lda #PAOPU_Y
+    sta tmp5
+    sep #$20
+    .a8
+    jsr SoraNear
+    bcc @out
+    lda #1
+    sta raceLeg                 ; tagged; now get back
+    jsr HudUpdate
+    rts
+
+@home:
+    rep #$20
+    .a16
+    lda #FINISH_X
+    sta tmp4
+    lda #FINISH_Y
+    sta tmp5
+    sep #$20
+    .a8
+    jsr SoraNear
+    bcc @out
+    lda #1                      ; Sora is home
+    sta raceWon
+    jmp RaceOver
+@out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; SoraNear -- is Sora within tmp2 by tmp3 of the point in tmp4/tmp5?
+; Out: carry set on a hit.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc SoraNear
+    .a8
+    .i16
+    lda playerIdx
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda tmp4
+    sec
+    sbc actX,x
+    bpl :+
+    eor #$FFFF
+    inc a
+:   lsr a                       ; the ground is squashed 2:1 across X
+    cmp tmp2
+    bcs @no
+    lda tmp5
+    sec
+    sbc actY,x
+    bpl :+
+    eor #$FFFF
+    inc a
+:   cmp tmp3
+    bcs @no
+    sep #$20
+    .a8
+    sec
+    rts
+@no:
+    sep #$20
+    .a8
+    clc
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; RaceOver -- A8/I16.
+;-----------------------------------------------------------------------------
+.proc RaceOver
+    .a8
+    .i16
+    lda #Q_RACE_OVER
+    sta questState
+    jsr HudUpdate
+    lda raceWon
+    cmp #1
+    bne @lost
+    rep #$20
+    .a16
+    lda #.loword(scriptSoraWins)
+    jmp Say
+@lost:
+    rep #$20
+    .a16
+    lda #.loword(scriptRikuWins)
+    jmp Say
+.endproc
+
+;-----------------------------------------------------------------------------
+; AfterRace -- the result line has been dismissed.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc AfterRace
+    .a8
+    .i16
+    lda raceWon
+    cmp #1
+    bne @riku
+
+    lda #Q_NAMING
+    sta questState
+    rep #$20
+    .a16
+    lda #.loword(scriptWhatName)
+    sta txtPtr
+    sep #$20
+    .a8
+    lda #^scriptWhatName
+    sta txtPtr+2
+    lda #TM_RAFT                ; the three names, not yes/no
+    jsr TextOpen
+    rts
+
+@riku:
+    ; He won, so he names it, and he was never going to pick anything else.
+    lda #RAFT_EXCALIBUR
+    sta raftName
+    lda #Q_NAMED
+    sta questState
+    rep #$20
+    .a16
+    lda #.loword(scriptRikuNames)
+    jmp Say
+.endproc
+
+;-----------------------------------------------------------------------------
+; TakeName -- the prompt has closed; txtResult is the name Sora chose.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc TakeName
+    .a8
+    .i16
+    lda txtResult
+    beq @out                    ; still choosing
+    sta raftName
+    stz txtResult
+    lda #Q_NAMED
+    sta questState
+    lda raftName                ; ...which the state constant above clobbered
+    dec a                       ; RAFT_HIGHWIND is the first line
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda namedLines,x
+    jmp Say
+@out:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; UpdateRiku -- In (A8/I16): X = actor index.
+;
+; Riku only moves during the race, and then only between the markers the
+; course is made of.  He ignores the ground: every marker sits on a walkable
+; tile by construction, so steering him round the boulder would cost more than
+; it is worth.  rikuWp is the marker he is running for; RACE_WPS means home.
+;-----------------------------------------------------------------------------
+.proc UpdateRiku
+    .a8
+    .i16
+    lda questState
+    cmp #Q_RACE_RUN
+    beq :+
+    rts
+:   lda rikuWp
+    cmp #RACE_WPS
+    bcc :+
+    rts
+:   stx curActor
+
+    ; where he is running for
+    rep #$20
+    .a16
+    lda rikuWp
+    and #$00FF
+    asl a
+    asl a                       ; four bytes a marker
+    tax
+    lda raceWp,x
+    sta tmp0
+    lda raceWp+2,x
+    sta tmp1
+
+    lda curActor
+    asl a
+    tax                         ; X = his word offset from here on
+
+    ;--- which way is he leaning ---
+    lda tmp0
+    sec
+    sbc actX,x
+    sta tmp2
+    bmi @west
+    sep #$20
+    .a8
+    ldy curActor
+    lda actFlags,y
+    and #<(~AF_HFLIP)
+    sta actFlags,y
+    rep #$20
+    .a16
+    bra @movex
+@west:
+    sep #$20
+    .a8
+    ldy curActor
+    lda actFlags,y
+    ora #AF_HFLIP
+    sta actFlags,y
+    rep #$20
+    .a16
+@movex:
+
+    ;--- close the gap, by at most one step ---
+    lda tmp2
+    bpl @east
+    cmp #.loword(-RIKU_VX)
+    bcs @xgo
+    lda #.loword(-RIKU_VX)
+    bra @xgo
+@east:
+    cmp #RIKU_VX
+    bcc @xgo
+    lda #RIKU_VX
+@xgo:
+    clc
+    adc actX,x
+    sta actX,x
+
+    lda tmp1
+    sec
+    sbc actY,x
+    bpl @south
+    cmp #.loword(-RIKU_VY)
+    bcs @ygo
+    lda #.loword(-RIKU_VY)
+    bra @ygo
+@south:
+    cmp #RIKU_VY
+    bcc @ygo
+    lda #RIKU_VY
+@ygo:
+    clc
+    adc actY,x
+    sta actY,x
+
+    ;--- near enough to take the next marker? ---
+    lda tmp0
+    sec
+    sbc actX,x
+    bpl :+
+    eor #$FFFF
+    inc a
+:   cmp #RIKU_NEAR
+    bcs @done
+    lda tmp1
+    sec
+    sbc actY,x
+    bpl :+
+    eor #$FFFF
+    inc a
+:   cmp #RIKU_NEAR
+    bcs @done
+    sep #$20
+    .a8
+    inc rikuWp
+    rep #$20
+    .a16
+@done:
+    sep #$20
+    .a8
+    ldx curActor
+    rts
+.endproc
+
 ;=============================================================================
 ; Scene data
 ;=============================================================================
+
+; A course marker, from isometric tile coordinates to the middle of that
+; diamond in Q12.4 world pixels.
+.macro WP i, j
+    .word ((((i) - (j)) * 16 + ORIGIN_X + 16) * 16)
+    .word ((((i) + (j)) * 8 + 8) * 16)
+.endmacro
+
 .segment "RODATA"
+
+; Out along the east shore, over the bridge, round the paopu tree and back.
+; Riku runs these in order; Sora may take any line he likes.
+raceWp:
+    WP  9, 10
+    WP 10,  9
+    WP 11,  8
+    WP 11,  6
+    WP 11,  4
+    WP 10,  3
+    WP 10,  2
+    WP 11,  2
+    WP 12,  1
+    WP 11,  2
+    WP 10,  2
+    WP 10,  3
+    WP 11,  4
+    WP 11,  6
+    WP 11,  8
+    WP 10,  9
+    WP  9, 10
+    WP  8, 10
+raceWpEnd:
+.assert ((raceWpEnd - raceWp) / 4) = RACE_WPS, error, "RACE_WPS"
+
+namedLines:
+    .word .loword(scriptNamedHighwind)
+    .word .loword(scriptNamedExcalibur)
+    .word .loword(scriptNamedRagnarok)
 
 ; type, isometric i, isometric j -- terminated by $FF
 day1Spawns:
@@ -855,3 +1359,48 @@ scriptGotWater:
     .byte "FILLED THE BOTTLE.", SC_END
 scriptGotFish:
     .byte "CAUGHT A FISH.", SC_END
+
+;--- the race -----------------------------------------------------------------
+scriptChallenge:
+    .byte "ONE MORE THING, SORA.", SC_PAGE
+    .byte "RIKU! WE'RE READY!", SC_PAGE
+    .byte "SO. WHOEVER WINS GETS", SC_NL
+    .byte "TO NAME THE RAFT.", SC_PAGE
+    .byte "OUT ALONG THE SHORE,", SC_NL
+    .byte "OVER THE BRIDGE, TAG THE", SC_NL
+    .byte "PAOPU TREE, AND BACK.", SC_PAGE
+    .byte "I'LL COUNT YOU DOWN!", SC_END
+
+scriptSoraWins:
+    .byte "SORA WINS!", SC_PAGE
+    .byte "...FINE. YOU WERE", SC_NL
+    .byte "FASTER. THIS TIME.", SC_END
+
+scriptRikuWins:
+    .byte "RIKU WINS.", SC_PAGE
+    .byte "TOLD YOU. YOU'RE SLOW.", SC_END
+
+scriptWhatName:
+    .byte "SO WHAT DO WE CALL IT?", SC_END
+
+scriptRikuNames:
+    .byte "THEN IT'S THE EXCALIBUR.", SC_PAGE
+    .byte "IT'S A GOOD NAME, SORA.", SC_NL
+    .byte SC_NL
+    .byte "YOU'LL GET USED TO IT.", SC_END
+
+scriptNamedHighwind:
+    .byte "THE HIGHWIND IT IS.", SC_PAGE
+    .byte "TOMORROW, THEN.", SC_END
+
+scriptNamedExcalibur:
+    .byte "THE EXCALIBUR IT IS.", SC_PAGE
+    .byte "TOMORROW, THEN.", SC_END
+
+scriptNamedRagnarok:
+    .byte "THE RAGNAROK IT IS.", SC_PAGE
+    .byte "TOMORROW, THEN.", SC_END
+
+scriptAllSet:
+    .byte "EVERYTHING IS ABOARD.", SC_PAGE
+    .byte "WE LEAVE AT DAWN, SORA.", SC_END

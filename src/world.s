@@ -8,11 +8,12 @@
 .include "macros.inc"
 
 .import TryMoveActor, IsoToWorld, TileHeight
+.import UpdateRiku
 .import HudUpdate
 .import TextBusy
 .import soraChr
 
-.export InitWorld, UpdateWorld, SpawnActor, ClearActors, CountType
+.export InitWorld, UpdateWorld, SpawnActor, ClearActors, CountType, SetActorZ
 
 ;--- attack tuning -----------------------------------------------------------
 ATK_ACTIVE   = 12               ; timer value on which the swing connects
@@ -323,6 +324,13 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     plx
     bra @next
 @notFish:
+    cmp #ACT_RIKU
+    bne @notRiku
+    phx
+    jsr UpdateRiku
+    plx
+    bra @next
+@notRiku:
     cmp #ACT_SLASH
     bne @next
     phx

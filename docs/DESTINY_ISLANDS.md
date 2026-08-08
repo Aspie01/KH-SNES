@@ -52,8 +52,8 @@ Each of these needs something the combat slice does not have:
 - **Interactable scenery**: palms that drop coconuts when struck, a climbable
   thin tree, a waterfall to stand under, an enterable Secret Place. *Done* —
   see day two below.
-- **A race mode** with a course, a timer and an opponent running a fixed path.
-  *Still to do.*
+- **A race mode** with a course and an opponent running a fixed path. *Done* —
+  see the race below.
 
 Shadow Heartless do **not** belong in these scenes. They arrive on the night
 the island falls, which is a later state of the same map.
@@ -121,6 +121,8 @@ day two's set, and it comes back up on the morning after.
 | `(7,2)` treetop | Seagull egg, up the leaning tree by the bridge |
 | `(2,7)` pool | Bottle, under the waterfall |
 
+Handing day two's list in is what Riku has been waiting for.
+
 Three of these needed terrain that did not exist:
 
 - a **rock tower** at `(2,5)`/`(1,6)` with the **waterfall** coming down
@@ -129,3 +131,27 @@ Three of these needed terrain that did not exist:
   the pool, so the only way in is through the fall;
 - a **leaning tree** by the bridge — trunk sections at `+1` and `+2` and a
   leafy top at `+3`, which the one-step rule turns into a climb.
+
+## The race
+
+Talking to Kairi once day two is in triggers it. Both boys are put on the
+start line beside her, she counts down on the HUD row, and the course runs out
+along the east shore, over the raised bridge, round the paopu tree on the small
+island and back to her.
+
+Riku follows eighteen markers laid over that route, closing the gap to each one
+by at most one step a frame. He ignores the ground: every marker sits on a
+walkable tile by construction, so steering him round the boulder would cost
+more than it is worth. He is a little slower than a clean line, which is what
+makes the race winnable without making it free.
+
+Sora has no markers — he can take any line he likes. Getting within reach of
+the paopu tree flips the objective, and getting back to Kairi after that wins.
+Whichever of them finishes first is the one who names the raft: Sora gets the
+choice of **Highwind**, **Excalibur** or **Ragnarok**; Riku, given the chance,
+picks Excalibur without being asked.
+
+That three-way choice is why the dialogue box's prompt is no longer hardwired
+to yes/no. `txtMode` doubles as a menu id, so a scene asks for a list of
+choices by opening the box with `TM_RAFT` instead of `TM_PROMPT`, and the
+cursor wraps over however many the list holds.

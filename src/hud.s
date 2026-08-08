@@ -42,23 +42,7 @@ D2_MUSH        = 21
 D2_NUT         = 5
 D2_EGG         = 14
 D2_WATER       = 25
-
-; Assemble a run of font tile numbers from a plain string, terminated by $FF.
-; Only the characters the HUD actually uses are mapped.
-.macro HUDSTR str
-    .repeat .strlen(str), i
-    .if .strat(str, i) = 32
-        .byte CH_BLANK
-    .elseif .strat(str, i) = 47
-        .byte CH_SLASH
-    .elseif .strat(str, i) < 65
-        .byte CH_0 + .strat(str, i) - 48
-    .else
-        .byte CH_A + .strat(str, i) - 65
-    .endif
-    .endrepeat
-    .byte $FF
-.endmacro
+RACE_COUNT     = 6              ; where the countdown digit sits
 
 .segment "CODE"
 
@@ -195,8 +179,13 @@ D2_WATER       = 25
     bne @bossgauge
     lda questState
     beq @flag                   ; she has not asked yet
+    cmp #Q_RACE_SET
+    bcc @list                   ; the checklist, until the race takes over
+    jsr DrawRace
+    bra @flag
+@list:
     cmp #Q_NIGHT
-    bcs @flag                   ; ...or the day is turning over
+    bcs @flag                   ; the day is turning over
     jsr DrawQuest
     bra @flag
 
@@ -320,6 +309,67 @@ D2_WATER       = 25
 .endproc
 
 ;-----------------------------------------------------------------------------
+; DrawRace -- the countdown, then whichever half of the course is left.
+; A8/I16.
+;-----------------------------------------------------------------------------
+.proc DrawRace
+    .a8
+    .i16
+    rep #$20
+    .a16
+    lda #BOSS_ROW
+    sta tmp8
+    sep #$20
+    .a8
+
+    lda questState
+    cmp #Q_RACE_SET
+    beq @count
+    cmp #Q_RACE_RUN
+    bne @done                   ; the result is in the dialogue box, not here
+
+    rep #$20
+    .a16
+    lda #.loword(raceOut)
+    sta tmp7
+    sep #$20
+    .a8
+    lda raceLeg
+    beq :+
+    rep #$20
+    .a16
+    lda #.loword(raceBack)
+    sta tmp7
+    sep #$20
+    .a8
+:   jmp PutLabel
+
+@count:
+    rep #$20
+    .a16
+    lda #.loword(raceSet)
+    sta tmp7
+    sep #$20
+    .a8
+    jsr PutLabel
+    ; COUNT_LEN is a multiple of 64, so rounding up gives three, two, one.
+    lda dayTimer
+    clc
+    adc #63
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    ldx #RACE_COUNT
+    jmp PutDigit
+
+@done:
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
 ; PutLabel -- lay a $FF-terminated run of font tiles into a HUD row.
 ; In (A8/I16): tmp7 = the run's address in this bank, tmp8 = row byte offset.
 ;-----------------------------------------------------------------------------
@@ -385,11 +435,17 @@ D2_WATER       = 25
 ; Stored as font tile numbers rather than ASCII: the label never changes, so
 ; running it through the conversion table at runtime would buy nothing.
 questLabel:
-    HUDSTR "LOGS 0/2  CLOTH 0/1  ROPE 0/1"
+    TXTSTR "LOGS 0/2  CLOTH 0/1  ROPE 0/1"
 quest2Label:
-    HUDSTR "FISH 0/3   MUSHROOMS 0/3"
+    TXTSTR "FISH 0/3   MUSHROOMS 0/3"
 quest3Label:
-    HUDSTR "NUTS 0/2  EGG 0/1  WATER 0/1"
+    TXTSTR "NUTS 0/2  EGG 0/1  WATER 0/1"
+raceSet:
+    TXTSTR "READY 0"
+raceOut:
+    TXTSTR "RACE   TAG THE PAOPU TREE"
+raceBack:
+    TXTSTR "RACE   BACK TO KAIRI"
 
 bossName:
     .byte CH_A + 'D' - 'A', CH_A + 'A' - 'A', CH_A + 'R' - 'A'

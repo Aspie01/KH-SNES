@@ -268,6 +268,40 @@ Q_ACTIVE     = 1                ; the list is open
 Q_DONE       = 2                ; everything handed in
 Q_NIGHT      = 3                ; the day is fading out
 Q_MORNING    = 4                ; ...and the next one is fading in
+; Day two ends with the race that decides who names the raft.
+Q_RACE_SET   = 5                ; on your marks, and Kairi counting down
+Q_RACE_RUN   = 6
+Q_RACE_OVER  = 7                ; somebody has crossed the line
+Q_NAMING     = 8                ; picking a name
+Q_NAMED      = 9
+
+COUNT_LEN    = 192              ; frames of countdown, 64 to a number
+; Riku runs the course at a fixed pace.  He is a little slower than a clean
+; line, so the race is winnable, and quick enough to punish wandering.
+RIKU_VX      = 30               ; Q12.4 per frame
+RIKU_VY      = 15
+RIKU_NEAR    = 40               ; Q12.4; how close counts as reaching a marker
+TAG_X        = 560              ; touching the paopu tree, Q12.4
+TAG_Y        = 360
+LINE_X       = 560              ; ...and the finish line back at Kairi
+LINE_Y       = 360
+
+RACE_WPS     = 18               ; markers in the course
+
+; The start line by Kairi, the paopu tree that has to be tagged, and the
+; finish -- all Q12.4 world pixels.
+START_SORA_X = (16 * (8 - 11) + ORIGIN_X + 16) * 16
+START_SORA_Y = (8 * (8 + 11) + 8) * 16
+START_RIKU_X = (16 * (9 - 11) + ORIGIN_X + 16) * 16
+START_RIKU_Y = (8 * (9 + 11) + 8) * 16
+PAOPU_X      = (16 * (13 - 1) + ORIGIN_X + 16) * 16
+PAOPU_Y      = (8 * (13 + 1) + 8) * 16
+FINISH_X     = (16 * (8 - 10) + ORIGIN_X + 16) * 16
+FINISH_Y     = (8 * (8 + 10) + 8) * 16
+
+RAFT_HIGHWIND  = 1
+RAFT_EXCALIBUR = 2
+RAFT_RAGNAROK  = 3
 
 NEED_LOGS    = 2
 NEED_CLOTH   = 1
