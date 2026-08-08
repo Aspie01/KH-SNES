@@ -89,6 +89,7 @@ TILE_RIKU    = $04
 TILE_TIDUS   = $08
 TILE_SELPHIE = $0C
 TILE_WAKKA   = $40
+TILE_DOOR    = $44              ; 32x32, the door in the Secret Place
 TILE_LOG     = $48              ; 16x16 raft materials
 TILE_CLOTH   = $4A
 TILE_ROPE    = $4C
@@ -97,6 +98,8 @@ TILE_FISH    = $68              ; two frames
 TILE_COCONUT = $6C
 TILE_EGG     = $6E
 TILE_BOTTLE  = $80
+TILE_FACES   = $84              ; 32x32 chalk drawings on the cave wall
+TILE_SCRIBBLE = $88
 
 ; Sora's streaming window: 4 tile rows of 4 tiles at VRAM_OBJ_CHR.
 SORA_FRAME_BYTES = 512          ; 32x32 4bpp
@@ -157,6 +160,11 @@ ACT_BOTTLE   = 25
 ; ...and the two that answer to the keyblade instead.
 ACT_FISH     = 26
 ACT_PALMC    = 27               ; a palm still carrying its coconuts
+; What is on the wall of the Secret Place, in one range so a single scan
+; covers "is this something Sora can look at".
+ACT_DOOR     = 28
+ACT_FACES    = 29               ; the two of them, drawn facing each other
+ACT_SCRIBBLE = 30               ; years of smaller drawings
 
 ; itemCount slots, which are (actor type - ACT_LOG)
 IT_LOG       = 0
@@ -236,6 +244,10 @@ AF_HFLIP     = $08              ; mirror horizontally when drawn
 AF_TALK      = $10              ; can be interacted with by pressing A
 AF_HUGE      = $20              ; 64x64, emitted as four sprites
 AF_PAGE1     = $40              ; tile lives on the second sprite page
+; Something hung on a wall rather than standing on the ground: it keeps a
+; height of zero wherever it is placed, so it lands on the face of the block
+; behind it instead of on top.
+AF_FLAT      = $80
 
 ; actState values for Sora
 ST_IDLE      = 0
@@ -323,6 +335,10 @@ PICK_Y       = 190
 ; coconuts are at the top of a palm.
 SWING_X      = 480
 SWING_Y      = 320
+; Looking at something on the cave wall is more forgiving than talking: the
+; chamber is small and the walls are behind you as often as not.
+PROP_X       = 400
+PROP_Y       = 300
 
 MAX_STEP     = 1                ; ground-height difference a step may cross
 

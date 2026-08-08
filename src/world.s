@@ -238,7 +238,12 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 .proc SetActorZ
     .a8
     .i16
-    phx
+    lda actFlags,x
+    and #AF_FLAT
+    beq :+
+    stz actZ,x                  ; hung on a wall, not standing on anything
+    rts
+:   phx
     txa
     rep #$20
     .a16
@@ -2083,6 +2088,7 @@ typeTile:   .byte $00, TILE_SORA,  TILE_HEART0, TILE_PALM,  TILE_ROCKBIG, TILE_R
             .byte TILE_KAIRI, TILE_RIKU, TILE_TIDUS, TILE_SELPHIE, TILE_WAKKA
             .byte TILE_LOG, TILE_CLOTH, TILE_ROPE, TILE_MUSH, TILE_COCONUT
             .byte TILE_EGG, TILE_BOTTLE, TILE_FISH, TILE_PALM
+            .byte TILE_DOOR, TILE_FACES, TILE_SCRIBBLE
 typeTileEnd:
 typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_FX
             .byte PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_HEART
@@ -2094,6 +2100,7 @@ typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE
             .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
             ; a coconut palm is drawn with the ordinary palm's art
             .byte PAL_OBJ_SCENE
+            .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
 typePalEnd:
 typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LARGE|AF_SHADOW, AF_SHADOW, $00
             ; the weapons hover, so they cast no shadow of their own
@@ -2117,23 +2124,28 @@ typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LAR
             ; fish float in the shallows, so no ground shadow
             .byte AF_PAGE1
             .byte AF_LARGE|AF_SHADOW
+            ; hung on the cave wall: no shadow, and no ground under them
+            .byte AF_LARGE|AF_TALK|AF_PAGE1|AF_FLAT
+            .byte AF_LARGE|AF_TALK|AF_PAGE1|AF_FLAT
+            .byte AF_LARGE|AF_TALK|AF_PAGE1|AF_FLAT
 typeFlagsEnd:
 typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
             .byte $00, $00, $00, $00, DS_MAX_HP
             .byte $00
             .byte $00
             .byte $00, $00, $00, $00, $00
-            .byte $00, $00, $00, $00, $00
+            .byte $00, $00, $00, $00
+            .byte $00, $00, $00, $00
             .byte $00, $00, $00, $00
 
 typeHPEnd:
 
 ; A type added to game.inc without a row in every table would spawn with
 ; whatever byte happens to follow, so make the assembler check.
-.assert (typeTileEnd  - typeTile)  = (ACT_PALMC + 1), error, "typeTile"
-.assert (typePalEnd   - typePal)   = (ACT_PALMC + 1), error, "typePal"
-.assert (typeFlagsEnd - typeFlags) = (ACT_PALMC + 1), error, "typeFlags"
-.assert (typeHPEnd    - typeHP)    = (ACT_PALMC + 1), error, "typeHP"
+.assert (typeTileEnd  - typeTile)  = (ACT_SCRIBBLE + 1), error, "typeTile"
+.assert (typePalEnd   - typePal)   = (ACT_SCRIBBLE + 1), error, "typePal"
+.assert (typeFlagsEnd - typeFlags) = (ACT_SCRIBBLE + 1), error, "typeFlags"
+.assert (typeHPEnd    - typeHP)    = (ACT_SCRIBBLE + 1), error, "typeHP"
 
 ; type, isometric i, isometric j -- terminated by $FF
 ; Sora wakes on the sand. No Heartless: they arrive the night the island
@@ -2155,4 +2167,8 @@ spawnTable:
     .byte ACT_TIDUS,    3,  5        ; up on the far-left platform
     .byte ACT_SELPHIE,  7, 12        ; out on the dock
     .byte ACT_WAKKA,   11, 10        ; across the little footbridge
+    ; the back wall of the Secret Place
+    .byte ACT_FACES,    0,  5
+    .byte ACT_DOOR,     1,  5
+    .byte ACT_SCRIBBLE, 2,  5
     .byte $FF

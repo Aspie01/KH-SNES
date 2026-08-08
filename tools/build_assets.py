@@ -55,7 +55,7 @@ TERRAIN = {
     "H": (WOOD_L, WOOD_L, WOOD_D, True, 2),
     # Day two's corner of the island
     "W": (FOAM, WATER_L, WATER_M, True, 0),     # the pool under the fall
-    "C": (ROCK_L, ROCK_D, OUTLINE, True, 0),    # the Secret Place
+    "C": (SAND_M, SAND_D, OUTLINE, True, 0),    # the Secret Place
     "b": (GRASS_L, GRASS_M, GRASS_D, False, 0),  # a bush
     "Y": (GRASS_L, GRASS_M, GRASS_D, False, 0),  # a palm carrying coconuts
     "M": (WOOD_L, WOOD_L, WOOD_D, True, 2),      # the leaning trunk
@@ -135,10 +135,12 @@ def draw_diamond(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
             for x in range(x0 + 2, x1 - 2, 3):
                 c.set(x, y, ROCK_D)
     elif code == "C":
-        # The mouth of the Secret Place: bare rock with a hole in the back of
-        # it that the light does not reach.
-        c.ellipse(16, 7, 7.0, 3.6, OUTLINE)
-        c.ellipse(16, 5, 5.0, 2.0, ROCK_D)
+        # Dirt trodden flat over years, so the chamber floor reads as
+        # something other than more of the rock around it.
+        for (tx, ty) in ((10, 6), (19, 5), (14, 9), (22, 8), (12, 11)):
+            c.set(tx, ty, OUTLINE)
+        c.set(16, 4, SAND_L)
+        c.set(20, 10, SAND_L)
     elif code == "K":
         # Fronds, drawn as clumps rather than the flat speckle grass uses.
         for (cxx, cyy) in ((10, 6), (16, 4), (22, 7), (13, 10), (19, 10)):
@@ -1225,6 +1227,76 @@ def draw_bottle() -> Canvas:
     return c
 
 
+def draw_door() -> Canvas:
+    """The door at the back of the Secret Place.  No handle, no keyhole."""
+    c = Canvas(32, 32)
+    W, D, T = I_SELPHIE, I_OUT, I_YELLOW
+    # frame
+    c.rect(6, 4, 25, 31, T)
+    c.rect(7, 5, 24, 31, D)
+    # the door itself, arched
+    c.rect(8, 8, 23, 31, W)
+    c.ellipse(16, 8, 8.0, 4.0, W)
+    c.rect(15, 6, 16, 31, D)                # the seam down the middle
+    for y in range(11, 30, 6):              # planking
+        c.hline(9, 22, y, D)
+    for y in range(10, 30, 6):
+        c.hline(9, 22, y, T)
+    # hinges, and nothing at all where a handle would be
+    c.rect(9, 13, 10, 15, T)
+    c.rect(9, 23, 10, 25, T)
+    c.rect(21, 13, 22, 15, T)
+    c.rect(21, 23, 22, 25, T)
+    c.outline(I_OUT)
+    return c
+
+
+def chalk(c: Canvas, pts, col: int = I_WHITE) -> None:
+    """Join a run of points with straight chalk strokes."""
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        steps = max(abs(x1 - x0), abs(y1 - y0)) or 1
+        for k in range(steps + 1):
+            c.set(x0 + (x1 - x0) * k // steps, y0 + (y1 - y0) * k // steps, col)
+
+
+def draw_faces() -> Canvas:
+    """The one that matters: two heads in profile, facing each other."""
+    c = Canvas(32, 32)
+    for cx, flip in ((9, 1), (22, -1)):
+        # skull and jaw
+        c.ellipse(cx, 14, 4.6, 5.2, 0)
+        chalk(c, [(cx - 4 * flip, 12), (cx - 3 * flip, 8), (cx, 7),
+                  (cx + 3 * flip, 9), (cx + 4 * flip, 13),
+                  (cx + 3 * flip, 17), (cx, 19), (cx - 3 * flip, 17),
+                  (cx - 4 * flip, 12)])
+        c.set(cx + 2 * flip, 12, I_WHITE)               # eye
+        chalk(c, [(cx + 3 * flip, 15), (cx + 2 * flip, 16)])   # mouth
+    # a scratched line joining them, the way children do
+    chalk(c, [(13, 22), (16, 24), (19, 22)])
+    c.set(16, 26, I_WHITE)
+    return c
+
+
+def draw_scribbles() -> Canvas:
+    """Years of smaller drawings, layered on top of each other."""
+    c = Canvas(32, 32)
+    # a boat with a sail
+    chalk(c, [(3, 20), (13, 20), (11, 24), (5, 24), (3, 20)])
+    chalk(c, [(8, 20), (8, 9), (14, 17), (8, 17)])
+    # a star
+    for (a, b) in (((22, 5), (25, 13)), ((25, 13), (18, 9)),
+                   ((18, 9), (26, 9)), ((26, 9), (19, 13)), ((19, 13), (22, 5))):
+        chalk(c, [a, b])
+    # a fish
+    chalk(c, [(19, 22), (24, 20), (28, 23), (24, 26), (19, 22)])
+    chalk(c, [(28, 23), (30, 20), (30, 26), (28, 23)])
+    # and a stick figure, small, low down
+    chalk(c, [(6, 29), (6, 26)])
+    chalk(c, [(3, 27), (9, 27)])
+    c.set(6, 25, I_WHITE)
+    return c
+
+
 def build_obj_page2() -> Canvas:
     """The second sprite page: the islanders and what they are after."""
     page = Canvas(128, 128)
@@ -1239,10 +1311,13 @@ def build_obj_page2() -> Canvas:
     page.blit(islander(I_SELPHIE, I_YELLOW, I_YELLOW, style="flip",
                        trim=I_WHITE, prop="rope",
                        prop_col=I_WHITE), 96, 0)                # $0C
-    # row 4: Wakka, then day one's raft materials as 16x16 pieces
+    # rows 4-7: Wakka and the door, as 32x32 blocks, then the collectables
+    # as 16x16 pieces alongside them.  A tile number is (y/8)*16 + x/8, so
+    # every blit here has to line up with the TILE_* constants in game.inc.
     page.blit(islander(I_WAKKA, I_BLUE, I_YELLOW, style="up",
                        trim=I_GREEN, prop="ball",
                        prop_col=I_RED), 0, 32)                  # $40
+    page.blit(draw_door(), 32, 32)          # $44
     page.blit(draw_log(), 64, 32)           # $48
     page.blit(draw_cloth(), 80, 32)         # $4A
     page.blit(draw_rope(), 96, 32)          # $4C
@@ -1252,7 +1327,10 @@ def build_obj_page2() -> Canvas:
     page.blit(draw_fish(1), 80, 48)         # $6A
     page.blit(draw_coconut(), 96, 48)       # $6C
     page.blit(draw_egg(), 112, 48)          # $6E
+    # rows 8-11: the bottle, and what is on the cave wall
     page.blit(draw_bottle(), 0, 64)         # $80
+    page.blit(draw_faces(), 32, 64)         # $84
+    page.blit(draw_scribbles(), 64, 64)     # $88
     return page
 
 

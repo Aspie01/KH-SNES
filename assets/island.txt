@@ -10,7 +10,8 @@
 #   ,  grass          (walkable)
 #   =  wood dock      (walkable)
 #   W  waterfall pool (walkable) -- fill the bottle standing here
-#   C  cave floor     (walkable) -- the Secret Place, behind the fall
+#   C  cave floor     (walkable) -- the Secret Place, behind the fall,
+#                       a small chamber walled in by the tower
 #   T  grass, blocked -- a palm stands here
 #   Y  grass, blocked -- a palm with coconuts to knock down
 #   R  grass, blocked -- a boulder stands here
@@ -34,9 +35,9 @@
 ~~~--LMKBBB..~~~
 ~~--.......--~~~
 ~~-..,T,,,..-~~~
-~~#P,b,,,,T.-~~~
-~#FPb,HH,,,.-~~~
-~CWPT,HH,,,.-~~~
+###P,b,,,,T.-~~~
+CCFPb,HH,,,.-~~~
+CCWPT,HH,,,.-~~~
 ~~.L,,L,R,,.-~~~
 ~~-..,,Y,Y,.-~~~
 ~~--...r....-~~~

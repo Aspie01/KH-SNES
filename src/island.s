@@ -191,8 +191,12 @@
     .a8
     beq @out
     jsr FindTalker
-    bcc @out
+    bcc :+
     jsr TalkTo
+    rts
+:   jsr FindProp
+    bcc @out
+    jsr LookAt
 @out:
     rts
 .endproc
@@ -543,6 +547,137 @@
 ;=============================================================================
 ; Talking
 ;=============================================================================
+
+;-----------------------------------------------------------------------------
+; FindProp -- something on the cave wall within looking distance.
+; Out: carry set and pendTalk = what it is.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc FindProp
+    .a8
+    .i16
+    jsr PlayerPos
+    rep #$20
+    .a16
+    lda #PROP_X
+    sta tmp2
+    lda #PROP_Y
+    sta tmp3
+    lda #$7FFF
+    sta tmp6                    ; best distance so far
+    sep #$20
+    .a8
+    stz tmp7                    ; ...and what scored it
+
+    ldx #0
+@scan:
+    lda actType,x
+    cmp #ACT_DOOR
+    bcc @next
+    cmp #(ACT_SCRIBBLE + 1)
+    bcs @next
+    jsr NearPlayer
+    bcc @next
+
+    ; Three things hang within arm's reach of each other, so being in range
+    ; is not enough -- take whichever is closest.
+    stx tmp5
+    lda actType,x
+    sta tmp8
+    rep #$20
+    .a16
+    lda tmp5
+    asl a
+    tax
+    lda actX,x
+    sec
+    sbc tmp0
+    bpl :+
+    eor #$FFFF
+    inc a
+:   lsr a                       ; the ground is squashed 2:1 across X
+    sta tmp4
+    lda actY,x
+    sec
+    sbc tmp1
+    bpl :+
+    eor #$FFFF
+    inc a
+:   ; Neighbouring props on an isometric wall sit one diagonal apart, which
+    ; shifts |dx|/2 and |dy| by the same amount -- a plain Manhattan sum ties
+    ; right along the wall and the lowest actor index always wins.  The
+    ; octagonal max + min/2 separates them and costs one shift.
+    cmp tmp4
+    bcs @tall
+    lsr a                       ; the vertical gap is the smaller one
+    clc
+    adc tmp4
+    bra @score
+@tall:
+    lsr tmp4
+    clc
+    adc tmp4
+@score:
+    cmp tmp6
+    bcs @keep
+    sta tmp6
+    sep #$20
+    .a8
+    lda tmp8
+    sta tmp7
+    rep #$20
+    .a16
+@keep:
+    sep #$20
+    .a8
+    ldx tmp5
+
+@next:
+    inx
+    cpx #MAX_ACTORS
+    bcc @scan
+
+    lda tmp7
+    beq @none
+    sta pendTalk
+    sec
+    rts
+@none:
+    clc
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; LookAt -- what Sora makes of the thing in pendTalk.  A8/I16.
+;
+; The door is the one that changes: before the raft has a name it is just an
+; oddity, and after it Sora has started to wonder about it.
+;-----------------------------------------------------------------------------
+.proc LookAt
+    .a8
+    .i16
+    ldx #0                      ; index into propLines
+    lda pendTalk
+    cmp #ACT_DOOR
+    bne @drawing
+    lda questState
+    cmp #Q_NAMED
+    bne @say
+    ldx #2                      ; he has started to wonder about it
+    bra @say
+
+@drawing:
+    cmp #ACT_FACES
+    bne :+
+    ldx #4
+    bra @say
+:   ldx #6
+
+@say:
+    rep #$20
+    .a16
+    lda propLines,x
+    jmp Say
+.endproc
 
 ;-----------------------------------------------------------------------------
 ; Say -- open a message box on a script in this bank.
@@ -1169,6 +1304,10 @@ raceWp:
 raceWpEnd:
 .assert ((raceWpEnd - raceWp) / 4) = RACE_WPS, error, "RACE_WPS"
 
+propLines:
+    .word .loword(scriptDoor), .loword(scriptDoor2)
+    .word .loword(scriptFaces), .loword(scriptScribble)
+
 namedLines:
     .word .loword(scriptNamedHighwind)
     .word .loword(scriptNamedExcalibur)
@@ -1404,3 +1543,31 @@ scriptNamedRagnarok:
 scriptAllSet:
     .byte "EVERYTHING IS ABOARD.", SC_PAGE
     .byte "WE LEAVE AT DAWN, SORA.", SC_END
+
+;--- the Secret Place ---------------------------------------------------------
+scriptDoor:
+    .byte "A DOOR, SET INTO", SC_NL
+    .byte "THE ROCK.", SC_PAGE
+    .byte "NO HANDLE. NO KEYHOLE.", SC_NL
+    .byte SC_NL
+    .byte "IT HAS ALWAYS BEEN HERE.", SC_END
+
+scriptDoor2:
+    .byte "THE DOOR IS STILL SHUT.", SC_PAGE
+    .byte "...WHERE HAVE I HEARD", SC_NL
+    .byte "THAT BEFORE?", SC_END
+
+scriptFaces:
+    .byte "TWO FACES, DRAWN IN", SC_NL
+    .byte "CHALK, LOOKING AT", SC_NL
+    .byte "EACH OTHER.", SC_PAGE
+    .byte "SORA AND KAIRI.", SC_NL
+    .byte SC_NL
+    .byte "SHE DREW HIS SIDE.", SC_END
+
+scriptScribble:
+    .byte "A BOAT. A STAR.", SC_NL
+    .byte "A FISH WITH TOO MANY", SC_NL
+    .byte "FINS.", SC_PAGE
+    .byte "EVERY SUMMER SOMEBODY", SC_NL
+    .byte "ADDS ANOTHER.", SC_END
