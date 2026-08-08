@@ -419,8 +419,28 @@ Two things the two landed machines learned that the other two will hit:
   `ActType::Armor` exists — so a test that ignores the action sails past the
   stage. That is the protocol working, not a bug, but it catches you once.
 
-What is left is the **island and night machines**, and the scripts themselves as
-`constexpr` byte arrays.
+**All four machines are landed**, and so are the scripts:
+`source/stage_island.cpp`, `source/stage_night.cpp`, `source/stage.cpp`
+(the spot spawner the night and the Second District share), and
+`include/gen/scripts.h` — every one of the 70 scripts as a `constexpr uint8_t[]`,
+with a generated `ScriptId` enum, the `.word` lookup tables, and `scriptFor()`.
+
+**Do not hand-edit `gen/scripts.h`, and do not transcribe a script.**
+`tools/build_scripts.py` parses them out of the `.byte` runs and checks every one
+**byte for byte against the frozen ROM**, using ca65's debug file for the
+addresses. `--check` fails if the committed header has drifted, and belongs in
+Gate 0. The header is committed so a clone can build the DS tier without Python
+or the assembler.
+
+Two traps that cost time here:
+- **The labels are not unique across files.** `island.s` and `night.s` both have
+  a `scriptRiku`, and they are different lines. The extractor keys on
+  (module, label) via the debug file's scope→mod chain; keying on the label alone
+  verifies one against the other's bytes and reports success.
+- **A string literal cannot initialise a `uint8_t[]`.** The scripts are emitted
+  as character literals with the readable text in a trailing comment.
+
+§M5 is finished.
 
 - Stage machines as `enum class`, transitions exactly as `BEHAVIOUR.md` §6 gives
   them — **and read `BEHAVIOUR-AUDIT.md` findings 7, 8, 14, 15, 16 first**, which

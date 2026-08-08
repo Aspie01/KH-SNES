@@ -306,8 +306,10 @@ KH_TEST(stage_island_a_win_asks_for_the_name) {
     const StageStep named = step(m, w, fx);
     CHECK(m.state() == QuestState::Named);
     CHECK(m.raftName() == RaftName::Excalibur); // choice 2
-    CHECK(named.script == ScriptId::IslandNamed);
-    CHECK_EQ(named.arg, 2);                     // which line to say
+    // namedLines[choice - 1], generated from the assembly's .word run.
+    CHECK(named.script == ScriptId::IslandNamedExcalibur);
+    CHECK(NAMEDLINES[1] == ScriptId::IslandNamedExcalibur);
+    CHECK_EQ(named.arg, 2);
 }
 
 KH_TEST(stage_island_dusk_is_armed_by_kairi_and_runs_thirty_frames) {

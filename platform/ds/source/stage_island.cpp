@@ -176,7 +176,10 @@ StageStep IslandMachine::update(SceneView& view, ScreenFx& fx) {
             if (answer == 0) return StageStep{};
             raft_ = RaftName(answer);
             state_ = QuestState::Named;
-            return StageStep{SceneAction::Say, ScriptId::IslandNamed,
+            // namedLines is indexed by the name minus one, because
+            // RAFT_HIGHWIND is 1 and the first line.  The table is generated
+            // from the assembly's .word run, so the order cannot drift.
+            return StageStep{SceneAction::Say, NAMEDLINES[answer - 1],
                              uint8_t(answer)};
         }
 

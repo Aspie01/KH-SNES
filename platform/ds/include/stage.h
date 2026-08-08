@@ -26,6 +26,7 @@
 #include "constants.h"
 #include "grid.h"
 #include "scene.h"
+#include "gen/scripts.h"
 #include "text.h"
 
 namespace kh {
@@ -125,22 +126,6 @@ enum class SceneAction : uint8_t {
     // Death and retry
     RespawnNightCast,   // re-run the night's whole table, on the island
     RespawnFragment,    // ...or the fragment's, and raise Darkside again
-};
-
-// The scripts a stage machine opens.  Named rather than pointed at, because the
-// bytes are the device tier's business and the transition is not.
-enum class ScriptId : uint8_t {
-    None = 0,
-    // The Dive
-    DiveIntro, DiveStation2, DiveStation3, DiveFloorGoes, DiveBoss,
-    DiveVictory, DiveWake,
-    // Traverse Town
-    TownWake, TownClear, TownMeet, TownWon, TownCard,
-    // Destiny Islands
-    IslandNextDay, IslandSoraWins, IslandRikuWins, IslandWhatName,
-    IslandRikuNames, IslandNamed,
-    // The night
-    NightRikuGone, NightKey, NightKairi, NightTorn, NightFragment, NightCard,
 };
 
 struct StageStep {
