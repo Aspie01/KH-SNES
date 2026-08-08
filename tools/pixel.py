@@ -160,6 +160,28 @@ OBJ_DIVE = [
     (120, 88, 56),      # 15 wood
 ]
 
+# The five islanders share one palette, so five heads of hair have to fit
+# alongside a single skin ramp and the handful of clothing colours between
+# them.  Entries 4-8 are the hair; everything from 9 down is shared.
+OBJ_ISLE = [
+    (0, 0, 0),          # 0  transparent
+    (32, 24, 40),       # 1  outline
+    (255, 216, 176),    # 2  skin light
+    (224, 168, 124),    # 3  skin mid
+    (198, 78, 84),      # 4  Kairi, auburn
+    (222, 226, 236),    # 5  Riku, silver
+    (248, 216, 96),     # 6  Tidus, blond
+    (150, 96, 48),      # 7  Selphie, brown
+    (236, 124, 44),     # 8  Wakka, orange
+    (248, 248, 248),    # 9  white
+    (72, 112, 200),     # 10 blue
+    (248, 200, 72),     # 11 yellow
+    (156, 92, 172),     # 12 purple
+    (44, 48, 80),       # 13 navy
+    (96, 176, 88),      # 14 green
+    (192, 60, 64),      # 15 red
+]
+
 
 # ---------------------------------------------------------------------------
 # Canvas

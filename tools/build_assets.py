@@ -16,8 +16,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pixel import (                                    # noqa: E402
-    BG_DIVE, BG_GROUND, HUD_PAL, OBJ_DIVE, OBJ_FX, OBJ_HEART, OBJ_SCENE,
-    OBJ_SHADOW, OBJ_SORA,
+    BG_DIVE, BG_GROUND, HUD_PAL, OBJ_DIVE, OBJ_FX, OBJ_HEART, OBJ_ISLE,
+    OBJ_SCENE, OBJ_SHADOW, OBJ_SORA,
     Canvas, GEN, ROOT, SRC, cut_tiles, encode_2bpp_page, encode_4bpp_page,
     palette_bytes, tile_4bpp, write_bin, write_png,
 )
@@ -35,17 +35,24 @@ WOOD_L, WOOD_D = 10, 11
 ROCK_L, ROCK_D = 12, 13
 FOAM, OUTLINE = 14, 15
 
-# terrain code -> (light, mid, dark, walkable)
+# terrain code -> (light, mid, dark, walkable, height)
+#
+# Height is in eight-pixel steps.  The engine allows a move only between tiles
+# one step or less apart, so a deck at +2 is sealed off except over its step.
 TERRAIN = {
-    "~": (WATER_M, WATER_D, WATER_D, False),
-    "-": (WATER_L, WATER_M, WATER_D, False),
-    ".": (SAND_L, SAND_M, SAND_D, True),
-    ",": (GRASS_L, GRASS_M, GRASS_D, True),
-    "=": (WOOD_L, WOOD_D, WOOD_D, True),
-    "#": (ROCK_L, ROCK_D, ROCK_D, False),
-    "T": (GRASS_L, GRASS_M, GRASS_D, False),
-    "R": (GRASS_L, GRASS_M, GRASS_D, False),
-    "r": (SAND_L, SAND_M, SAND_D, False),
+    "~": (WATER_M, WATER_D, WATER_D, False, 0),
+    "-": (WATER_L, WATER_M, WATER_D, False, 0),
+    ".": (SAND_L, SAND_M, SAND_D, True, 0),
+    ",": (GRASS_L, GRASS_M, GRASS_D, True, 0),
+    "=": (WOOD_L, WOOD_L, WOOD_D, True, 0),
+    "#": (ROCK_L, ROCK_D, ROCK_D, False, 0),
+    "T": (GRASS_L, GRASS_M, GRASS_D, False, 0),
+    "R": (GRASS_L, GRASS_M, GRASS_D, False, 0),
+    "r": (SAND_L, SAND_M, SAND_D, False, 0),
+    "B": (WOOD_L, WOOD_L, WOOD_D, True, 1),
+    "L": (WOOD_L, WOOD_L, WOOD_D, True, 1),
+    "P": (WOOD_L, WOOD_L, WOOD_D, True, 2),
+    "H": (WOOD_L, WOOD_L, WOOD_D, True, 2),
 }
 
 
@@ -63,7 +70,8 @@ def diamond_span(y: int, h: int = 16, w: int = 32) -> tuple[int, int]:
 # bevel unconditionally turns the ground into a visible lattice, which is the
 # usual way isometric tiling gives itself away.
 GROUP = {"~": "water", "-": "water", ".": "sand", "r": "sand",
-         ",": "grass", "T": "grass", "R": "grass", "=": "wood", "#": "rock"}
+         ",": "grass", "T": "grass", "R": "grass", "=": "wood", "#": "rock",
+         "B": "wood", "L": "wood", "P": "wood", "H": "wood"}
 
 SAND_SPECKLE = (((11, 6), SAND_L), ((20, 9), SAND_L), ((15, 11), SAND_L),
                 ((9, 9), SAND_L), ((18, 5), SAND_D), ((13, 10), SAND_D))
@@ -73,7 +81,7 @@ GRASS_SPECKLE = (((10, 7), GRASS_D), ((19, 6), GRASS_D), ((14, 10), GRASS_D),
 
 def draw_diamond(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
     """One 32x16 ground tile, aware of what it borders on each of its edges."""
-    light, mid, dark, _ = TERRAIN[code]
+    light, mid, dark, _, _ = TERRAIN[code]
     me = GROUP[code]
     c = Canvas(32, 16)
 
@@ -96,7 +104,7 @@ def draw_diamond(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
     elif code in ",TR":
         for (tx, ty), col in GRASS_SPECKLE:
             c.set(tx, ty, col)
-    elif code == "=":
+    elif code in "=BLPH":
         for y in range(0, 16, 4):
             x0, x1 = diamond_span(y)
             for x in range(x0, x1):
@@ -135,8 +143,42 @@ def draw_diamond(code: str, phase: int, edges: dict[str, str | None]) -> Canvas:
     return c
 
 
-def build_world(grid: list[str]) -> tuple[Canvas, bytes]:
-    """Paint the island, back to front, and derive the collision map."""
+def diamond_bottom(x: int) -> int:
+    """Last row of a 32x16 diamond that contains column x."""
+    return 8 + (x if x < 16 else 31 - x) // 2
+
+
+def draw_column(code: str, phase: int, edges: dict[str, str | None],
+                height: int) -> Canvas:
+    """A ground tile plus, for a raised one, the side of the block under it.
+
+    The canvas is tall enough to reach back down to where the tile would sit
+    at ground level, so the caller blits it at `wy - 8 * height` and the
+    support lands exactly on the tiles behind it.
+    """
+    top = draw_diamond(code, phase, edges)
+    lift = 8 * height
+    if lift == 0:
+        return top
+
+    c = Canvas(32, 16 + lift)
+    for x in range(32):
+        y0 = diamond_bottom(x) + 1
+        for y in range(y0, y0 + lift):
+            c.set(x, y, WOOD_D)
+        # A plank line every few columns, and a lip under the deck, so the
+        # support reads as posts rather than a solid slab.
+        if x % 5 == 2:
+            for y in range(y0, y0 + lift):
+                c.set(x, y, WOOD_L)
+        c.set(x, y0, WOOD_L if x % 5 == 2 else WOOD_D)
+        c.set(x, y0 + lift - 1, OUTLINE)
+    c.blit(top, 0, 0)
+    return c
+
+
+def build_world(grid: list[str]) -> tuple[Canvas, bytes, bytes]:
+    """Paint the island, back to front, and derive collision and height maps."""
     world = Canvas(WORLD_W, WORLD_H, WATER_D)
 
     def at(i: int, j: int) -> str | None:
@@ -148,23 +190,26 @@ def build_world(grid: list[str]) -> tuple[Canvas, bytes]:
                    key=lambda t: t[0] + t[1])
     for i, j in order:
         code = grid[j][i]
+        height = TERRAIN[code][4]
         wx = (i - j) * 16 + ORIGIN_X
         wy = (i + j) * 8
         # On screen +i runs down-right and +j runs down-left, so the four
         # neighbours land on the diamond's four edges.
         edges = {"nw": at(i - 1, j), "ne": at(i, j - 1),
                  "se": at(i + 1, j), "sw": at(i, j + 1)}
-        tile = draw_diamond(code, (i + j) % 2, edges)
+        tile = draw_column(code, (i + j) % 2, edges, height)
         # Skip index 0: a diamond's 32x16 bounding box has empty corners that
         # sit on top of the neighbours already painted there, and copying them
         # punches the bottom half out of every tile behind this one.
-        world.blit(tile, wx, wy, transparent=0)
+        world.blit(tile, wx, wy - 8 * height, transparent=0)
 
     coll = bytearray(MAP_W * MAP_H)
+    hmap = bytearray(MAP_W * MAP_H)
     for j in range(MAP_H):
         for i in range(MAP_W):
             coll[j * MAP_W + i] = 1 if TERRAIN[grid[j][i]][3] else 0
-    return world, bytes(coll)
+            hmap[j * MAP_W + i] = TERRAIN[grid[j][i]][4]
+    return world, bytes(coll), bytes(hmap)
 
 
 def dedupe_tilemap(world: Canvas) -> tuple[bytes, bytes, int]:
@@ -918,6 +963,171 @@ def draw_streak(frame: int) -> Canvas:
     return c
 
 
+# ---------------------------------------------------------------------------
+# The islanders, and the Day 1 raft materials
+#
+# These live on the second 256-tile sprite page, reached through the OAM name
+# bit; the first page is full.  All five characters share one palette, so the
+# hair colours are what tell them apart at a glance -- which is roughly how
+# they read on screen at this size anyway.
+# ---------------------------------------------------------------------------
+
+I_OUT, I_SKIN_L, I_SKIN_M = 1, 2, 3
+I_KAIRI, I_RIKU, I_TIDUS, I_SELPHIE, I_WAKKA = 4, 5, 6, 7, 8
+I_WHITE, I_BLUE, I_YELLOW, I_PURPLE, I_NAVY, I_GREEN, I_RED = 9, 10, 11, 12, 13, 14, 15
+
+
+def islander(hair: int, top: int, bottom: int, *, style: str,
+             trim: int | None = None, prop: str | None = None,
+             prop_col: int = I_WHITE) -> Canvas:
+    """One 32x32 standing cel, on the same proportions as Sora's."""
+    c = Canvas(32, 32)
+    cx = 16
+
+    # ---- legs ----
+    for sign in (1, -1):
+        ox = 3 * sign
+        c.rect(cx + ox - 1, LEG_TOP, cx + ox + 1, SHOE_CY - 1, bottom)
+        c.ellipse(cx + ox, SHOE_CY, 2.6, 1.8, I_WHITE)
+        c.ellipse(cx + ox, SHOE_CY + 1, 2.4, 1.0, I_OUT)
+
+    # ---- torso ----
+    t0, t1 = TORSO_TOP, TORSO_BOT
+    c.rect(cx - 4, t0, cx + 4, t1, top)
+    c.ellipse(cx, t1, 4.4, 2.2, top)
+    if trim is not None:
+        c.hline(cx - 4, cx + 4, t1 - 1, trim)
+        c.hline(cx - 3, cx + 3, t0, trim)
+
+    # ---- arms ----
+    arm_y = t0 + 3
+    for sign in (1, -1):
+        c.ellipse(cx + sign * 5, arm_y, 1.6, 2.4, top)
+        c.ellipse(cx + sign * 5, arm_y + 3, 1.5, 1.5, I_SKIN_L)
+
+    # ---- head ----
+    c.ellipse(cx, HEAD_CY, 5.4, 5.0, I_SKIN_L)
+    c.ellipse(cx + 1, HEAD_CY + 1, 4.2, 3.8, I_SKIN_M)
+
+    # ---- hair, clipped above the fringe so it never covers the face ----
+    h = Canvas(32, 32)
+    h.ellipse(cx, HAIR_LINE - 4, 6.0, 4.8, hair)
+    clip = HAIR_LINE + 1
+    if style == "bob":                      # Kairi: a short bob to the jaw
+        h.rect(cx - 7, HAIR_LINE - 3, cx - 5, HEAD_CY + 3, hair)
+        h.rect(cx + 5, HAIR_LINE - 3, cx + 7, HEAD_CY + 3, hair)
+        h.ellipse(cx, HAIR_LINE - 6, 4.6, 2.4, hair)
+    elif style == "long":                   # Riku: past the shoulders
+        h.rect(cx - 7, HAIR_LINE - 3, cx - 5, TORSO_TOP + 2, hair)
+        h.rect(cx + 5, HAIR_LINE - 3, cx + 7, TORSO_TOP + 2, hair)
+        h.hline(cx - 5, cx + 5, HAIR_LINE - 8, hair)
+    elif style == "spiky":                  # Tidus: a blond mop
+        for sx, sy in ((-8, -3), (-4, -6), (1, -7), (5, -5), (9, -2)):
+            spike(h, cx + sx // 2, HAIR_LINE - 5, cx + sx, HAIR_LINE - 5 + sy,
+                  2, hair)
+    elif style == "flip":                   # Selphie: flicked-out ends
+        h.rect(cx - 8, HAIR_LINE - 2, cx - 6, HEAD_CY + 1, hair)
+        h.rect(cx + 6, HAIR_LINE - 2, cx + 8, HEAD_CY + 1, hair)
+        h.hline(cx - 9, cx - 6, HEAD_CY + 2, hair)
+        h.hline(cx + 6, cx + 9, HEAD_CY + 2, hair)
+        clip = HEAD_CY + 2
+    elif style == "up":                     # Wakka: swept straight up
+        for k in range(9):                  # a flame, narrowing as it rises
+            w = 4 - k // 3
+            h.hline(cx - w, cx + w - 1 + (k % 2), HAIR_LINE - 5 - k, hair)
+    if style == "bob":
+        clip = HEAD_CY + 3
+    elif style == "long":
+        clip = TORSO_TOP + 2
+    for y in range(clip + 1, 32):
+        h.px[y] = [0] * 32
+    c.blit(h, 0, 0)
+
+    # ---- eyes ----
+    for side in (-1, 1):
+        ex = cx + side * 3
+        c.rect(ex - 1, HEAD_CY, ex, HEAD_CY + 1, I_OUT)
+
+    # ---- whatever they are holding ----
+    hx, hy = cx + 6, arm_y + 3
+    if prop == "sword":                     # Tidus' wooden practice blade
+        for k in range(9):
+            c.set(hx + 1 + k // 2, hy - 1 - k, prop_col)
+            c.set(hx + 2 + k // 2, hy - 1 - k, prop_col)
+    elif prop == "rope":                    # Selphie's skipping rope
+        c.ellipse(hx + 3, hy + 3, 3.2, 3.6, prop_col)
+        c.ellipse(hx + 3, hy + 3, 1.8, 2.2, 0)
+    elif prop == "ball":                    # Wakka's blitzball
+        c.ellipse(hx + 3, hy, 3.2, 3.2, prop_col)
+        c.ellipse(hx + 2, hy - 1, 1.4, 1.4, I_WHITE)
+
+    c.outline(I_OUT)
+    return c
+
+
+def draw_log() -> Canvas:
+    """A length of driftwood, lying on its side."""
+    c = Canvas(16, 16)
+    W_L, W_M, W_D = I_YELLOW, I_SELPHIE, I_OUT
+    c.ellipse(8, 10, 6.4, 2.6, I_SELPHIE)
+    c.rect(2, 8, 13, 11, I_SELPHIE)
+    c.hline(3, 12, 8, W_L)                  # sunlit upper edge
+    c.hline(3, 12, 11, W_D)
+    c.ellipse(3, 10, 1.6, 2.4, W_L)         # the sawn end grain
+    c.ellipse(3, 10, 0.8, 1.2, W_D)
+    c.outline(I_OUT)
+    return c
+
+
+def draw_cloth() -> Canvas:
+    """A folded bolt of sailcloth."""
+    c = Canvas(16, 16)
+    c.rect(3, 7, 12, 12, I_WHITE)
+    c.hline(3, 12, 9, I_SKIN_M)             # the fold
+    c.hline(4, 11, 6, I_WHITE)
+    c.set(3, 6, I_WHITE)
+    c.set(12, 6, I_WHITE)
+    c.hline(3, 12, 12, I_SKIN_M)
+    c.outline(I_OUT)
+    return c
+
+
+def draw_rope() -> Canvas:
+    """A coil of rope."""
+    c = Canvas(16, 16)
+    c.ellipse(8, 9, 5.4, 4.0, I_YELLOW)
+    c.ellipse(8, 9, 2.6, 1.8, 0)            # the eye of the coil
+    for k in range(0, 12, 3):               # the lay of the strands
+        c.set(3 + k, 5 + (k % 2), I_SELPHIE)
+        c.set(3 + k, 12 - (k % 2), I_SELPHIE)
+    c.outline(I_OUT)
+    return c
+
+
+def build_obj_page2() -> Canvas:
+    """The second sprite page: the islanders and what they are after."""
+    page = Canvas(128, 128)
+    # rows 0-3: four of the five islanders, as 32x32 blocks
+    page.blit(islander(I_KAIRI, I_WHITE, I_PURPLE, style="bob",
+                       trim=I_PURPLE), 0, 0)                    # $00
+    page.blit(islander(I_RIKU, I_YELLOW, I_NAVY, style="long",
+                       trim=I_WHITE), 32, 0)                    # $04
+    page.blit(islander(I_TIDUS, I_YELLOW, I_BLUE, style="spiky",
+                       trim=I_BLUE, prop="sword",
+                       prop_col=I_SELPHIE), 64, 0)              # $08
+    page.blit(islander(I_SELPHIE, I_YELLOW, I_YELLOW, style="flip",
+                       trim=I_WHITE, prop="rope",
+                       prop_col=I_WHITE), 96, 0)                # $0C
+    # row 4: Wakka, then the three raft materials as 16x16 pieces
+    page.blit(islander(I_WAKKA, I_BLUE, I_YELLOW, style="up",
+                       trim=I_GREEN, prop="ball",
+                       prop_col=I_RED), 0, 32)                  # $40
+    page.blit(draw_log(), 32, 32)           # $44
+    page.blit(draw_cloth(), 48, 32)         # $46
+    page.blit(draw_rope(), 64, 32)          # $48
+    return page
+
+
 def build_obj_page() -> Canvas:
     """Assemble the 128x128 sprite page (a 16x16 grid of 8x8 tiles).
 
@@ -1132,15 +1342,16 @@ def main() -> int:
     grid = load_grid()
 
     #--- ground -------------------------------------------------------------
-    world, coll = build_world(grid)
+    world, coll, hmap = build_world(grid)
     write_png(world, BG_GROUND, SRC / "world_preview.png", transparent0=False)
     bg_chr, bg_map, nchars = dedupe_tilemap(world)
-    if nchars > 256:
-        raise SystemExit(f"ground needs {nchars} characters; the 8 KiB BG page "
-                         f"holds 256. Simplify the terrain shading.")
+    if nchars > 512:
+        raise SystemExit(f"ground needs {nchars} characters; BG1 holds 512. "
+                         f"Simplify the terrain shading.")
     write_bin(GEN / "bgchr.bin", bg_chr)
     write_bin(GEN / "bg1map.bin", bg_map)
     write_bin(GEN / "collmap.bin", coll)
+    write_bin(GEN / "heightmap.bin", hmap)
     write_bin(GEN / "bgpal.bin", palette_bytes(BG_GROUND) + bytes(256 - 32))
 
     #--- Station of Awakening ----------------------------------------------
@@ -1178,16 +1389,22 @@ def main() -> int:
     write_png(sheet, OBJ_SORA, SRC / "sora.png")
     write_bin(GEN / "sorachr.bin", sora_stream_order(sheet))
 
-    #--- object page --------------------------------------------------------
+    #--- object pages -------------------------------------------------------
     page = build_obj_page()
     write_png(page, OBJ_SCENE, SRC / "obj_preview.png")
     write_bin(GEN / "objchr.bin", encode_4bpp_page(page))
+
+    page2 = build_obj_page2()
+    write_png(page2, OBJ_ISLE, SRC / "obj2_preview.png")
+    write_bin(GEN / "obj2chr.bin", encode_4bpp_page(page2))
 
     obj_pal = (palette_bytes(OBJ_SORA) + palette_bytes(OBJ_HEART) +
                palette_bytes(OBJ_SCENE) + palette_bytes(OBJ_FX) +
                palette_bytes(OBJ_SHADOW) + palette_bytes(OBJ_DIVE))
     obj_pal += bytes(256 - len(obj_pal))
     write_bin(GEN / "objpal.bin", obj_pal)
+    # Loaded over OBJ palette 1 while the island is up.
+    write_bin(GEN / "islepal.bin", palette_bytes(OBJ_ISLE))
 
     #--- HUD ----------------------------------------------------------------
     font = build_hud_font()
@@ -1208,7 +1425,8 @@ def main() -> int:
     print(f"sora      {len(sheet.px[0])//32}x{len(sheet.px)//32} cels, "
           f"{Path(GEN / 'sorachr.bin').stat().st_size:5d} bytes "
           f"({Path(GEN / 'sorachr.bin').stat().st_size // 512} frames)")
-    print(f"objects   {Path(GEN / 'objchr.bin').stat().st_size:5d} bytes")
+    print(f"objects   {Path(GEN / 'objchr.bin').stat().st_size:5d} bytes"
+          f" + {Path(GEN / 'obj2chr.bin').stat().st_size} on page two")
     print(f"hud       {Path(GEN / 'hudchr.bin').stat().st_size:5d} bytes")
     walkable = sum(coll)
     print(f"collision {walkable} walkable of {MAP_W * MAP_H} tiles")

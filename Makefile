@@ -14,7 +14,7 @@ CFG     := kh.cfg
 BUILD   := build
 
 SRCS    := src/main.s src/nmi.s src/pad.s src/iso.s src/oam.s \
-           src/world.s src/hud.s src/text.s src/dive.s \
+           src/world.s src/hud.s src/text.s src/dive.s src/island.s \
            src/ram.s src/header.s src/gfxdata.s
 OBJS    := $(patsubst src/%.s,$(BUILD)/%.o,$(SRCS))
 
@@ -28,7 +28,9 @@ GEN     := assets/gen/bgchr.bin assets/gen/bg1map.bin assets/gen/collmap.bin \
            assets/gen/divepal.bin assets/gen/dive2chr.bin \
            assets/gen/dive2map.bin assets/gen/dive2coll.bin \
            assets/gen/dive3chr.bin assets/gen/dive3map.bin \
-           assets/gen/dive3coll.bin
+           assets/gen/dive3coll.bin assets/gen/obj2chr.bin \
+           assets/gen/heightmap.bin \
+           assets/gen/islepal.bin
 
 ASSET_SRC := tools/build_assets.py tools/pixel.py assets/island.txt
 

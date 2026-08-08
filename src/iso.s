@@ -24,7 +24,7 @@
 .include "ram.inc"
 .include "macros.inc"
 
-.export UpdateCamera, TileWalkable, TryMoveActor, IsoToWorld
+.export UpdateCamera, TileWalkable, TryMoveActor, IsoToWorld, TileHeight
 
 .segment "CODE"
 
@@ -148,12 +148,12 @@
 .endproc
 
 ;-----------------------------------------------------------------------------
-; TileWalkable -- is this world pixel standing on walkable ground?
+; TileIndex -- which map cell does this world pixel fall in?
 ; In:  tmp0 = world X, tmp1 = world Y (whole pixels, signed)
-; Out: carry set when walkable
-; A16/I16.  Clobbers A, X, tmp2, tmp3, tmp4.
+; Out: carry set and Y = j * MAP_W + i, or carry clear if off the map
+; A16/I16.  Clobbers A, tmp2, tmp3, tmp4.
 ;-----------------------------------------------------------------------------
-.proc TileWalkable
+.proc TileIndex
     .a16
     .i16
     lda tmp1
@@ -165,21 +165,29 @@
     sbc #ORIGIN_X
     sta tmp2                    ; a = world_x - ORIGIN_X
 
+    ; IsoToWorld puts a tile's *corner* at (i-j)*16 + ORIGIN_X, (i+j)*8, so a
+    ; point at the middle of a diamond sits half a tile past that origin along
+    ; both axes.  Bias by that half tile or every lookup lands on the diamond
+    ; down and to the right of the one the actor is really standing in.
     clc
     adc tmp3
-    ASR16_5                     ; i = (a + t) >> 5
+    sec
+    sbc #16
+    ASR16_5                     ; i = (a + t - 16) >> 5
     ; An out-of-range or negative i wraps to a large unsigned value, so one
     ; unsigned compare rejects both.
     cmp #MAP_W
-    bcs @blocked
+    bcs @off
     sta tmp4
 
     lda tmp3
     sec
     sbc tmp2
-    ASR16_5                     ; j = (t - a) >> 5
+    clc
+    adc #16
+    ASR16_5                     ; j = (t - a + 16) >> 5
     cmp #MAP_H
-    bcs @blocked
+    bcs @off
 
     asl a
     asl a
@@ -188,6 +196,25 @@
     clc
     adc tmp4
     tay
+    sec
+    rts
+
+@off:
+    clc
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; TileWalkable -- is this world pixel standing on walkable ground?
+; In:  tmp0 = world X, tmp1 = world Y (whole pixels, signed)
+; Out: carry set when walkable, and tmp2 = that tile's height
+; A16/I16.  Clobbers A, tmp2, tmp3, tmp4, Y.
+;-----------------------------------------------------------------------------
+.proc TileWalkable
+    .a16
+    .i16
+    jsr TileIndex
+    bcc @blocked
 
     sep #$20
     .a8
@@ -196,23 +223,115 @@
     .a16
     and #$00FF
     beq @blocked
+
+    sep #$20
+    .a8
+    lda [heightPtr],y
+    rep #$20
+    .a16
+    and #$00FF
+    sta tmp2
     sec
     rts
 
 @blocked:
+    stz tmp2
     clc
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; TileHeight -- ground height under a world pixel, in eight-pixel steps.
+; In:  tmp0 = world X, tmp1 = world Y (whole pixels)
+; Out: A = height (zero off the map)
+; A16/I16.  Clobbers tmp2, tmp3, tmp4, Y.
+;-----------------------------------------------------------------------------
+.proc TileHeight
+    .a16
+    .i16
+    jsr TileIndex
+    bcc @flat
+    sep #$20
+    .a8
+    lda [heightPtr],y
+    rep #$20
+    .a16
+    and #$00FF
+    rts
+@flat:
+    lda #$0000
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; StepOk -- can the actor being moved stand on this world pixel?
+; In:  tmp0/tmp1 = candidate position (whole pixels), stepZ = current height
+; Out: carry set when the tile is walkable and within one step of stepZ;
+;      tmp2 = the tile's height
+; A16/I16.  Clobbers A, tmp2, tmp3, tmp4, Y.
+;-----------------------------------------------------------------------------
+.proc StepOk
+    .a16
+    .i16
+    jsr TileWalkable
+    bcc @no
+    lda tmp2
+    sec
+    sbc stepZ
+    bpl :+
+    eor #$FFFF
+    inc a                       ; absolute difference
+:   cmp #(MAX_STEP + 1)
+    bcs @no
+    sec
+    rts
+@no:
+    clc
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; StoreZ -- record the height the actor just stepped onto.
+; In: X = actor word offset, tmp2 = height.  A16/I16, X preserved.
+;-----------------------------------------------------------------------------
+.proc StoreZ
+    .a16
+    .i16
+    phx
+    txa
+    lsr a
+    tay
+    sep #$20
+    .a8
+    lda tmp2
+    sta actZ,y
+    rep #$20
+    .a16
+    plx
     rts
 .endproc
 
 ;-----------------------------------------------------------------------------
 ; TryMoveActor -- apply actVX/actVY with wall sliding.
 ; In:  X = actor word offset (index * 2)
-; A16/I16.  Clobbers A, X, Y, tmp0-tmp6.  X is restored on exit.
+; A16/I16.  Clobbers A, X, Y, tmp0-tmp6, stepZ.  X is restored on exit.
 ;-----------------------------------------------------------------------------
 .proc TryMoveActor
     .a16
     .i16
     phx
+
+    ; Where the actor is standing now, so a step up or down can be measured.
+    txa
+    lsr a
+    tay
+    sep #$20
+    .a8
+    lda actZ,y
+    rep #$20
+    .a16
+    and #$00FF
+    sta stepZ
 
     lda actX,x
     clc
@@ -236,13 +355,14 @@
     lsr a
     lsr a
     sta tmp1
-    jsr TileWalkable
+    jsr StepOk
     bcc @slideX
     plx
     lda tmp5
     sta actX,x
     lda tmp6
     sta actY,x
+    jsr StoreZ
     rts
 
     ;--- horizontal only ---
@@ -261,11 +381,12 @@
     lsr a
     lsr a
     sta tmp1
-    jsr TileWalkable
+    jsr StepOk
     bcc @slideY
     plx
     lda tmp5
     sta actX,x
+    jsr StoreZ
     rts
 
     ;--- vertical only ---
@@ -284,11 +405,12 @@
     lsr a
     lsr a
     sta tmp1
-    jsr TileWalkable
+    jsr StepOk
     bcc @stuck
     plx
     lda tmp6
     sta actY,x
+    jsr StoreZ
     rts
 
 @stuck:

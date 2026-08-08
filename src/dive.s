@@ -13,6 +13,7 @@
 .include "text.inc"
 
 .import SpawnActor, IsoToWorld, ClearActors, CountType, InitWorld
+.import IslandInit
 .import LoadScene
 .import TextOpen, TextBusy, TextClose
 .import HudUpdate
@@ -656,6 +657,7 @@ REACH_Y = 260
     jsr LoadScene
     jsr ClearActors
     jsr InitWorld
+    jsr IslandInit
 
     ; BG1 has been off since the fall started.  Bring it back now, hidden
     ; inside the white, so the island is already there when the light drains.

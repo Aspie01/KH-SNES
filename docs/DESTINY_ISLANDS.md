@@ -41,14 +41,53 @@ Day 2 also has the race against Riku; the winner gets to name the raft.
 
 Each of these needs something the combat slice does not have:
 
-- **Talkable NPCs** and a dialogue box — everything else depends on it.
+- **Talkable NPCs** and a dialogue box — everything else depends on it. *Done*:
+  `src/island.s` owns the five islanders and their lines; A talks to whoever is
+  in range.
 - **Item pickups with counts**, and a quest tracker that reads the tables above.
-- **Interactable scenery**: palms that drop coconuts when struck, a climbable
-  thin tree, a waterfall trigger, an enterable treehouse and Secret Place.
+  *Done for day one*: walking into a material takes it, and the second HUD row
+  becomes Kairi's checklist once she has asked.
 - **Multi-level terrain** — the rope is on a high platform and the bridge is
-  raised, so the island is not a single flat plane. This is the biggest
-  departure from the current engine, which assumes one ground height.
+  raised, so the island is not a single flat plane. *Done*: see below.
+- **Interactable scenery**: palms that drop coconuts when struck, a climbable
+  thin tree, a waterfall trigger, an enterable Secret Place. *Still to do* —
+  these are what day two needs.
 - **A race mode** with a course, a timer and an opponent running a fixed path.
+  *Still to do.*
 
 Shadow Heartless do **not** belong in these scenes. They arrive on the night
 the island falls, which is a later state of the same map.
+
+## Raised ground
+
+`assets/island.txt` gives every terrain code a height in eight-pixel steps, and
+`tools/build_assets.py` emits it as `heightmap.bin` beside the collision map.
+Three things use it:
+
+- **Painting.** A raised tile's diamond is drawn `8 * height` pixels higher,
+  with the side of the block filled in underneath, so the deck sits on posts.
+  Because the block still reaches back down to where the tile would sit at
+  ground level, the existing back-to-front paint order needs no changes.
+- **Walking.** A move is refused unless the destination is within one step of
+  where the actor is standing. A deck at +2 is therefore sealed off except
+  across its +1 step tile, which is what makes a ladder out of a plank.
+- **Drawing actors.** Each actor caches the height it last stepped onto in
+  `actZ`; the sprite and its shadow are lifted by that much. The world stays a
+  single flat plane as far as the geometry and depth sort are concerned.
+
+Pickups compare heights exactly, so the rope cannot be lifted off the platform
+by standing on the grass beneath it.
+
+## Day one, as built
+
+| Where | What |
+| --- | --- |
+| `(8,10)` beach | Kairi — gives the list, checks it off |
+| `(12,1)` small island | Riku, past the raised bridge |
+| `(3,5)` high platform | Tidus, with the rope beside him |
+| `(7,12)` dock | Selphie |
+| `(11,10)` past the footbridge | Wakka |
+| `(11,11)` | Log — the shore past the little wooden bridge |
+| `(12,2)` | Log — the small island where Riku sits |
+| `(7,6)` treehouse deck | Cloth |
+| `(3,6)` high platform | Rope |

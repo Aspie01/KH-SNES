@@ -19,12 +19,13 @@
 .import HudInit
 .import TextInit, TextUpdate
 .import DiveInit, DiveUpdate, GameOverUpdate
+.import IslandUpdate
 
 .import bgChr, bgChrEnd
-.import objChr, objChrEnd
+.import objChr, objChrEnd, obj2Chr, obj2ChrEnd
 .import hudChr, hudChrEnd
-.import bgPal, objPal, hudPal
-.import bg1Map, collMap
+.import bgPal, objPal, hudPal, islePal
+.import bg1Map, collMap, heightMap, flatHeights
 .import diveChr, diveChrEnd, diveMap, diveColl, divePal
 .import dive2Chr, dive2ChrEnd, dive2Map, dive2Coll
 .import dive3Chr, dive3ChrEnd, dive3Map, dive3Coll
@@ -257,7 +258,16 @@ MainLoop:
     ; Sprites and font are the same in every scene.
     DMA_VRAM VRAM_BG3_CHR, hudChr, (hudChrEnd - hudChr)
     DMA_VRAM VRAM_OBJ_CHR, objChr, (objChrEnd - objChr)
+    DMA_VRAM VRAM_OBJ2_CHR, obj2Chr, (obj2ChrEnd - obj2Chr)
     DMA_CGRAM 128, objPal, 256                  ; OBJ palettes 0-7
+
+    ; Only the island has raised ground; the platforms are one flat plane.
+    lda #<flatHeights
+    sta heightPtr
+    lda #>flatHeights
+    sta heightPtr+1
+    lda #^flatHeights
+    sta heightPtr+2
 
     ; Every branch is longer than a short branch can clear, so the dispatch
     ; hops through jmps.
@@ -326,6 +336,14 @@ MainLoop:
     sta collPtr+1
     lda #^collMap
     sta collPtr+2
+    lda #<heightMap
+    sta heightPtr
+    lda #>heightMap
+    sta heightPtr+1
+    lda #^heightMap
+    sta heightPtr+2
+    ; The islanders take over OBJ palette 1 for the day.
+    DMA_CGRAM (128 + 16), islePal, 32
 
 @common:
     ; The scene's BG palette covers CGRAM 0-127, so the HUD's four colours
@@ -380,8 +398,18 @@ MainLoop:
     rts
 
     ; The opening script owns the transition onto Destiny Islands too, so it
-    ; keeps running after the scene changes; DIVE_ARRIVED is its terminal state.
+    ; keeps running after the scene changes -- the island only takes over once
+    ; the dive has reached its terminal state.
 @alive:
+    lda sceneId
+    cmp #SCENE_ISLAND
+    bne @dive
+    lda diveStage
+    cmp #DIVE_ARRIVED
+    bne @dive
+    jsr IslandUpdate
+    rts
+@dive:
     jsr DiveUpdate
     rts
 .endproc

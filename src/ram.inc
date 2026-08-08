@@ -35,9 +35,10 @@ RAM_INC = 1
 
 ;--- scene / script ----------------------------------------------------------
 .globalzp sceneId, diveStage, weaponTaken, weaponGiven, scriptWait
-.globalzp pendActor, pendWeapon, collPtr
+.globalzp pendActor, pendWeapon, collPtr, heightPtr, stepZ
 .globalzp screenBright, mosaicAmt, shatterTimer, bossHP, shakeX
 .globalzp fadeTimer, coldataAmt, deadFlag, fallTimer
+.globalzp questState, itemLogs, itemCloth, itemRope, pendTalk
 
 ;--- buffers (BSS) -----------------------------------------------------------
 .global oamBuf, oamHigh, sortIdx, sortCount, hudRow, txtBuf
@@ -45,6 +46,6 @@ RAM_INC = 1
 ;--- actor arrays (structure-of-arrays; index with X) ------------------------
 .global actType, actX, actY, actVX, actVY
 .global actDir, actAnim, actAnimT, actState, actTimer
-.global actHP, actFlags, actTile, actPal, actHitT
+.global actHP, actFlags, actTile, actPal, actHitT, actZ
 
 .endif ; RAM_INC

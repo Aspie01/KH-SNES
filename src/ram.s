@@ -70,6 +70,11 @@ pendWeapon:   .res 1
 ; Collision map of the scene currently loaded, as a long pointer so the
 ; walkability test does not have to know which scene it is in.
 collPtr:      .res 3
+; ...and the matching ground-height map, so a raised deck can be walked on.
+heightPtr:    .res 3
+; Height of the tile the actor being moved is standing on, so the step test
+; has somewhere to compare against.  A word, so 16-bit arithmetic can use it.
+stepZ:        .res 2
 
 ; Screen-wide effects, written by the NMI so they land in vblank.
 screenBright: .res 1            ; INIDISP value
@@ -81,6 +86,13 @@ fadeTimer:    .res 1
 coldataAmt:   .res 1            ; fixed colour-math colour, 0-31
 deadFlag:     .res 1            ; 0 alive, 1 just died, 2 GAME OVER showing
 fallTimer:    .res 1
+
+; Destiny Islands, day one
+questState:   .res 1            ; Q_IDLE / Q_ACTIVE / Q_DONE
+itemLogs:     .res 1
+itemCloth:    .res 1
+itemRope:     .res 1
+pendTalk:     .res 1            ; islander the A press landed on
 curActor:     .res 2            ; actor being updated, survives calls that use tmp*
 
 .segment "BSS"
@@ -102,6 +114,7 @@ hudRow:       .res 128
 txtBuf:       .res 7 * 32 * 2
 
 actType:      .res MAX_ACTORS
+actZ:         .res MAX_ACTORS           ; ground height in eight-pixel steps
 actX:         .res MAX_ACTORS * 2       ; world pixels, Q12.4 signed
 actY:         .res MAX_ACTORS * 2
 actVX:        .res MAX_ACTORS * 2

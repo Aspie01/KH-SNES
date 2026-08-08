@@ -7,7 +7,7 @@
 .include "ram.inc"
 .include "macros.inc"
 
-.import TryMoveActor, IsoToWorld
+.import TryMoveActor, IsoToWorld, TileHeight
 .import HudUpdate
 .import TextBusy
 .import soraChr
@@ -224,7 +224,43 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
     txa
     sta playerIdx
 @notplayer:
+    jsr SetActorZ               ; clobbers tmp0-tmp4, all of which are spent
     sec
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; SetActorZ -- read the ground height under an actor and remember it, so the
+; renderer can lift the sprite and the next step has something to compare to.
+; In (A8/I16): X = actor index.  Clobbers A, Y, tmp0-tmp4.  X is preserved.
+;-----------------------------------------------------------------------------
+.proc SetActorZ
+    .a8
+    .i16
+    phx
+    txa
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    tax
+    lda actX,x
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta tmp0
+    lda actY,x
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta tmp1
+    jsr TileHeight
+    sep #$20
+    .a8
+    plx
+    sta actZ,x
     rts
 .endproc
 
@@ -1970,10 +2006,16 @@ typeTile:   .byte $00, TILE_SORA,  TILE_HEART0, TILE_PALM,  TILE_ROCKBIG, TILE_R
             .byte TILE_PEDESTAL, TILE_SWORD, TILE_SHIELD, TILE_STAFF, TILE_DARKSIDE
             .byte TILE_ORB
             .byte TILE_STREAK
+            ; the islanders and the raft materials, on sprite page one
+            .byte TILE_KAIRI, TILE_RIKU, TILE_TIDUS, TILE_SELPHIE, TILE_WAKKA
+            .byte TILE_LOG, TILE_CLOTH, TILE_ROPE
 typePal:    .byte $00, PAL_OBJ_SORA, PAL_OBJ_HEART, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_SCENE, PAL_OBJ_FX
             .byte PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_DIVE, PAL_OBJ_HEART
             .byte PAL_OBJ_HEART
             .byte PAL_OBJ_FX
+            .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
+            .byte PAL_OBJ_ISLE
+            .byte PAL_OBJ_ISLE, PAL_OBJ_ISLE, PAL_OBJ_ISLE
 typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LARGE|AF_SHADOW, AF_SHADOW, $00
             ; the weapons hover, so they cast no shadow of their own
             .byte AF_LARGE|AF_SHADOW, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK, AF_LARGE|AF_TALK
@@ -1983,10 +2025,20 @@ typeFlags:  .byte $00, AF_LARGE|AF_SHADOW, AF_SHADOW, AF_LARGE|AF_SHADOW, AF_LAR
             .byte $00
             ; motes are pure light, so no shadow
             .byte $00
+            ; the islanders stand their ground, so they are solid as well as
+            ; talkable; the materials are small and just lie there
+            .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
+            .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
+            .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
+            .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
+            .byte AF_LARGE|AF_SHADOW|AF_TALK|AF_PAGE1
+            .byte AF_SHADOW|AF_PAGE1, AF_SHADOW|AF_PAGE1, AF_SHADOW|AF_PAGE1
 typeHP:     .byte $00, SORA_MAX_HP, HEART_MAX_HP, $00, $00, $00, $00
             .byte $00, $00, $00, $00, DS_MAX_HP
             .byte $00
             .byte $00
+            .byte $00, $00, $00, $00, $00
+            .byte $00, $00, $00
 
 ; type, isometric i, isometric j -- terminated by $FF
 ; Sora wakes on the sand. No Heartless: they arrive the night the island
@@ -1997,7 +2049,19 @@ spawnTable:
     .byte ACT_PALM,    10,  5
     .byte ACT_PALM,     4,  7
     .byte ACT_PALM,     7,  9
-    .byte ACT_ROCKBIG,  6,  6
+    .byte ACT_PALM,    13,  1        ; out on the small island, over Riku
+    .byte ACT_PALM,     6,  6        ; the tree the treehouse is built round
     .byte ACT_ROCKBIG,  8,  8
     .byte ACT_ROCK,     7, 10
+    ; the five islanders
+    .byte ACT_KAIRI,    8, 10        ; down by the water
+    .byte ACT_RIKU,    12,  1        ; the small island past the bridge
+    .byte ACT_TIDUS,    3,  5        ; up on the far-left platform
+    .byte ACT_SELPHIE,  7, 12        ; out on the dock
+    .byte ACT_WAKKA,   11, 10        ; across the little footbridge
+    ; day one's raft materials
+    .byte ACT_LOG,     11, 11        ; the shore past the wooden bridge
+    .byte ACT_LOG,     12,  2        ; the small island where Riku sits
+    .byte ACT_CLOTH,    7,  6        ; inside the treehouse
+    .byte ACT_ROPE,     3,  6        ; the high platform, beside Tidus
     .byte $FF

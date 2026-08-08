@@ -6,10 +6,13 @@
 ; can address any frame without a carry into the bank byte.
 ;=============================================================================
 .p816
+.include "game.inc"
 
 .export bgChr, bgChrEnd, hudChr, hudChrEnd
-.export objChr, objChrEnd
-.export bgPal, objPal, hudPal, bg1Map, collMap, soraChr
+.export objChr, objChrEnd, obj2Chr, obj2ChrEnd
+.export bgPal, objPal, hudPal, islePal
+.export bg1Map, collMap, heightMap, flatHeights
+.export soraChr
 .export diveChr, diveChrEnd, diveMap, diveColl, divePal
 .export dive2Chr, dive2ChrEnd, dive2Map, dive2Coll
 .export dive3Chr, dive3ChrEnd, dive3Map, dive3Coll
@@ -23,13 +26,19 @@ hudChrEnd:
 .segment "GFXOBJ"
 objChr:     .incbin "assets/gen/objchr.bin"
 objChrEnd:
+obj2Chr:    .incbin "assets/gen/obj2chr.bin"
+obj2ChrEnd:
 
 .segment "MAPDATA"
 bg1Map:     .incbin "assets/gen/bg1map.bin"
 collMap:    .incbin "assets/gen/collmap.bin"
+heightMap:  .incbin "assets/gen/heightmap.bin"
+; Every other scene is one flat plane, so they all share this.
+flatHeights: .res MAP_W * MAP_H, $00
 bgPal:      .incbin "assets/gen/bgpal.bin"
 objPal:     .incbin "assets/gen/objpal.bin"
 hudPal:     .incbin "assets/gen/hudpal.bin"
+islePal:    .incbin "assets/gen/islepal.bin"
 
 .segment "GFXSORA"
 soraChr:    .incbin "assets/gen/sorachr.bin"

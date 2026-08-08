@@ -41,6 +41,7 @@ VRAM_BG3_CHR = $2000            ; 128 tiles, 2bpp -> $2000-$23FF
 VRAM_BG1_MAP = $2400            ; 64x32 tilemap  -> $2400-$2BFF
 VRAM_BG3_MAP = $2C00            ; 32x32 tilemap  -> $2C00-$2FFF
 VRAM_OBJ_CHR = $4000            ; 256 tiles, 4bpp -> $4000-$4FFF
+VRAM_OBJ2_CHR = $5000           ; second 256-tile page -> $5000-$5FFF
 
 ; Register values derived from the layout above.
 BG1SC_VAL    = $25              ; base $2400/$400 = 9, size 1 (64x32)
@@ -81,6 +82,17 @@ TILE_SLASH0  = $EA              ; 16x16 keyblade arc
 TILE_SLASH1  = $EC
 TILE_ROCK    = $EE              ; 16x16
 
+; Second sprite page, reached through the OAM name bit (AF_PAGE1).  The first
+; page is full, and the islanders would not fit beside the Dive's cast.
+TILE_KAIRI   = $00              ; 32x32
+TILE_RIKU    = $04
+TILE_TIDUS   = $08
+TILE_SELPHIE = $0C
+TILE_WAKKA   = $40
+TILE_LOG     = $44              ; 16x16 raft materials
+TILE_CLOTH   = $46
+TILE_ROPE    = $48
+
 ; Sora's streaming window: 4 tile rows of 4 tiles at VRAM_OBJ_CHR.
 SORA_FRAME_BYTES = 512          ; 32x32 4bpp
 SORA_ROW_BYTES   = 128          ; 4 tiles
@@ -97,6 +109,10 @@ PAL_OBJ_FX     = 3
 ; the ground shadow lives up here to get real translucency.
 PAL_OBJ_SHADOW = 4
 PAL_OBJ_DIVE   = 5
+; The islanders have to live below palette 4 or colour math would half-add
+; them into the sea.  Nothing on Destiny Islands is a Heartless, so the island
+; loads their colours over slot 1 and takes it for the day.
+PAL_OBJ_ISLE   = 1
 
 ;-----------------------------------------------------------------------------
 ; Actors
@@ -117,6 +133,17 @@ ACT_STAFF    = 10
 ACT_DARKSIDE = 11               ; the boss that ends the Dive
 ACT_MOTE     = 13               ; rising light during the fall
 ACT_ORB      = 12               ; dark orb fired from its chest
+; Destiny Islands.  The five islanders are consecutive so one range check
+; covers "is this somebody I can talk to".
+ACT_KAIRI    = 14
+ACT_RIKU     = 15
+ACT_TIDUS    = 16
+ACT_SELPHIE  = 17
+ACT_WAKKA    = 18
+; ...and so are the three raft materials.
+ACT_LOG      = 19
+ACT_CLOTH    = 20
+ACT_ROPE     = 21
 
 ; Scenes
 SCENE_DIVE   = 0                ; Station of Awakening
@@ -185,6 +212,7 @@ AF_SOLID     = $04              ; blocks movement
 AF_HFLIP     = $08              ; mirror horizontally when drawn
 AF_TALK      = $10              ; can be interacted with by pressing A
 AF_HUGE      = $20              ; 64x64, emitted as four sprites
+AF_PAGE1     = $40              ; tile lives on the second sprite page
 
 ; actState values for Sora
 ST_IDLE      = 0
@@ -208,6 +236,24 @@ DIR_SW       = 7
 ; Movement speed, Q12.4 pixels per frame.  The ground plane is squashed 2:1,
 ; so horizontal steps are twice the vertical ones for a uniform apparent speed.
 WALK_SPEED   = 24               ; 1.5 px/frame vertically
+
+;-----------------------------------------------------------------------------
+; Destiny Islands, day one: Kairi's list of raft materials
+;-----------------------------------------------------------------------------
+Q_IDLE       = 0                ; Kairi has not asked yet
+Q_ACTIVE     = 1                ; the list is open
+Q_DONE       = 2                ; everything handed in
+
+NEED_LOGS    = 2
+NEED_CLOTH   = 1
+NEED_ROPE    = 1
+
+TALK_X       = 320              ; interaction range, Q12.4 (un-squashed X)
+TALK_Y       = 260
+PICK_X       = 260              ; a pickup is taken by walking into it
+PICK_Y       = 190
+
+MAX_STEP     = 1                ; ground-height difference a step may cross
 
 ATTACK_FRAMES = 18              ; length of a swing
 HURT_FRAMES   = 20

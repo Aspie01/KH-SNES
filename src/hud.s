@@ -29,6 +29,31 @@ BOSS_LABEL_X   = 1
 BOSS_BAR_X     = 11
 BOSS_BAR_CELLS = 18             ; 18 cells * 2 = DS_MAX_HP
 
+; The second row does double duty: a boss gauge in the Dive, and Kairi's
+; checklist on the island.  Offsets are into the label string, which starts
+; at column QUEST_X.
+QUEST_X        = 1
+QUEST_LOGS     = 5
+QUEST_CLOTH    = 16
+QUEST_ROPE     = 26
+
+; Assemble a run of font tile numbers from a plain string, terminated by $FF.
+; Only the characters the HUD actually uses are mapped.
+.macro HUDSTR str
+    .repeat .strlen(str), i
+    .if .strat(str, i) = 32
+        .byte CH_BLANK
+    .elseif .strat(str, i) = 47
+        .byte CH_SLASH
+    .elseif .strat(str, i) < 65
+        .byte CH_0 + .strat(str, i) - 48
+    .else
+        .byte CH_A + .strat(str, i) - 65
+    .endif
+    .endrepeat
+    .byte $FF
+.endmacro
+
 .segment "CODE"
 
 ;-----------------------------------------------------------------------------
@@ -155,10 +180,19 @@ BOSS_BAR_CELLS = 18             ; 18 cells * 2 = DS_MAX_HP
     sta tmp1
     jsr DrawGauge
 
-    ;--- the boss, only while one is alive ---
+    ;--- the second row: Kairi's list on the island, a boss gauge below ---
 @boss:
     sep #$20
     .a8
+    lda sceneId
+    cmp #SCENE_ISLAND
+    bne @bossgauge
+    lda questState
+    beq @flag                   ; she has not asked yet
+    jsr DrawQuest
+    bra @flag
+
+@bossgauge:
     lda bossHP
     beq @flag
     rep #$20
@@ -209,9 +243,79 @@ BOSS_BAR_CELLS = 18             ; 18 cells * 2 = DS_MAX_HP
     rts
 .endproc
 
+;-----------------------------------------------------------------------------
+; DrawQuest -- Kairi's raft checklist along the second HUD row.  A8/I16.
+;-----------------------------------------------------------------------------
+.proc DrawQuest
+    .a8
+    .i16
+    ldx #0
+@label:
+    lda questLabel,x
+    cmp #$FF
+    beq @counts
+    rep #$20
+    .a16
+    and #$00FF
+    ora #HUD_ATTR
+    sta tmp6
+    txa
+    asl a
+    clc
+    adc #(BOSS_ROW + QUEST_X * 2)
+    tay
+    lda tmp6
+    sta hudRow,y
+    sep #$20
+    .a8
+    inx
+    bra @label
+
+@counts:
+    lda itemLogs
+    ldx #QUEST_LOGS
+    jsr PutDigit
+    lda itemCloth
+    ldx #QUEST_CLOTH
+    jsr PutDigit
+    lda itemRope
+    ldx #QUEST_ROPE
+    jsr PutDigit
+    rts
+.endproc
+
+;-----------------------------------------------------------------------------
+; PutDigit -- one count into the checklist.
+; In (A8/I16): A = value 0-9, X = offset along the label.
+;-----------------------------------------------------------------------------
+.proc PutDigit
+    .a8
+    .i16
+    clc
+    adc #CH_0
+    rep #$20
+    .a16
+    and #$00FF
+    ora #HUD_ATTR
+    sta tmp6
+    txa
+    asl a
+    clc
+    adc #(BOSS_ROW + QUEST_X * 2)
+    tay
+    lda tmp6
+    sta hudRow,y
+    sep #$20
+    .a8
+    rts
+.endproc
+
 .segment "RODATA"
 ; Stored as font tile numbers rather than ASCII: the label never changes, so
 ; running it through the conversion table at runtime would buy nothing.
+questLabel:
+    HUDSTR "LOGS 0/2  CLOTH 0/1  ROPE 0/1"
+
 bossName:
     .byte CH_A + 'D' - 'A', CH_A + 'A' - 'A', CH_A + 'R' - 'A'
     .byte CH_A + 'K' - 'A', CH_A + 'S' - 'A', CH_A + 'I' - 'A'

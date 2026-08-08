@@ -3,6 +3,7 @@
 # Row index is j, column index is i.  On screen +i runs down-right and +j runs
 # down-left, so this square grid renders as a diamond.
 #
+# Ground level:
 #   ~  deep water     (blocked)
 #   -  shallow water  (blocked)
 #   .  sand           (walkable)
@@ -13,18 +14,26 @@
 #   R  grass, blocked -- a boulder stands here
 #   r  sand,  blocked -- a small rock stands here
 #
+# Raised, in eight-pixel steps.  A move is allowed only between tiles whose
+# heights differ by at most one, so a deck two steps up can only be reached
+# over its step tile:
+#   B  wooden bridge  (walkable, +1)
+#   L  wooden step    (walkable, +1)
+#   P  wooden platform deck (walkable, +2)
+#   H  treehouse deck (walkable, +2)
+#
 ~~~~~~~~~~~~~~~~
-~~~~~~~~~~~~~~~~
-~~~---------~~~~
+~~~~~~~~~~~..T~~
+~~~-----BBB..~~~
 ~~--.......--~~~
 ~~-..,T,,,..-~~~
-~~-.,,,,,,T.-~~~
-~~-.,,R,,,,.-~~~
-~~-.T,,,,,,.-~~~
-~~-.,,,,R,,.-~~~
+~~-P,,,,,,T.-~~~
+~~-P,,HH,,,.-~~~
+~~-PT,HH,,,.-~~~
+~~-L,,L,R,,.-~~~
 ~~-..,,T,,,.-~~~
-~~--...r...--~~~
-~~~--.....--~~~~
+~~--...r....-~~~
+~~~--.....B.~~~~
 ~~~~--===--~~~~~
 ~~~~~~=~~~~~~~~~
 ~~~~~~~~~~~~~~~~

@@ -354,6 +354,24 @@ quadT: .word TILE_DARKSIDE, TILE_DARKSIDE+$04, TILE_DARKSIDE+$40, TILE_DARKSIDE+
     sbc camY
     sta tmp1                    ; screen Y of the actor's feet
 
+    ; Standing on a raised deck lifts the sprite without moving the actor:
+    ; the world stays one flat plane as far as the geometry is concerned.
+    ldy tmp3
+    sep #$20
+    .a8
+    lda actZ,y
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    asl a
+    asl a                       ; height * 8 pixels
+    sta tmp2
+    lda tmp1
+    sec
+    sbc tmp2
+    sta tmp1
+
     ldx tmp3
     sep #$20
     .a8
@@ -441,6 +459,22 @@ quadT: .word TILE_DARKSIDE, TILE_DARKSIDE+$04, TILE_DARKSIDE+$40, TILE_DARKSIDE+
     lsr a
     sec
     sbc camY
+    sta tmp1
+
+    ldy tmp3                    ; the shadow rides the deck too
+    sep #$20
+    .a8
+    lda actZ,y
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    asl a
+    asl a
+    sta tmp2
+    lda tmp1
+    sec
+    sbc tmp2
     sta tmp1
 
     ; Both blob tiles put the ellipse centre on the sprite's bottom edge, so
@@ -557,6 +591,15 @@ quadT: .word TILE_DARKSIDE, TILE_DARKSIDE+$04, TILE_DARKSIDE+$40, TILE_DARKSIDE+
     ora #$40
     sta tmp2
 @noflip:
+    ; Bit 0 of the attribute byte is the name-table select: the islanders and
+    ; the raft materials live on the second 256-tile page.
+    lda actFlags,y
+    and #AF_PAGE1
+    beq @page0
+    lda tmp2
+    ora #$01
+    sta tmp2
+@page0:
     lda tmp2
     sta oamBuf+3,x
 

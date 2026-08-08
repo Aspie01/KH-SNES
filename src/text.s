@@ -105,6 +105,16 @@ REVEAL_DELAY = 1                ; frames between characters
     .a8
     .i16
     stz txtState
+    ; Eat the button that dismissed the box.  Scene scripts test padPressed
+    ; after this runs, and without this the same press that closed a message
+    ; would immediately start the next conversation.
+    rep #$20
+    .a16
+    lda padPressed
+    and #((PAD_A | PAD_B) ^ $FFFF)
+    sta padPressed
+    sep #$20
+    .a8
     jsr ClearBuf
     rts
 .endproc
