@@ -196,38 +196,122 @@ KH_TEST(assets_the_background_block_formula_is_not_row_major) {
     // than as a layout bug.
     //
     // 256x256: one block, so it IS row-major.
-    CHECK_EQ(bgOffset(0, 0, 32, 32), 0);
-    CHECK_EQ(bgOffset(31, 0, 32, 32), 31);
-    CHECK_EQ(bgOffset(0, 1, 32, 32), 32);
-    CHECK_EQ(bgOffset(31, 31, 32, 32), 1023);
+    CHECK_EQ(bgEntryIndex(0, 0, 32, 32), 0);
+    CHECK_EQ(bgEntryIndex(31, 0, 32, 32), 31);
+    CHECK_EQ(bgEntryIndex(0, 1, 32, 32), 32);
+    CHECK_EQ(bgEntryIndex(31, 31, 32, 32), 1023);
 
     // 512x256: two blocks side by side.  Tile (32,0) is the START of the second
     // block, not entry 32 -- that is the whole trap.
-    CHECK_EQ(bgOffset(0, 0, 64, 32), 0);
-    CHECK_EQ(bgOffset(31, 0, 64, 32), 31);
-    CHECK_EQ(bgOffset(32, 0, 64, 32), 1024);
-    CHECK_EQ(bgOffset(63, 31, 64, 32), 2047);
-    CHECK(bgOffset(32, 0, 64, 32) != 32);
+    CHECK_EQ(bgEntryIndex(0, 0, 64, 32), 0);
+    CHECK_EQ(bgEntryIndex(31, 0, 64, 32), 31);
+    CHECK_EQ(bgEntryIndex(32, 0, 64, 32), 1024);
+    CHECK_EQ(bgEntryIndex(63, 31, 64, 32), 2047);
+    CHECK(bgEntryIndex(32, 0, 64, 32) != 32);
 
     // 256x512: two blocks stacked, so the second starts at 1024 as well.
-    CHECK_EQ(bgOffset(0, 32, 32, 64), 1024);
+    CHECK_EQ(bgEntryIndex(0, 32, 32, 64), 1024);
 
     // 512x512: four blocks, left-right then top-bottom.
-    CHECK_EQ(bgOffset(0, 0, 64, 64), 0);
-    CHECK_EQ(bgOffset(32, 0, 64, 64), 1024);
-    CHECK_EQ(bgOffset(0, 32, 64, 64), 2048);
-    CHECK_EQ(bgOffset(32, 32, 64, 64), 3072);
-    CHECK_EQ(bgOffset(63, 63, 64, 64), 4095);
+    CHECK_EQ(bgEntryIndex(0, 0, 64, 64), 0);
+    CHECK_EQ(bgEntryIndex(32, 0, 64, 64), 1024);
+    CHECK_EQ(bgEntryIndex(0, 32, 64, 64), 2048);
+    CHECK_EQ(bgEntryIndex(32, 32, 64, 64), 3072);
+    CHECK_EQ(bgEntryIndex(63, 63, 64, 64), 4095);
 
     // Every position in a 512x512 map lands somewhere distinct.
     bool used[4096] = {};
     for (int y = 0; y < 64; ++y)
         for (int x = 0; x < 64; ++x) {
-            const int o = bgOffset(x, y, 64, 64);
+            const int o = bgEntryIndex(x, y, 64, 64);
             CHECK(o >= 0 && o < 4096);
             CHECK(!used[o]);
             used[o] = true;
         }
+}
+
+KH_TEST(assets_a_coordinate_past_the_background_wraps_rather_than_overruns) {
+    // The hardware wraps -- GBATEK, "When the screen is scrolled it'll always
+    // wraparound" -- and a streamer scrolling a window off the edge depends on
+    // it.  Without the wrap, y = 64 in a 64x64 background computes block 4 and
+    // writes 2 KiB past the end of an 8 KiB map, which is the next background.
+    for (int shape = 0; shape < 4; ++shape) {
+        const int w = (shape & 1) ? 64 : 32;
+        const int h = (shape & 2) ? 64 : 32;
+        const int entries = (w / 32) * (h / 32) * BG_BLOCK_ENTRIES;
+        CHECK_EQ(bgEntryIndex(w, 0, w, h), bgEntryIndex(0, 0, w, h));
+        CHECK_EQ(bgEntryIndex(0, h, w, h), bgEntryIndex(0, 0, w, h));
+        CHECK_EQ(bgEntryIndex(w + 5, h + 3, w, h), bgEntryIndex(5, 3, w, h));
+        // ...and nothing, wrapped or not, lands outside the map.
+        for (int y = 0; y < h * 2; ++y)
+            for (int x = 0; x < w * 2; ++x) {
+                const int o = bgEntryIndex(x, y, w, h);
+                CHECK(o >= 0 && o < entries);
+            }
+    }
+}
+
+KH_TEST(assets_the_object_pages_fit_the_ten_bit_tile_number) {
+    // An OAM tile number is ten bits and addresses byte offset * OBJ_BOUNDARY,
+    // so at the default boundary of 32 it reaches the first 32 KiB of object
+    // VRAM and no further -- past that it aliases back to the start, which looks
+    // like the wrong sprite rather than like a fault.  The margin is 1024 bytes
+    // and this is the only test that would notice it going.
+    CHECK_EQ(OBJ_REACH, (MAP_TILE_MASK + 1) * OBJ_BOUNDARY);
+    CHECK_EQ(OBJ_CEL_TILES, OBJ_CEL_BYTES / OBJ_BOUNDARY);
+
+    uint32_t sora = 0, obj = 0, obj2 = 0, town = 0;
+    for (const SpriteAsset& s : SPRITE_ASSETS) {
+        if (std::strcmp(s.name, "sorachr") == 0) sora = s.bytes;
+        if (std::strcmp(s.name, "objchr") == 0) obj = s.bytes;
+        if (std::strcmp(s.name, "obj2chr") == 0) obj2 = s.bytes;
+        if (std::strcmp(s.name, "objtownchr") == 0) town = s.bytes;
+    }
+    CHECK(sora > 0 && obj > 0 && obj2 > 0 && town > 0);
+
+    // Every page's byte count must be a whole number of addressable units, or
+    // the page after it does not start on a tile number at all.
+    for (const SpriteAsset& s : SPRITE_ASSETS) CHECK_EQ(s.bytes % OBJ_BOUNDARY, 0u);
+
+    // The resident set is the SNES's: the town's page OVERWRITES the second
+    // object page (main.s:540) rather than joining it, so three pages are up at
+    // once and not four.  Four would not fit.
+    CHECK_EQ(OBJ_RESIDENT_BYTES, sora + obj + (obj2 > town ? obj2 : town));
+    CHECK(OBJ_RESIDENT_BYTES <= uint32_t(OBJ_REACH));
+    // ...and four would not, at the boundary of 32 this is generated against --
+    // spelled with the literal because that is the fact forcing the sharing, and
+    // it stops being true if the boundary is ever raised.
+    CHECK(sora + obj + obj2 + town > (MAP_TILE_MASK + 1) * 32u);
+
+    // dsTileFor() is derived from the boundary, not from a literal 16.  A cel is
+    // 512 bytes, so consecutive cels are OBJ_CEL_TILES apart and the sixteenth
+    // character of one is immediately before the first of the next.
+    CHECK_EQ(dsTileFor(0), 0);
+    CHECK_EQ(dsTileFor(4), OBJ_CEL_TILES);           // the cel to the right
+    CHECK_EQ(dsTileFor(64), 4 * OBJ_CEL_TILES);      // the cel below
+}
+
+KH_TEST(assets_every_scene_that_fits_records_its_bgxcnt_size) {
+    // 512x256 and 256x512 both put their second block at entry 1024 and differ
+    // only in whether it is the right half or the bottom half, so a map without
+    // its size code renders correctly in one shape and transposed in the other.
+    // A streaming scene has no answer yet -- the window's shape is the VRAM
+    // map's business -- and says so with -1 rather than with a plausible guess.
+    int fits = 0, streams = 0;
+    for (const SceneAsset& s : SCENE_ASSETS) {
+        if (s.streams) {
+            CHECK_EQ(s.bgSize, -1);
+            ++streams;
+        } else {
+            // Every scene of this game that fits is 64x32 characters: a station
+            // and the fragment are both 32x16 sixteen-pixel tiles.
+            CHECK_EQ(s.bgSize, 1);
+            CHECK(s.tilesW * 2 <= 64 && s.tilesH * 2 <= 64);
+            ++fits;
+        }
+    }
+    CHECK_EQ(fits, 4);       // three stations and the fragment
+    CHECK_EQ(streams, 5);    // the island, the night, and three districts
 }
 
 KH_TEST(assets_the_scene_table_says_which_ones_stream) {

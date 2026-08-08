@@ -27,6 +27,24 @@ rather than an error:
     (b << 10) | (g << 5) | r.  This is the one place the two machines agree
     exactly, and it is worth stating because it looks like something that ought
     to differ -- the bytes are reused verbatim.
+
+AND TWO THINGS THAT LOOK LIKE THEY SHOULD DIFFER AND DO NOT:
+
+4.  SCREEN BLOCK PLACEMENT is identical.  Both machines build a background from
+    32x32-character blocks placed SC0/SC1/SC2/SC3 at +0/+0x800/+0x1000/+0x1800,
+    row-major inside each, and even number the size codes the same way
+    (0 = 32x32, 1 = 64x32, 2 = 32x64, 3 = 64x64).  bg_entry_index() is shared.
+
+5.  INDEX 0 means transparent on every layer of both machines, and what shows
+    through is the backdrop -- entry 0 of SUB-PALETTE 0 specifically, at DS
+    palette RAM 0x05000000.  Not entry 0 of whichever sub-palette the character
+    named.  (This file used to claim index 0 was opaque on the backmost layer.
+    It is not, on either machine; see docs/DS_FORMATS.md.)
+
+Every claim in this file was checked against GBATEK v3.06 and fullsnes, and
+cross-checked against libnds, by three independent readings.  What they found is
+recorded in docs/DS_FORMATS.md -- including the four defects the check turned up,
+of which the index-0 docstring above was one.
 """
 from __future__ import annotations
 
@@ -47,13 +65,80 @@ DS_PAL_SHIFT = 12
 # not a bigger background, it is a streamed window over a larger source map.
 DS_BG_MAX_CHARS = 64
 
+# BGxCNT's size field, and the only four shapes a text background comes in.  A
+# map has to be stored WITH its size code: 64x32 and 32x64 both put their second
+# block at +0x800 and differ only in whether that block is the right half or the
+# bottom half, so a map emitted without the code renders correctly in one and
+# transposed in the other.
+DS_BG_SIZES = {(32, 32): 0, (64, 32): 1, (32, 64): 2, (64, 64): 3}
+
+# Sprites.  DISPCNT bit 4 selects 1D mapping and bits 20-21 the boundary; at the
+# default boundary of 32 a character's tile number is its byte offset / 32, so
+# numbers step by one and a 4bpp 32x32 cel is sixteen consecutive numbers.
+#
+# THE BYTES NEVER CHANGE WITH THE BOUNDARY AND THE NUMBERS ALWAYS DO.  That is
+# the whole hazard: raise the boundary to 64 and every cel's tile number halves,
+# so the numbering has to be generated against the boundary the runtime sets and
+# cannot be a constant in a table.  The reason anyone would raise it is right
+# here -- the tile number is ten bits, so at boundary 32 it reaches only the
+# first 32 KiB of object VRAM however much of it the machine has.
+DS_OBJ_BOUNDARY = 32
+DS_OBJ_REACH = (DS_TILE_MASK + 1) * DS_OBJ_BOUNDARY      # 32768 bytes
+
+
+def ds_bg_size(width_chars: int, height_chars: int) -> int:
+    """BGxCNT's two-bit size code for a background of this shape."""
+    code = DS_BG_SIZES.get((width_chars, height_chars))
+    if code is None:
+        raise SystemExit(f"{width_chars}x{height_chars} is not one of the four "
+                         f"text-background shapes {sorted(DS_BG_SIZES)}")
+    return code
+
+
+def ds_bg_fit(width_chars: int, height_chars: int):
+    """The smallest text background a map this size fits in, or None.
+
+    Returns (width, height, size code).  None means it does not fit in one
+    background at all and has to be streamed -- which is most of this game's
+    scenes, the island being 128x64 characters.
+    """
+    for (w, h), code in sorted(DS_BG_SIZES.items(), key=lambda kv: kv[0][0] * kv[0][1]):
+        if width_chars <= w and height_chars <= h:
+            return w, h, code
+    return None
+
+
+def obj_tile_number(byte_offset: int, boundary: int = DS_OBJ_BOUNDARY) -> int:
+    """The OAM tile number that addresses this byte of object VRAM.
+
+    Refuses rather than truncates.  An offset that is not a multiple of the
+    boundary is not addressable at all, and one past the ten-bit reach silently
+    aliases back to the start of the page, which on a DS looks like the wrong
+    sprite rather than like a fault.
+    """
+    if byte_offset % boundary:
+        raise SystemExit(f"object VRAM offset {byte_offset} is not a multiple of "
+                         f"the {boundary}-byte 1D boundary, so no tile number "
+                         f"addresses it")
+    n = byte_offset // boundary
+    if n > DS_TILE_MASK:
+        raise SystemExit(f"object VRAM offset {byte_offset} needs tile number "
+                         f"{n}, past the ten-bit field; at boundary {boundary} "
+                         f"the reach is {DS_TILE_MASK * boundary} bytes")
+    return n
+
 
 def tile_4bpp_ds(tile: list[list[int]]) -> bytes:
     """One 8x8 tile of palette indices as 32 bytes, DS-linear.
 
     Two pixels per byte, the LEFT pixel in the LOW nibble, rows top to bottom.
-    Index 0 is transparent for sprites and for every background layer except the
-    backmost, exactly as on the SNES.
+    GBATEK: "the lower 4 bits define the color for the left (!) dot" -- the
+    exclamation mark is theirs, and earned.
+
+    Index 0 is transparent on every layer and in every sub-palette, exactly as on
+    the SNES.  What shows through it is the backdrop, which is entry 0 of
+    sub-palette 0 and of no other, so a scene moved off sub-palette 0 does not
+    take its own colour 0 with it.
     """
     out = bytearray()
     for y in range(8):
@@ -89,19 +174,37 @@ def ds_map_entry(index: int, flip_h: bool, flip_v: bool, palette: int = 0) -> in
         | (palette << DS_PAL_SHIFT)
 
 
-def bg_offset(x: int, y: int, width_chars: int, height_chars: int) -> int:
-    """Where tile (x, y) lives in a DS text background's map.
+def bg_entry_index(x: int, y: int, width_chars: int, height_chars: int) -> int:
+    """Which ENTRY of a DS text background's map holds character (x, y).
+
+    Entries, not bytes -- the unit is in the name because getting it wrong is a
+    factor of two that still lands inside the map and so still draws something.
+    Multiply by two for a byte offset.
 
     A text background is built from 32x32-character BLOCKS, not from rows.  The
     order is the one the SNES PPU uses too -- left block then right, top row of
     blocks then bottom -- so this formula is shared, and it is the single easiest
-    thing in the DS's 2D setup to get subtly wrong.  Writing row-major instead
-    shreds a 512-wide map into diagonal bands, which looks like a corrupt tileset
-    rather than a layout bug.
+    thing in the DS's 2D setup to get subtly wrong.  Emitting a flat 64-wide
+    row-major array for a 512-wide layer does not look corrupt: the hardware
+    reads entry y*32+x for the left block, so the picture comes out horizontally
+    halved, vertically doubled, and split left/right by source row band.
+
+    The two 2-block shapes are the trap.  64x32 and 32x64 both put their second
+    block at entry 1024, and only width_chars says whether that block is the
+    right half or the bottom half -- which is why the shape is a parameter and
+    not derived from x and y.
+
+    A coordinate outside the background WRAPS, because that is what the hardware
+    does ("When the screen is scrolled it'll always wraparound") and because a
+    streamer scrolling a window off the edge of a background depends on it.  The
+    wrap has to be applied here rather than left to the caller: a raw y of 64 in a
+    64x64 background would otherwise compute block 4 and write 2 KB past the map.
     """
     if width_chars > 64 or height_chars > 64:
         raise SystemExit(f"{width_chars}x{height_chars} exceeds a single text "
                          f"background; stream a window instead")
+    x %= width_chars
+    y %= height_chars
     block = 0
     if x >= 32:
         block += 1
@@ -123,8 +226,8 @@ def dedupe_tilemap_ds(world: Canvas, palette: int = 0):
     scene here except the stations and the fragment is wider than the 64
     characters a single background holds, so the map cannot be uploaded as-is
     whatever order it is in: the renderer streams a window out of it and writes
-    that window through bg_offset().  Row-major is the format a streamer wants to
-    read, so it is what gets emitted, and bg_offset() is where the hardware
+    that window through bg_entry_index().  Row-major is the format a streamer wants
+    to read, so it is what gets emitted, and bg_entry_index() is where the hardware
     layout is defined once for everybody.
     """
     cw, ch = world.w // 8, world.h // 8

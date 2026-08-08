@@ -280,25 +280,48 @@ Two more things a later milestone will trip over:
 - **The emitted map is ROW-MAJOR and that is not the hardware layout.** A text
   background is built from 32×32-character blocks; every scene but the stations
   and the fragment is wider than the 64 characters one background holds, so the
-  map cannot be uploaded as-is whatever order it is in. `bgOffset()` in
+  map cannot be uploaded as-is whatever order it is in. `bgEntryIndex()` in
   `gen/assets.h` is where the block layout is defined, once, for the streamer and
-  for anything uploading directly.
+  for anything uploading directly. It returns **entries**; double for bytes. A
+  scene that *does* fit in one background carries its BGxCNT size code in
+  `SceneAsset::bgSize`, because sizes 1 and 2 both put their second block at
+  +0x800 and a map without its code renders transposed in one of them.
 - **1D sprite mapping renumbers the objects.** A 32×32 sprite is sixteen
   *consecutive* characters, so the object pages are re-serialised cel-contiguous.
   `actor.h`'s `tileFor()` still returns SNES page offsets — they are cited against
   the assembly and should stay citable — and `dsTileFor()` is the translation.
   Sora's sheet needed no reordering: the SNES already stored it cel-contiguous.
+- **The object numbering is a function of the 1D boundary, and the margin is
+  1024 bytes.** A tile number is ten bits, so at boundary 32 it reaches the first
+  32 KiB of object VRAM and no further; the resident set — Sora's sheet, the first
+  object page, and the second page that the town *substitutes* rather than adds
+  to — is 31744 of it. A fourth resident page forces boundary 64, which halves
+  every cel's tile number. Whatever sets DISPCNT must set it to `OBJ_BOUNDARY`,
+  because `dsTileFor()` is derived from it. This is §M4's to nail down; the
+  pipeline fails the build if the set outgrows the reach.
 
 **How far the verification goes, and where it stops.** The encoders are
 cross-checked against the *known-good SNES ones* on the fragment, which is the
 one scene both machines paint from the same map: 112 characters, decoded with
 each machine's own decoder, pixel-for-pixel equal. Every scene's emitted bytes
 are also decoded back and compared against the painted world, so an encoding and
-a packing error would have to compensate exactly to survive. **What none of that
-proves is that these are the formats the hardware wants** — only that the
-pipeline is self-consistent and agrees with the SNES. Confirm the nibble order
-and the flip-bit positions against GBATEK or libnds before trusting §M7's first
-frame, and if either is wrong, `ds_encode.py` is the only file that changes.
+a packing error would have to compensate exactly to survive.
+
+That proves the pipeline is self-consistent and agrees with the SNES. It does not
+prove these are the formats the *hardware* wants, so **the formats were then
+checked against the primary documentation** — three independent readings of
+GBATEK v3.06, libnds and `fullsnes`, adjudicated against the quoted text rather
+than by vote. **Every format the pipeline emits is correct.** Four defects were
+found in the surrounding code and fixed: the index-0 docstring, a missing bound
+check that let `bgOffset` write 2 KiB past a map, the unit of the block-offset
+helpers, and the unrecorded coupling between the sprite tile numbering and the 1D
+boundary. `docs/DS_FORMATS.md` is the settled answer with citations, and it is
+what §M4 and §M7 should be read against.
+
+**What is still unverified is the first frame.** Nothing has been seen on
+hardware or in an emulator. Two specific things to watch when one exists: the
+extended-affine map entry's bit layout, which GBATEK never states and libnds only
+implies, and the DS LCD's gamma against palettes chosen for a CRT.
 
 # §M3 — Movement, collision and the camera — **LANDED**
 

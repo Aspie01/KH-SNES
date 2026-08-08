@@ -17,8 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ds_encode import (                                # noqa: E402
-    DS_BG_MAX_CHARS, decode_tile_4bpp_ds, dedupe_tilemap_ds, encode_cels_ds,
-    encode_page_ds,
+    DS_BG_MAX_CHARS, DS_OBJ_BOUNDARY, DS_OBJ_REACH, decode_tile_4bpp_ds,
+    dedupe_tilemap_ds, ds_bg_fit, encode_cels_ds, encode_page_ds,
 )
 from pixel import (                                    # noqa: E402
     BG_DIVE, BG_GROUND, BG_NIGHT, BG_TOWN, HUD_PAL, OBJ_ARMOR, OBJ_DIVE,
@@ -2514,22 +2514,64 @@ def build_ds_sprites(sora, obj, obj2, objtown, font) -> list[tuple[str, str]]:
     """
     out = GEN / "ds"
     out.mkdir(parents=True, exist_ok=True)
-    made: list[tuple[str, str]] = []
+    made: list[tuple[str, int, str]] = []
 
-    write_bin(out / "sorachr.bin", encode_cels_ds(sora, 32, 6, 5))
-    made.append(("sorachr", "30 cels of 32x32, six frames by five drawn facings"))
+    def page(name: str, data: bytes, shape: str) -> int:
+        write_bin(out / f"{name}.bin", data)
+        made.append((name, len(data), shape))
+        return len(data)
 
-    for name, page in (("objchr", obj), ("obj2chr", obj2),
-                       ("objtownchr", objtown)):
-        write_bin(out / f"{name}.bin", encode_cels_ds(page, 32, 4, 4))
-        made.append((name, "16 cels of 32x32, re-serialised cel-contiguous"))
+    sora_n = page("sorachr", encode_cels_ds(sora, 32, 6, 5),
+                  "30 cels of 32x32, six frames by five drawn facings")
+    sizes = {"sorachr": sora_n}
+    for name, sheet in (("objchr", obj), ("obj2chr", obj2),
+                        ("objtownchr", objtown)):
+        sizes[name] = page(name, encode_cels_ds(sheet, 32, 4, 4),
+                           "16 cels of 32x32, re-serialised cel-contiguous")
 
     # The font is addressed one character at a time, so row-major is right and
     # cel ordering would be meaningless.  It goes from 2bpp to 4bpp because a DS
     # text background has no 2bpp mode -- twice the bytes, same picture.
-    write_bin(out / "hudchr.bin", encode_page_ds(font))
-    made.append(("hudchr", "128 characters, 4bpp because the DS has no 2bpp BG"))
+    page("hudchr", encode_page_ds(font),
+         "128 characters, 4bpp because the DS has no 2bpp BG")
+
+    check_ds_obj_reach(sizes)
     return made
+
+
+def check_ds_obj_reach(sizes: dict[str, int]) -> None:
+    """Does the resident set of object pages fit inside the ten-bit tile number?
+
+    THE MARGIN IS 1024 BYTES AND NOTHING ELSE RECORDS IT.  An OAM tile number is
+    ten bits, and at the default 1D boundary of 32 that reaches exactly the first
+    32 KiB of object VRAM -- however much of it the machine has, which is 256 KiB.
+    Past that the number aliases back to the start of the page, so the symptom is
+    the wrong sprite rather than a fault.
+
+    The resident set is the SNES's: Sora's sheet and the first object page are
+    always up, and the second page is shared -- LoadScene uploads objChr and
+    obj2Chr in every scene (main.s:268-269) and the town overwrites the second
+    with objTownChr (main.s:540).  So the town's page is not an addition, and the
+    three-page total is what has to fit.
+
+    A fourth resident page would not, and the way out is boundary 64 -- which
+    HALVES every cel's tile number.  That is why OBJ_BOUNDARY is emitted as a
+    constant and dsTileFor() is derived from it rather than multiplying by a
+    literal 16.
+    """
+    second = max(sizes["obj2chr"], sizes["objtownchr"])
+    total = sizes["sorachr"] + sizes["objchr"] + second
+    if total > DS_OBJ_REACH:
+        raise SystemExit(
+            f"the resident object pages are {total} bytes, past the "
+            f"{DS_OBJ_REACH} a ten-bit tile number reaches at boundary "
+            f"{DS_OBJ_BOUNDARY}. Raise the boundary to "
+            f"{DS_OBJ_BOUNDARY * 2} -- and note that halves every cel's tile "
+            f"number, so dsTileFor() changes with it")
+    print(f"ds/obj:   {total} of {DS_OBJ_REACH} addressable bytes at boundary "
+          f"{DS_OBJ_BOUNDARY} ({DS_OBJ_REACH - total} spare), "
+          f"sora {sizes['sorachr']} + obj {sizes['objchr']} + "
+          f"max(obj2 {sizes['obj2chr']}, town {sizes['objtownchr']})")
 
 
 def build_ds_palettes() -> list[tuple[str, int]]:
@@ -2583,24 +2625,38 @@ def emit_ds_asset_header(scenes, sprites, palettes) -> None:
     w("//   map     16-bit entries, ROW-MAJOR and not in hardware block order --")
     w("//           every scene but the stations and the fragment is wider than")
     w("//           the 64 characters one background holds, so the renderer")
-    w("//           streams a window through bgOffset() below.")
+    w("//           streams a window through bgEntryIndex() below.")
     w("//           Entry: bits 0-9 character, 10 H flip, 11 V flip, 12-15 palette.")
     w("//   pal     15-bit BGR little-endian -- byte-identical to the SNES word.")
     w("//   coll    one byte a tile, non-zero means standable.")
     w("//   height  one byte a tile, in eight-pixel steps.")
+    w("//")
+    w("// Every one of those was checked against GBATEK v3.06 and fullsnes, and")
+    w("// cross-checked against libnds, by three independent readings; see")
+    w("// docs/DS_FORMATS.md for what they said and what they caught.")
     w("")
     w("#include <cstdint>")
     w("")
     w("namespace kh {")
     w("")
-    w("// Where a character sits in a DS text background's map.  A background is")
-    w("// built from 32x32-character BLOCKS, not rows; writing row-major shreds a")
-    w("// 512-wide map into diagonal bands.  Defined once, here, for the streamer")
-    w("// and for anything that uploads a map directly.")
-    w("constexpr int bgOffset(int x, int y, int widthChars, int heightChars) {")
+    w("// Which ENTRY of a DS text background's map holds character (x, y).")
+    w("// Entries, not bytes -- double it for a byte offset.  A background is")
+    w("// built from 32x32-character BLOCKS, not rows; a flat 64-wide row-major")
+    w("// array comes out horizontally halved and vertically doubled, which reads")
+    w("// as a corrupt tileset rather than a layout bug.  Defined once, here, for")
+    w("// the streamer and for anything that uploads a map directly.")
+    w("//")
+    w("// 64x32 and 32x64 both put their second block at entry 1024 and differ")
+    w("// only in whether it is the right half or the bottom half, which is why")
+    w("// the shape is a parameter.  Out-of-range coordinates WRAP, as the")
+    w("// hardware does -- without that, y = 64 in a 64x64 background computes")
+    w("// block 4 and writes 2 KB past the end of the map.")
+    w("constexpr int bgEntryIndex(int x, int y, int widthChars, int heightChars) {")
+    w("    x %= widthChars;")
+    w("    y %= heightChars;")
     w("    return ((x >= 32 ? 1 : 0)")
     w("            + (y >= 32 ? (widthChars > 32 ? 2 : 1) : 0)) * 1024")
-    w("           + (y % 32) * 32 + (x % 32) + 0 * heightChars;")
+    w("           + (y % 32) * 32 + (x % 32);")
     w("}")
     w("")
     w("constexpr uint16_t MAP_TILE_MASK = 0x03FF;")
@@ -2608,6 +2664,20 @@ def emit_ds_asset_header(scenes, sprites, palettes) -> None:
     w("constexpr uint16_t MAP_FLIP_V = 1 << 11;")
     w("constexpr int MAP_PAL_SHIFT = 12;")
     w("constexpr int BG_MAX_CHARS = %d;" % DS_BG_MAX_CHARS)
+    w("constexpr int BG_BLOCK_ENTRIES = 1024;      // 32x32 characters, 2 KiB")
+    w("")
+    w("// Sprites.  DISPCNT bit 4 selects 1D mapping and bits 20-21 the boundary;")
+    w("// a tile number is a byte offset divided by the boundary, and the number")
+    w("// is ten bits, so at boundary 32 it reaches only the first 32 KiB of")
+    w("// object VRAM however much of it the machine has.")
+    w("//")
+    w("// THE BYTES NEVER CHANGE WITH THE BOUNDARY AND THE NUMBERS ALWAYS DO.")
+    w("// Whatever sets DISPCNT must set it to OBJ_BOUNDARY, because dsTileFor()")
+    w("// below is derived from it: at 64 every cel's tile number halves.")
+    w("constexpr int OBJ_BOUNDARY = %d;" % DS_OBJ_BOUNDARY)
+    w("constexpr int OBJ_REACH = %d;" % DS_OBJ_REACH)
+    w("constexpr int OBJ_CEL_BYTES = 512;          // 32x32 at 4bpp")
+    w("constexpr int OBJ_CEL_TILES = OBJ_CEL_BYTES / OBJ_BOUNDARY;")
     w("")
     w("// A 32x32 object is sixteen CONSECUTIVE characters under 1D mapping, so")
     w("// the object pages are re-serialised cel-contiguous and every object's")
@@ -2616,7 +2686,7 @@ def emit_ds_asset_header(scenes, sprites, palettes) -> None:
     w("// is the translation.  A SNES page is a 16-character-wide grid in which a")
     w("// 32x32 object occupies a 4x4 block.")
     w("constexpr int dsTileFor(int snesTile) {")
-    w("    return (((snesTile / 64) * 4) + ((snesTile % 64) / 4)) * 16;")
+    w("    return (((snesTile / 64) * 4) + ((snesTile % 64) / 4)) * OBJ_CEL_TILES;")
     w("}")
     w("")
     w("struct SceneAsset {")
@@ -2625,14 +2695,15 @@ def emit_ds_asset_header(scenes, sprites, palettes) -> None:
     w("    uint16_t tilesH;")
     w("    uint16_t chars;         // unique characters, 0 if the ground is shared")
     w("    const char* groundFrom; // nullptr unless it borrows another scene's")
-    w("    bool streams;           // wider than one background")
+    w("    bool streams;           // too big for one background")
+    w("    int8_t bgSize;          // BGxCNT size code, -1 if it streams")
     w("};")
     w("")
     w("constexpr SceneAsset SCENE_ASSETS[] = {")
-    for name, gw, gh, chars, shared, streams in scenes:
+    for name, gw, gh, chars, shared, streams, bgsize in scenes:
         share = f'"{shared}"' if shared else "nullptr"
         w(f'    {{"{name}", {gw}, {gh}, {chars}, {share}, '
-          f'{"true" if streams else "false"}}},')
+          f'{"true" if streams else "false"}, {bgsize}}},')
     w("};")
     w("")
     w("struct PaletteAsset { const char* name; uint16_t entries; };")
@@ -2641,11 +2712,25 @@ def emit_ds_asset_header(scenes, sprites, palettes) -> None:
         w(f'    {{"{name}", {count}}},')
     w("};")
     w("")
-    w("struct SpriteAsset { const char* name; const char* shape; };")
+    w("struct SpriteAsset { const char* name; uint32_t bytes; const char* shape; };")
     w("constexpr SpriteAsset SPRITE_ASSETS[] = {")
-    for name, shape in sprites:
-        w(f'    {{"{name}", "{shape}"}},')
+    for name, nbytes, shape in sprites:
+        w(f'    {{"{name}", {nbytes}, "{shape}"}},')
     w("};")
+    w("")
+    sizes = {name: n for name, n, _ in sprites}
+    resident = (sizes["sorachr"] + sizes["objchr"]
+                + max(sizes["obj2chr"], sizes["objtownchr"]))
+    w("// The resident set, and the margin.  Sora's sheet and the first object")
+    w("// page are always up; the second page is shared, because the town")
+    w("// overwrites it (main.s:540) rather than adding to it.  A FOURTH resident")
+    w("// page does not fit, and the way out is boundary 64 -- which renumbers")
+    w("// every cel.  tools/build_assets.py checks this at build time too; the")
+    w("// static_assert is here so a hand-edited OBJ_BOUNDARY cannot get past it.")
+    w("constexpr uint32_t OBJ_RESIDENT_BYTES = %d;" % resident)
+    w("static_assert(OBJ_RESIDENT_BYTES <= OBJ_REACH,")
+    w('              "the resident object pages do not fit the ten-bit tile '
+      'number; raise OBJ_BOUNDARY and regenerate");')
     w("")
     w("}  // namespace kh")
     text = "\n".join(L) + "\n"
@@ -2683,13 +2768,21 @@ def build_ds_scene(scene: DSScene):
         # machines share exactly.
         write_bin(out / f"{scene.name}pal.bin", palette_bytes(scene.palette))
         write_png(world, scene.palette, SRC / f"ds_{scene.name}_preview.png")
-        streams = "streams" if max(grid.w, grid.h) > DS_BG_TILES else "fits one BG"
+        # Which background shape it needs, if any one of them will do.  A scene
+        # that fits can be uploaded whole and scrolled by the hardware; one that
+        # does not has to be streamed, and the shape of the window it streams
+        # into is the VRAM map's business (§M4), so it is recorded as -1 rather
+        # than guessed at here.
+        cw, ch = world.w // 8, world.h // 8
+        fit = ds_bg_fit(cw, ch)
+        streams = "streams" if fit is None else \
+            f"fits one BG, BGxCNT size {fit[2]} ({fit[0]}x{fit[1]})"
         print(f"ds/{scene.name}: {grid.w}x{grid.h} tiles, {world.w}x{world.h} px, "
-              f"{world.w // 8}x{world.h // 8} chars, {n} unique, "
+              f"{cw}x{ch} chars, {n} unique, "
               f"{sum(coll)} walkable, {streams}")
         verify_ds_roundtrip(scene, world)
-        shape = (scene.name, grid.w, grid.h, n, None,
-                 max(world.w // 8, world.h // 8) > DS_BG_MAX_CHARS)
+        shape = (scene.name, grid.w, grid.h, n, None, fit is None,
+                 -1 if fit is None else fit[2])
     else:
         # Still worth a preview: the palette is the whole difference and the
         # only way to see whether it reads as the same place after dark.
@@ -2699,8 +2792,9 @@ def build_ds_scene(scene: DSScene):
         write_bin(out / f"{scene.name}pal.bin", palette_bytes(scene.palette))
         print(f"ds/{scene.name}: {grid.w}x{grid.h} tiles, ground shared with "
               f"{scene.ground} -- {scene.note}")
-        shape = (scene.name, grid.w, grid.h, 0, scene.ground,
-                 max(world.w // 8, world.h // 8) > DS_BG_MAX_CHARS)
+        fit = ds_bg_fit(world.w // 8, world.h // 8)
+        shape = (scene.name, grid.w, grid.h, 0, scene.ground, fit is None,
+                 -1 if fit is None else fit[2])
     build_ds_cast(scene.name, grid, world, scene.palette, scene.props)
     return shape
 

@@ -11,24 +11,38 @@
 //   map     16-bit entries, ROW-MAJOR and not in hardware block order --
 //           every scene but the stations and the fragment is wider than
 //           the 64 characters one background holds, so the renderer
-//           streams a window through bgOffset() below.
+//           streams a window through bgEntryIndex() below.
 //           Entry: bits 0-9 character, 10 H flip, 11 V flip, 12-15 palette.
 //   pal     15-bit BGR little-endian -- byte-identical to the SNES word.
 //   coll    one byte a tile, non-zero means standable.
 //   height  one byte a tile, in eight-pixel steps.
+//
+// Every one of those was checked against GBATEK v3.06 and fullsnes, and
+// cross-checked against libnds, by three independent readings; see
+// docs/DS_FORMATS.md for what they said and what they caught.
 
 #include <cstdint>
 
 namespace kh {
 
-// Where a character sits in a DS text background's map.  A background is
-// built from 32x32-character BLOCKS, not rows; writing row-major shreds a
-// 512-wide map into diagonal bands.  Defined once, here, for the streamer
-// and for anything that uploads a map directly.
-constexpr int bgOffset(int x, int y, int widthChars, int heightChars) {
+// Which ENTRY of a DS text background's map holds character (x, y).
+// Entries, not bytes -- double it for a byte offset.  A background is
+// built from 32x32-character BLOCKS, not rows; a flat 64-wide row-major
+// array comes out horizontally halved and vertically doubled, which reads
+// as a corrupt tileset rather than a layout bug.  Defined once, here, for
+// the streamer and for anything that uploads a map directly.
+//
+// 64x32 and 32x64 both put their second block at entry 1024 and differ
+// only in whether it is the right half or the bottom half, which is why
+// the shape is a parameter.  Out-of-range coordinates WRAP, as the
+// hardware does -- without that, y = 64 in a 64x64 background computes
+// block 4 and writes 2 KB past the end of the map.
+constexpr int bgEntryIndex(int x, int y, int widthChars, int heightChars) {
+    x %= widthChars;
+    y %= heightChars;
     return ((x >= 32 ? 1 : 0)
             + (y >= 32 ? (widthChars > 32 ? 2 : 1) : 0)) * 1024
-           + (y % 32) * 32 + (x % 32) + 0 * heightChars;
+           + (y % 32) * 32 + (x % 32);
 }
 
 constexpr uint16_t MAP_TILE_MASK = 0x03FF;
@@ -36,6 +50,20 @@ constexpr uint16_t MAP_FLIP_H = 1 << 10;
 constexpr uint16_t MAP_FLIP_V = 1 << 11;
 constexpr int MAP_PAL_SHIFT = 12;
 constexpr int BG_MAX_CHARS = 64;
+constexpr int BG_BLOCK_ENTRIES = 1024;      // 32x32 characters, 2 KiB
+
+// Sprites.  DISPCNT bit 4 selects 1D mapping and bits 20-21 the boundary;
+// a tile number is a byte offset divided by the boundary, and the number
+// is ten bits, so at boundary 32 it reaches only the first 32 KiB of
+// object VRAM however much of it the machine has.
+//
+// THE BYTES NEVER CHANGE WITH THE BOUNDARY AND THE NUMBERS ALWAYS DO.
+// Whatever sets DISPCNT must set it to OBJ_BOUNDARY, because dsTileFor()
+// below is derived from it: at 64 every cel's tile number halves.
+constexpr int OBJ_BOUNDARY = 32;
+constexpr int OBJ_REACH = 32768;
+constexpr int OBJ_CEL_BYTES = 512;          // 32x32 at 4bpp
+constexpr int OBJ_CEL_TILES = OBJ_CEL_BYTES / OBJ_BOUNDARY;
 
 // A 32x32 object is sixteen CONSECUTIVE characters under 1D mapping, so
 // the object pages are re-serialised cel-contiguous and every object's
@@ -44,7 +72,7 @@ constexpr int BG_MAX_CHARS = 64;
 // is the translation.  A SNES page is a 16-character-wide grid in which a
 // 32x32 object occupies a 4x4 block.
 constexpr int dsTileFor(int snesTile) {
-    return (((snesTile / 64) * 4) + ((snesTile % 64) / 4)) * 16;
+    return (((snesTile / 64) * 4) + ((snesTile % 64) / 4)) * OBJ_CEL_TILES;
 }
 
 struct SceneAsset {
@@ -53,19 +81,20 @@ struct SceneAsset {
     uint16_t tilesH;
     uint16_t chars;         // unique characters, 0 if the ground is shared
     const char* groundFrom; // nullptr unless it borrows another scene's
-    bool streams;           // wider than one background
+    bool streams;           // too big for one background
+    int8_t bgSize;          // BGxCNT size code, -1 if it streams
 };
 
 constexpr SceneAsset SCENE_ASSETS[] = {
-    {"station1", 32, 16, 197, nullptr, false},
-    {"station2", 32, 16, 197, nullptr, false},
-    {"station3", 32, 16, 195, nullptr, false},
-    {"island", 64, 32, 247, nullptr, true},
-    {"night", 64, 32, 0, "island", true},
-    {"fragment", 32, 16, 112, nullptr, false},
-    {"town1", 48, 32, 85, nullptr, true},
-    {"town2", 48, 32, 107, nullptr, true},
-    {"town3", 48, 32, 85, nullptr, true},
+    {"station1", 32, 16, 197, nullptr, false, 1},
+    {"station2", 32, 16, 197, nullptr, false, 1},
+    {"station3", 32, 16, 195, nullptr, false, 1},
+    {"island", 64, 32, 247, nullptr, true, -1},
+    {"night", 64, 32, 0, "island", true, -1},
+    {"fragment", 32, 16, 112, nullptr, false, 1},
+    {"town1", 48, 32, 85, nullptr, true, -1},
+    {"town2", 48, 32, 107, nullptr, true, -1},
+    {"town3", 48, 32, 85, nullptr, true, -1},
 };
 
 struct PaletteAsset { const char* name; uint16_t entries; };
@@ -88,13 +117,23 @@ constexpr PaletteAsset PALETTE_ASSETS[] = {
     {"hudpal", 16},
 };
 
-struct SpriteAsset { const char* name; const char* shape; };
+struct SpriteAsset { const char* name; uint32_t bytes; const char* shape; };
 constexpr SpriteAsset SPRITE_ASSETS[] = {
-    {"sorachr", "30 cels of 32x32, six frames by five drawn facings"},
-    {"objchr", "16 cels of 32x32, re-serialised cel-contiguous"},
-    {"obj2chr", "16 cels of 32x32, re-serialised cel-contiguous"},
-    {"objtownchr", "16 cels of 32x32, re-serialised cel-contiguous"},
-    {"hudchr", "128 characters, 4bpp because the DS has no 2bpp BG"},
+    {"sorachr", 15360, "30 cels of 32x32, six frames by five drawn facings"},
+    {"objchr", 8192, "16 cels of 32x32, re-serialised cel-contiguous"},
+    {"obj2chr", 8192, "16 cels of 32x32, re-serialised cel-contiguous"},
+    {"objtownchr", 8192, "16 cels of 32x32, re-serialised cel-contiguous"},
+    {"hudchr", 4096, "128 characters, 4bpp because the DS has no 2bpp BG"},
 };
+
+// The resident set, and the margin.  Sora's sheet and the first object
+// page are always up; the second page is shared, because the town
+// overwrites it (main.s:540) rather than adding to it.  A FOURTH resident
+// page does not fit, and the way out is boundary 64 -- which renumbers
+// every cel.  tools/build_assets.py checks this at build time too; the
+// static_assert is here so a hand-edited OBJ_BOUNDARY cannot get past it.
+constexpr uint32_t OBJ_RESIDENT_BYTES = 31744;
+static_assert(OBJ_RESIDENT_BYTES <= OBJ_REACH,
+              "the resident object pages do not fit the ten-bit tile number; raise OBJ_BOUNDARY and regenerate");
 
 }  // namespace kh
