@@ -112,7 +112,7 @@ same compare.
 `tools/build_assets.py` paints the whole island into a 512×256 image, slices it
 into 8×8 characters, and folds duplicates (matching against horizontal,
 vertical and both flips, since the tilemap carries a flip bit per axis). The
-island collapses to **236 unique characters** of the 512 BG1 holds.
+island collapses to **244 unique characters** of the 512 BG1 holds.
 
 Everything that stands up off the ground — Sora, Heartless, palms, boulders —
 is a sprite, and sprites draw strictly in OAM order: slot 0 is frontmost. From
@@ -201,7 +201,7 @@ assets/
 | Sora animation sheet | `$84` | 15 KiB |
 
 VRAM is fully mapped: BG1 characters at `$0000` (512 tiles -- the stained glass
-needs 258 of them where the island's terrain folds to 236), the 2bpp font at
+needs 258 of them where the island's terrain folds to 244), the 2bpp font at
 `$2000`, the ground tilemap at `$2400`, the BG3 tilemap at `$2C00`, and the two
 sprite pages at `$4000` and `$5000`.
 
