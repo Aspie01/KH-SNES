@@ -140,12 +140,40 @@ their populations plus a transient reserve against it at assembly time, so
 over-subscribing the table fails the build instead of quietly dropping whatever
 happens to be last.
 
-Twenty-eight rather than something rounder is deliberate. At thirty-two the
-sprite path reliably corrupts Sora's cel and drops actors with no input at all,
-and padding `sortIdx` by four entries fixes thirty-two but breaks
-twenty-eight -- so there is a stray write landing on whatever the BSS layout
-puts just past the end of that array. It has not been found yet. Twenty-eight
-is the layout that has been played through.
+Raising it turned up a second bug, which is worth writing down because of how
+it presented. At thirty-two slots the sprite path corrupted Sora's cel and
+scattered actors; at thirty and thirty-two it broke, at twenty-eight, twenty-nine
+and thirty-one it did not; and padding `sortIdx` by four entries fixed
+thirty-two while breaking twenty-eight. All of which pointed at a stray write
+landing on whatever the BSS layout happened to put in its path.
+
+It was none of that. `UpdateFish` had this shape:
+
+```
+        rep #$20
+        .a16
+        lda #FISH_SWIM
+        bra @apply
+    @west:
+        ora #AF_HFLIP
+```
+
+The `.a16` is still in force at `@west`, so `ora #AF_HFLIP` was assembled three
+bytes wide -- but the CPU reaches `@west` in eight-bit mode. It executed
+`ORA #$08` and then ran into the leftover `00` as a **BRK**, and everything
+after that was misaligned instruction bytes. Those bytes contain absolute
+addresses of the actor arrays, which move with `MAX_ACTORS`, which is why the
+damage looked like a layout problem. It fired the moment a fish first turned
+around, about forty frames in.
+
+`tools/check_modes.py` now catches this whole class: for every branch it takes
+the register widths in force at the branch, walks forward from the target
+alongside the assembler's own assumption, and complains the first time an
+immediate is sized against a width the CPU does not have. The naive form of
+that check reports thirty-odd sites here and all but one are correct code, so
+the walk steps the CPU's widths through any `rep` / `sep` it meets and stops
+once the two agree -- a target opening with `sep #$20` is doing the right
+thing. `make` runs it before assembling anything.
 
 Three of these needed terrain that did not exist:
 

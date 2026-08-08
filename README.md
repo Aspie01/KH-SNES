@@ -52,7 +52,8 @@ Needs `cc65` (for `ca65`/`ld65`), Python 3 and Pillow.
 sudo apt-get install cc65
 pip install Pillow
 
-make            # regenerate assets, assemble, link, fix the checksum
+make            # check, regenerate assets, assemble, link, fix the checksum
+make check      # the static checks on their own
 make assets     # regenerate art and map binaries only
 make clean
 ```
@@ -178,6 +179,14 @@ three things use it:
 - **Colour math shadowed in RAM.** `CGWSEL`/`CGADSUB` are written by the NMI
   from two RAM bytes, so lightning can flip the unit between translucent
   shadows and add-white in vblank instead of tearing a seam mid-frame.
+- **Register widths, checked at build time.** On the 65816 `LDA #` is two bytes
+  with an eight-bit accumulator and three with a sixteen-bit one, and the
+  assembler only knows which from the `.a8` / `.a16` directives it was given.
+  Those are sequential, so a `.a16` block ending in a branch leaves the
+  assembler sizing the *other* branch's immediates wrongly — and the spare byte
+  it emits is a `BRK` the CPU walks into. `tools/check_modes.py` walks every
+  branch target with the widths the CPU will really arrive with and fails the
+  build on a disagreement. It has earned its keep.
 - **FastROM** in banks `$80+`, LoROM mapping.
 
 ## Layout
@@ -202,6 +211,7 @@ tools/
   pixel.py          canvas, palettes, SNES tile/palette encoders
   fixrom.py         internal checksum
   check_map.py      flood-fills both maps against every spawn point
+  check_modes.py    finds immediates assembled at the wrong register width
   playtest.sh       scripted input + screenshots
   recframes.py      frame extraction from a mednafen recording
 assets/

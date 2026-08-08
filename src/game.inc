@@ -152,11 +152,8 @@ PAL_OBJ_ISLE   = 1
 ; over-subscribing it fails the build instead of silently dropping whichever
 ; spawn happens to be last in the table -- which is how the bottle under the
 ; waterfall went missing for the whole of day two.
-;
-; 28 rather than a rounder number on purpose -- 32 trips a stray write near the
-; end of sortIdx that corrupts the sprite path.  See the note in ram.s.
-MAX_ACTORS   = 28
-TRANSIENT_ACTORS = 3
+MAX_ACTORS   = 32
+TRANSIENT_ACTORS = 6
 
 ACT_NONE     = 0
 ACT_SORA     = 1

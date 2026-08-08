@@ -1449,24 +1449,29 @@ KNOCKBACK    = 3                ; velocity multiplier on a hit
 
 @swim:
     ; Half of a 64-frame cycle each way, with the sprite turned to match.
+    ;
+    ; Both directions do their flag work in eight-bit mode and pick an index,
+    ; and the single sixteen-bit block that follows is the only one.  Written
+    ; the obvious way -- a rep #$20 at the end of each branch -- the assembler
+    ; carries .a16 across the label the other branch lands on, and emits its
+    ; immediates three bytes wide for a CPU that is still eight-bit there.
     lda actTimer,x
     and #$20
     bne @west
     lda actFlags,x
     and #<(~AF_HFLIP)
     sta actFlags,x
-    rep #$20
-    .a16
-    lda #FISH_SWIM
+    ldy #0
     bra @apply
 @west:
     lda actFlags,x
     ora #AF_HFLIP
     sta actFlags,x
+    ldy #2
+@apply:
     rep #$20
     .a16
-    lda #.loword(-FISH_SWIM)
-@apply:
+    lda fishVel,y
     sta tmp0
     lda curActor
     asl a
@@ -2202,6 +2207,9 @@ dirVelY:    .word  24,  17,   0, .loword(-17), .loword(-24), .loword(-17),   0, 
 ; Offset from Sora to the centre of a swing, Q12.4 -- one tile ahead of him.
 atkOfsX:    .word   0, 176, 256, 176,   0, .loword(-176), .loword(-256), .loword(-176)
 atkOfsY:    .word 256, 176,   0, .loword(-176), .loword(-256), .loword(-176), 0, 176
+
+; Which way a fish is drifting, Q12.4.
+fishVel:    .word FISH_SWIM, .loword(-FISH_SWIM)
 
 ; Screen offsets of the three arcs the sweep leaves behind, Q12.4.
 sweepOfs:   .word .loword(-384), 0, 384

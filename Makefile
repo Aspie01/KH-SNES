@@ -1,7 +1,8 @@
 # Kingdom Hearts SNES demake -- build
 #
-#   make            build kh.sfc
+#   make            check, then build kh.sfc
 #   make assets     regenerate art/map binaries only
+#   make check      static checks only
 #   make run        build and launch in mednafen
 #   make clean      remove build output
 
@@ -38,9 +39,16 @@ GEN     := assets/gen/bgchr.bin assets/gen/bg1map.bin assets/gen/collmap.bin \
 ASSET_SRC := tools/build_assets.py tools/pixel.py assets/island.txt \
              assets/fragment.txt
 
-.PHONY: all assets run clean
+.PHONY: all assets check run clean
 
-all: $(TARGET)
+all: check $(TARGET)
+
+# Both of these catch a class of mistake that is expensive to find by playing:
+# a spawn point stranded by a map edit, and an immediate operand assembled at a
+# register width the CPU does not have when it arrives.
+check:
+	$(PYTHON) tools/check_modes.py
+	$(PYTHON) tools/check_map.py
 
 assets: $(GEN)
 
