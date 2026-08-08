@@ -287,9 +287,27 @@ collision map and asserts a known-walkable and a known-blocked tile from
 
 ---
 
-# §M3 — Movement, collision and the camera — **Tier 1**
+# §M3 — Movement, collision and the camera — **LANDED**
 
 The heart of the port, and it must be bit-exact.
+
+**Done.** `include/grid.h`, `source/grid.cpp`, `host/tests/test_grid.cpp` —
+13 cases. `tileHeight`, `tileWalkable`, `stepOk`, `tryMoveActor`, `setActorZ`,
+`nearPoint`, `updateCamera`, `asr1`, `GroundRenderer` and `NullGroundRenderer`.
+Two things worth knowing before building on it:
+
+- **The resolution order is proven, not asserted.** Reversing steps 2 and 3 in
+  `tryMoveActor` fails exactly three assertions in
+  `grid_a_diagonal_into_a_corner_resolves_horizontally` and nothing else — that
+  was checked and reverted. The fixture is a diagonal pinch on the real island:
+  tile (16,8), east and north both free, the north-east target a palm trunk. It
+  is the only geometry where the order is observable at all.
+- **`MoveResult::Refused` is rarer than it reads, and `YOnly` does not mean
+  "moved".** A blocked cardinal move takes the vertical-slide branch and writes Y
+  back unchanged, because step 3's candidate Y *is* the current Y. See audit
+  finding 43. Do not write a stage machine that treats `YOnly` as movement.
+
+The rest of this section is the original brief, kept for the reasoning.
 
 Port from `platform/snes/src/grid.s`: `TileIndex`, `TileWalkable`, `TileHeight`,
 `StepOk`, `StoreZ`, `TryMoveActor`, `UpdateCamera`.
