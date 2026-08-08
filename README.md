@@ -1,9 +1,25 @@
-# Kingdom Hearts — SNES demake
+# Kingdom Hearts — a demake
 
-A top-down three-quarter demake of Kingdom Hearts for the Super Nintendo --
-the A Link to the Past / Secret of Mana view. This builds
-a real `.sfc` ROM that boots in any SNES emulator or on a flash cart — not a
-SNES-styled game running on a modern engine.
+A demake of Kingdom Hearts for real hardware — not a retro-styled game on a
+modern engine. Two targets share one set of content:
+
+| | |
+| --- | --- |
+| **`platform/snes/`** | **Complete and frozen at tag `snes-final`.** A real `.sfc` ROM: LoROM, FastROM, valid header and checksum. Top-down three-quarter view, the A Link to the Past / Secret of Mana angle |
+| **`platform/ds/`** | **In preparation.** The DS has hardware 3D, so the camera the source material actually uses is reachable — which is what forced the SNES version onto a locked view. See `platform/ds/README.md` |
+
+The map data, the dialogue, the asset pipeline and every tuning number are shared
+between them. `docs/BEHAVIOUR.md` is the specification the SNES build was
+reverse-documented into, and it is the authority for both.
+
+The SNES build is kept, and not for sentiment: both platforms run at 60 Hz, every
+timing is in frames and the spawn tables are identical, so it is a behavioural
+oracle for the port. Drive both with the same input, diff the state traces, and a
+divergence is a bug.
+
+## What is playable (SNES)
+
+Everything below runs end to end today.
 
 ![Station of Awakening](docs/screenshot-dive.png)
 
@@ -70,11 +86,14 @@ Needs `cc65` (for `ca65`/`ld65`), Python 3 and Pillow.
 sudo apt-get install cc65
 pip install Pillow
 
-make            # check, regenerate assets, assemble, link, fix the checksum
-make check      # the static checks on their own
-make assets     # regenerate art and map binaries only
-make clean
+make -C platform/snes            # check, assets, assemble, link, fix checksum
+make -C platform/snes check      # the static checks on their own
+make -C platform/snes assets     # regenerate art and map binaries only
+make -C platform/snes clean
 ```
+
+The tools live at the repository root and are shared, so they can also be run
+directly: `python3 tools/check_map.py` flood-fills every map for both targets.
 
 The output is `kh.sfc` — 512 KiB, LoROM, FastROM, with a valid header and
 internal checksum.
@@ -82,8 +101,8 @@ internal checksum.
 ## Play
 
 ```sh
-mednafen kh.sfc          # or snes9x, bsnes, Mesen-S, ...
-make run                 # same thing
+mednafen platform/snes/kh.sfc     # or snes9x, bsnes, Mesen-S, ...
+make -C platform/snes run         # same thing
 ```
 
 | Button | Action |
@@ -225,8 +244,9 @@ three things use it:
 ## Layout
 
 ```
-src/
-  main.s        reset, hardware bring-up, frame loop, scene loading
+platform/snes/
+  src/
+    main.s      reset, hardware bring-up, frame loop, scene loading
   nmi.s         vblank: OAM, scroll, sprite streaming, HUD and text upload
   grid.s        tile geometry, camera, ground collision
   oam.s         depth sort and sprite table construction

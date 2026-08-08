@@ -5,6 +5,12 @@ build/
 *.smc
 *.map
 *.lbl
+# ...and the DS target's
+*.nds
+*.elf
+*.arm9
+*.arm7
+*.bin.o
 
 # generated asset intermediates
 assets/gen/

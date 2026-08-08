@@ -51,6 +51,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# The only platform-specific tool here: register widths are a 65816 problem,
+# and the ARM target this is being ported to has no equivalent to get wrong.
+SNES_SRC = ROOT / "platform" / "snes" / "src"
 
 COND = {"beq", "bne", "bcc", "bcs", "bmi", "bpl", "bvc", "bvs"}
 JUMP = {"bra", "brl", "jmp", "jml"}
@@ -270,7 +273,7 @@ def scan(path: Path) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    paths = [Path(p) for p in argv[1:]] or sorted((ROOT / "src").glob("*.s"))
+    paths = [Path(p) for p in argv[1:]] or sorted(SNES_SRC.glob("*.s"))
     bad: list[str] = []
     for p in paths:
         bad += scan(p)
