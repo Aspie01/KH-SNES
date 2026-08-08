@@ -1,9 +1,10 @@
 # Behavioural specification
 
 Every tuning decision in the SNES build, written down. The assembly is
-disposable; this is not. It was extracted from `platform/snes/` at tag
-`snes-final` and is the authority for any port — if the DS build disagrees with
-a number here, the DS build is wrong.
+disposable; this is not. It was extracted from
+`platform/snes/` at commit `b8f2b68`, tagged `snes-final`, and is the authority
+for any port — if the DS build disagrees with a number here, the DS build is
+wrong.
 
 **Units.** Positions and velocities are **Q12.4** fixed point: 16 pixels of
 world per unit of 16, so `256` means 16 px and `1` means 1/16 px. Every range

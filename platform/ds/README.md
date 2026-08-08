@@ -1,7 +1,7 @@
 # Nintendo DS target
 
-The SNES build is finished and frozen at tag `snes-final`. This is the port, and
-the reason for it is fidelity: the DS can render the source material's camera,
+The SNES build is finished and frozen at commit `b8f2b68`, tagged `snes-final`.
+This is the port, and the reason for it is fidelity: the DS can render the source material's camera,
 which the SNES could not, and that is why the SNES version had to abandon an
 isometric view for a locked three-quarter one.
 
