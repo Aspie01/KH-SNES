@@ -214,3 +214,17 @@ KH_TEST(ds_screen_divergence_is_explicit) {
     CHECK_EQ(DIVE_CAM_X, 128);          // unchanged
     CHECK_EQ(DIVE_CAM_Y, 32);           // was 16
 }
+
+KH_TEST(map_size_is_per_scene) {
+    // The SNES was locked to one map size by its tilemap.  These are the two
+    // known sizes; M3 makes the camera clamp read them from the loaded scene.
+    CHECK_EQ(ORACLE_MAP_W, 32);
+    CHECK_EQ(ORACLE_MAP_H, 16);
+    CHECK_EQ(DS_ISLAND_W, 64);
+    CHECK_EQ(DS_ISLAND_H, 32);
+    CHECK(DS_ISLAND_W * DS_ISLAND_H <= MAP_MAX_CELLS);
+
+    // Four times the area, and wider than one DS background -- so it streams.
+    CHECK_EQ(DS_ISLAND_W * DS_ISLAND_H, 4 * ORACLE_MAP_W * ORACLE_MAP_H);
+    CHECK(DS_ISLAND_W > DS_BG_MAX_TILES);
+}

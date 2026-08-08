@@ -27,11 +27,35 @@ namespace kh {
 // ---------------------------------------------------------------------------
 // Geometry.  TILE_PX, TILE_SHIFT, tileOf() and tileCentre() live in fixed.h,
 // because the tile lookup is the reason that header exists.
+//
+// MAP SIZE IS PER-SCENE, not global.  The SNES was locked to one size by its
+// tilemap; the DS worlds are larger and differ from each other, so a loaded
+// scene carries its own extents and M3 makes the camera clamp read them.  The
+// constants below are the two known sizes and a ceiling for pool allocation.
+// See docs/WORLD_SIZES.md.
 // ---------------------------------------------------------------------------
-constexpr int MAP_W = 32;               // MAP_W    tiles east
-constexpr int MAP_H = 16;               // MAP_H    tiles south
-constexpr int WORLD_W = MAP_W * TILE_PX;    // WORLD_W  512 px
-constexpr int WORLD_H = MAP_H * TILE_PX;    // WORLD_H  256 px
+constexpr int ORACLE_MAP_W = 32;        // MAP_W  the five frozen SNES maps, and
+constexpr int ORACLE_MAP_H = 16;        // MAP_H  therefore the trace fixtures
+
+constexpr int DS_ISLAND_W = 64;         // assets/ds/island.txt
+constexpr int DS_ISLAND_H = 32;
+
+// Nothing may be larger than this; the collision and height buffers are sized
+// from it and a scene loader must reject anything that does not fit.
+constexpr int MAP_MAX_W = 64;
+constexpr int MAP_MAX_H = 32;
+constexpr int MAP_MAX_CELLS = MAP_MAX_W * MAP_MAX_H;
+
+static_assert(DS_ISLAND_W <= MAP_MAX_W && DS_ISLAND_H <= MAP_MAX_H,
+              "raise MAP_MAX_* before authoring a map bigger than the buffers");
+
+// A single DS 2D background holds 64x64 characters, which is 32x32 of our
+// tiles.  Anything wider must stream; the 3D ground has no such limit.
+constexpr int DS_BG_MAX_TILES = 32;
+
+// Kept for the oracle fixtures, whose camera bounds the trace diff compares.
+constexpr int WORLD_W = ORACLE_MAP_W * TILE_PX;     // 512 px
+constexpr int WORLD_H = ORACLE_MAP_H * TILE_PX;     // 256 px
 
 // The SNES screen was 256x224.  The DS is 256x192, which is a deliberate
 // divergence with consequences for the camera -- see

@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from build_assets import MAP_H, MAP_W, TERRAIN, load_grid   # noqa: E402
+from build_assets import TERRAIN, load_grid   # noqa: E402
 
 MAX_STEP = 1
 
@@ -131,12 +131,88 @@ TOWN2_NEAR = {"lamp (west)": (3, 7), "lamp (east)": (28, 7)}
 TOWN3_NEAR = {"lamp (west)": (7, 7), "lamp (east)": (24, 7)}
 
 
-def check(label: str, grid: list[str], spawn: tuple[int, int],
+# ---------------------------------------------------------------------------
+# The Nintendo DS island: 64x32, four times the area, so every spawn point had
+# to be re-placed.  This is the table that proves the expansion did not strand
+# anything -- the Secret Place in particular, which is now sealed on three sides
+# and entered only by wading round the waterfall.
+# ---------------------------------------------------------------------------
+DS_ISLAND_SPAWN = (24, 20)
+
+DS_ISLAND = {
+    "Sora": (24, 20),
+    "Kairi": (25, 20),
+    "Riku (the small island)": (55, 16),
+    "Tidus (the lookout deck)": (10, 9),
+    "Selphie": (30, 18),
+    "Wakka": (20, 21),
+    # day one
+    "log (by the dock)": (21, 22),
+    "log (the small island)": (54, 17),
+    "cloth (the treehouse)": (25, 9),
+    "rope (the lookout deck)": (11, 9),
+    # day two
+    "mushroom (the west grass)": (8, 11),
+    "mushroom (the east grass)": (35, 17),
+    "mushroom (the Secret Place)": (7, 5),
+    "egg (the treetop)": (25, 8),
+    "bottle (under the fall)": (12, 7),
+    # the chamber wall, which Sora has to stand in front of
+    "chalk faces": (7, 5),
+    "the door": (8, 5),
+    "scribbles": (9, 5),
+    # the passage in, and the pool it is reached through
+    "the cave passage": (11, 6),
+    "the plunge pool": (11, 8),
+    # the race
+    "paopu landing": (55, 15),
+    "the far end of the bridge": (52, 15),
+    "the near end of the bridge": (44, 15),
+    # the night
+    "night Riku": (55, 16),
+    "night Kairi": (8, 6),
+    "shadow spot 1": (12, 13),
+    "shadow spot 2": (20, 15),
+    "shadow spot 3": (30, 12),
+    "shadow spot 4": (38, 17),
+    "shadow spot 5": (16, 19),
+    "shadow spot 6": (28, 21),
+    "shadow spot 7": (35, 14),
+    "shadow spot 8": (18, 11),
+    "shadow spot 9": (40, 12),
+    "shadow spot 10": (24, 16),
+}
+
+DS_ISLAND_NEAR = {
+    "coconut palm (west)": (15, 12),
+    "coconut palm (centre)": (31, 12),
+    "coconut palm (south)": (23, 18),
+    "coconut palm (east)": (37, 13),
+    "paopu tree": (56, 15),
+    "fish (west shallows)": (5, 20),
+    "fish (east shallows)": (42, 19),
+    "fish (off the dock)": (24, 25),
+    "boulder (west)": (10, 15),
+    "boulder (centre)": (28, 16),
+    "boulder (by the bridge)": (43, 15),
+    "bush (the headland)": (8, 12),
+    "bush (by the treehouse)": (30, 10),
+    "rock (the south beach)": (27, 22),
+    "rock (the small island)": (54, 19),
+}
+
+
+def check(label: str, grid, spawn: tuple[int, int],
           reach: dict, adjacent: dict) -> int:
-    """Flood-fill one map with the engine's rule and check every spawn point."""
+    """Flood-fill one map with the engine's rule and check every spawn point.
+
+    The map's dimensions come from the map, not from a constant: the DS worlds
+    are larger than the SNES ones, and this checker has to serve both.
+    """
+    W, H = grid.w, grid.h
     walkable, height = {}, {}
-    for j in range(MAP_H):
-        for i in range(MAP_W):
+    for j in range(H):
+        for i in range(W):
             code = TERRAIN[grid[j][i]]
             walkable[(i, j)], height[(i, j)] = code[3], code[4]
 
@@ -151,7 +227,7 @@ def check(label: str, grid: list[str], spawn: tuple[int, int],
         i, j = queue.popleft()
         for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             n = (i + di, j + dj)
-            if not (0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H) or n in seen:
+            if not (0 <= n[0] < W and 0 <= n[1] < H) or n in seen:
                 continue
             if not walkable[n]:
                 continue
@@ -168,7 +244,7 @@ def check(label: str, grid: list[str], spawn: tuple[int, int],
     for name, pos in adjacent.items():
         i, j = pos
         near = [(i + di, j + dj) for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1))]
-        near = [n for n in near if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H]
+        near = [n for n in near if 0 <= n[0] < W and 0 <= n[1] < H]
         if not any(n in seen for n in near):
             bad.append(f"  {name} at {pos} -- nothing walkable beside it")
 
@@ -178,8 +254,8 @@ def check(label: str, grid: list[str], spawn: tuple[int, int],
         return 1
 
     total = sum(1 for v in walkable.values() if v)
-    print(f"{label} ok: {len(seen)} of {total} walkable tiles reachable from "
-          f"{spawn}, all {len(reach) + len(adjacent)} spawn points covered")
+    print(f"{label} ok: {W}x{H}, {len(seen)} of {total} walkable tiles reachable "
+          f"from {spawn}, all {len(reach) + len(adjacent)} spawn points covered")
     return 0
 
 
@@ -191,6 +267,10 @@ def main() -> int:
                               ("town2", TOWN2, TOWN2_NEAR),
                               ("town3", TOWN3, TOWN3_NEAR)):
         bad |= check(name, load_grid(f"{name}.txt"), reach["Sora"], reach, near)
+
+    # ...and the DS worlds, which are a different size and live beside them.
+    bad |= check("ds/island", load_grid("island.txt", subdir="ds"),
+                 DS_ISLAND_SPAWN, DS_ISLAND, DS_ISLAND_NEAR)
     return bad
 
 

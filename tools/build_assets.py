@@ -24,10 +24,49 @@ from pixel import (                                    # noqa: E402
 )
 
 TILE = 16                               # ground tile, square
+# The ORIGINAL map size, and now only a default.  A map carries its own
+# dimensions (see Grid), because the DS worlds are larger than the SNES ones and
+# a global here was the single thing preventing that.
+#
+# The SNES is stuck at these numbers and always will be: BG1's tilemap is 64x32
+# characters and BG3's map sits immediately after it in VRAM, so there is nowhere
+# for a wider one to go.  Its five maps stay this size, which is what keeps the
+# frozen build byte-identical and usable as an oracle.
 MAP_W, MAP_H = 32, 16
 TILEMAP_W, TILEMAP_H = 64, 32           # PPU tilemap, in 8x8 characters
 WORLD_W, WORLD_H = TILEMAP_W * 8, TILEMAP_H * 8
 assert (MAP_W * TILE, MAP_H * TILE) == (WORLD_W, WORLD_H)
+
+# A DS 2D background holds at most 64x64 characters, which is 32x32 of our 16 px
+# tiles.  Past that the 2D ground renderer has to stream a window as the camera
+# crosses tile boundaries; the 3D quad ground has no such limit.  Exceeding it is
+# a deliberate choice, not an accident -- see docs/WORLD_SIZES.md.
+DS_BG_TILES = 32
+
+
+class Grid:
+    """A map and its dimensions, read from the file rather than assumed."""
+
+    __slots__ = ("rows", "w", "h", "name")
+
+    def __init__(self, rows: list[str], name: str = ""):
+        self.rows = rows
+        self.h = len(rows)
+        self.w = len(rows[0]) if rows else 0
+        self.name = name
+
+    def __getitem__(self, j):
+        return self.rows[j]
+
+    def at(self, i, j):
+        """The code at a cell, or None off the map -- what the rim test wants."""
+        if 0 <= i < self.w and 0 <= j < self.h:
+            return self.rows[j][i]
+        return None
+
+    @property
+    def px(self):
+        return self.w * TILE, self.h * TILE
 
 STEP = 8                                # pixels one height step lifts a tile
 
@@ -416,50 +455,63 @@ def draw_block(code: str, phase: int, edges: dict[str, str | None],
     return c
 
 
-def build_world(grid: list[str]) -> tuple[Canvas, bytes, bytes]:
-    """Paint the island, north to south, and derive collision and height maps."""
-    world = Canvas(WORLD_W, WORLD_H, WATER_D)
+def build_world(grid) -> tuple[Canvas, bytes, bytes]:
+    """Paint a map, north to south, and derive its collision and height maps.
 
-    def at(i: int, j: int) -> str | None:
-        if 0 <= i < MAP_W and 0 <= j < MAP_H:
-            return grid[j][i]
-        return None
+    Accepts a Grid, or a bare list of rows for the original 32x16 callers.
+    """
+    if not isinstance(grid, Grid):
+        grid = Grid(list(grid))
+    px_w, px_h = grid.px
+    world = Canvas(px_w, px_h, WATER_D)
 
     # North to south, so a raised block paints over the bottom of whatever is
     # behind it and is painted over in turn by whatever is in front.  That
     # single ordering is the whole of the depth logic for the ground.
-    for j in range(MAP_H):
-        for i in range(MAP_W):
+    for j in range(grid.h):
+        for i in range(grid.w):
             code = grid[j][i]
             height = TERRAIN[code][4]
-            edges = {"n": at(i, j - 1), "s": at(i, j + 1),
-                     "w": at(i - 1, j), "e": at(i + 1, j)}
+            edges = {"n": grid.at(i, j - 1), "s": grid.at(i, j + 1),
+                     "w": grid.at(i - 1, j), "e": grid.at(i + 1, j)}
             tile = draw_block(code, (i + j) & 1, edges, height)
             world.blit(tile, i * TILE, j * TILE - STEP * height,
                        transparent=-1)
 
-    coll = bytearray(MAP_W * MAP_H)
-    hmap = bytearray(MAP_W * MAP_H)
-    for j in range(MAP_H):
-        for i in range(MAP_W):
-            coll[j * MAP_W + i] = 1 if TERRAIN[grid[j][i]][3] else 0
-            hmap[j * MAP_W + i] = TERRAIN[grid[j][i]][4]
+    coll = bytearray(grid.w * grid.h)
+    hmap = bytearray(grid.w * grid.h)
+    for j in range(grid.h):
+        for i in range(grid.w):
+            coll[j * grid.w + i] = 1 if TERRAIN[grid[j][i]][3] else 0
+            hmap[j * grid.w + i] = TERRAIN[grid[j][i]][4]
     return world, bytes(coll), bytes(hmap)
 
 
-def dedupe_tilemap(world: Canvas) -> tuple[bytes, bytes, int]:
+def dedupe_tilemap(world: Canvas, layout: str = "snes") -> tuple[bytes, bytes, int]:
     """Slice the painted world into 8x8 characters and fold duplicates.
 
     Matching is done against horizontal, vertical and both flips, since the
     tilemap carries a flip bit for each axis -- on ground art that is mostly
-    symmetric, that folds out a good third of the characters.
+    symmetric, that folds out a good third of the characters.  The folding is
+    identical for both targets; only the order entries are written in differs.
+
+    layout="snes"      two 32x32 screens side by side, left screen first, which
+                       is how the SNES PPU stores a 64x32 map.  Only valid at
+                       exactly that size.
+    layout="rowmajor"  plain rows, which is what the DS wants and what any map
+                       larger than one SNES tilemap has to use.
     """
+    cw, ch_ = world.w // 8, world.h // 8
+    if layout == "snes" and (cw, ch_) != (TILEMAP_W, TILEMAP_H):
+        raise SystemExit(f"snes layout needs a {TILEMAP_W}x{TILEMAP_H} character "
+                         f"map, got {cw}x{ch_}: use layout='rowmajor'")
+
     chars: list[bytes] = []
     index: dict[bytes, tuple[int, int]] = {}
-    entries: list[int] = [0] * (TILEMAP_W * TILEMAP_H)
+    entries: list[int] = [0] * (cw * ch_)
 
-    for ty in range(TILEMAP_H):
-        for tx in range(TILEMAP_W):
+    for ty in range(ch_):
+        for tx in range(cw):
             tile = [[world.px[ty * 8 + y][tx * 8 + x] for x in range(8)]
                     for y in range(8)]
             key = bytes(v for row in tile for v in row)
@@ -487,11 +539,16 @@ def dedupe_tilemap(world: Canvas) -> tuple[bytes, bytes, int]:
                 index[key] = (num, 0)
                 hit = (num, 0)
 
-            # A 64x32 tilemap is NOT stored as 32 rows of 64 entries: the PPU
-            # keeps it as two 32x32 screens laid side by side, the left screen
-            # first.  Writing it row-major shreds the map into diagonal bands.
-            screen = tx // 32
-            entries[screen * 1024 + ty * 32 + (tx % 32)] = hit[0] | hit[1]
+            # A 64x32 SNES tilemap is NOT stored as 32 rows of 64 entries: the
+            # PPU keeps it as two 32x32 screens laid side by side, the left
+            # screen first.  Writing it row-major shreds the map into diagonal
+            # bands.  The DS does not do this, and neither can any map too wide
+            # for one SNES tilemap.
+            if layout == "snes":
+                screen = tx // 32
+                entries[screen * 1024 + ty * 32 + (tx % 32)] = hit[0] | hit[1]
+            else:
+                entries[ty * cw + tx] = hit[0] | hit[1]
 
     tilemap = bytearray()
     for e in entries:
@@ -1979,22 +2036,51 @@ def build_hud_font() -> Canvas:
 # Driver
 # ---------------------------------------------------------------------------
 
-def load_grid(name: str = "island.txt") -> list[str]:
-    text = (ROOT / "assets" / name).read_text().splitlines()
+def load_grid(name: str = "island.txt", subdir: str = "") -> Grid:
+    """Read a map.  Its dimensions come from the file; every row must agree.
+
+    Returns a Grid, which is list-like enough for the original callers.
+    """
+    path = ROOT / "assets" / subdir / name if subdir else ROOT / "assets" / name
+    text = path.read_text().splitlines()
     # A comment is "#" alone or "# ...".  Terrain codes include "#", so a
     # map row that starts with cliff rock must not be mistaken for one.
     rows = [ln for ln in text
             if ln and not (ln[0] == "#" and ln[1:2] in ("", " "))]
-    if len(rows) != MAP_H:
-        raise SystemExit(f"{name}: expected {MAP_H} map rows, got {len(rows)}")
+    if not rows:
+        raise SystemExit(f"{name}: no map rows")
+    width = len(rows[0])
     for n, row in enumerate(rows):
-        if len(row) != MAP_W:
-            raise SystemExit(f"{name} row {n}: expected {MAP_W} columns, "
-                             f"got {len(row)}")
+        if len(row) != width:
+            raise SystemExit(f"{name} row {n}: {len(row)} columns, but row 0 "
+                             f"has {width} -- every row must be the same width")
         for ch in row:
             if ch not in TERRAIN:
                 raise SystemExit(f"{name} row {n}: unknown terrain '{ch}'")
-    return rows
+    return Grid(rows, name)
+
+
+def build_ds_scene(stem: str, grid) -> None:
+    """Emit one DS scene: characters, a row-major tilemap, collision, height.
+
+    Not the full M2 backend -- no DS palette encoding and no header generation
+    yet.  This is what authoring a map needs in order to be validated at all,
+    and it lands the row-major tilemap writer that M2 wants anyway.
+    """
+    out = GEN / "ds"
+    out.mkdir(parents=True, exist_ok=True)
+    world, coll, hmap = build_world(grid)
+    chars, tilemap, n = dedupe_tilemap(world, layout="rowmajor")
+    write_bin(out / f"{stem}chr.bin", chars)
+    write_bin(out / f"{stem}map.bin", tilemap)
+    write_bin(out / f"{stem}coll.bin", coll)
+    write_bin(out / f"{stem}height.bin", hmap)
+    write_png(world, BG_GROUND, SRC / f"ds_{stem}_preview.png")
+    walkable = sum(coll)
+    cw, chh = world.w // 8, world.h // 8
+    streams = "streams" if max(grid.w, grid.h) > DS_BG_TILES else "fits one BG"
+    print(f"ds/{stem}: {grid.w}x{grid.h} tiles, {world.w}x{world.h} px, "
+          f"{cw}x{chh} chars, {n} unique, {walkable} walkable, {streams}")
 
 
 def main() -> int:
@@ -2136,6 +2222,13 @@ def main() -> int:
     print(f"hud       {Path(GEN / 'hudchr.bin').stat().st_size:5d} bytes")
     walkable = sum(coll)
     print(f"collision {walkable} walkable of {MAP_W * MAP_H} tiles")
+
+    #--- the Nintendo DS worlds ---------------------------------------------
+    # Larger than anything the SNES can address, so they live beside the frozen
+    # maps rather than replacing them: the SNES build and the oracle keep using
+    # assets/*.txt untouched, which is what holds its ROM byte-identical.
+    for stem, fname in (("island", "island.txt"),):
+        build_ds_scene(stem, load_grid(fname, subdir="ds"))
     return 0
 
 
