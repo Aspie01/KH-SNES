@@ -404,11 +404,17 @@ The allocation, and the constraint that forces each line of it:
 
 Four things a later milestone must not re-derive:
 
-- **C and D cannot be main OBJ.** GBATEK's main-OBJ rows list A, B, E, F, G and
-  no others, which is what stops the two big idle banks taking the sprites. The
-  header encodes the whole capability matrix so that mapping is a *compile*
-  error — an illegal MST does not fault on hardware, the bank simply is not
-  there and the layer draws whatever was.
+- **C and D cannot be main OBJ, and their MST 2 is not unused.** GBATEK's
+  main-OBJ rows list A, B, E, F, G and no others, which is what stops the two big
+  idle banks taking the sprites. The header encodes the whole capability matrix
+  so that mapping is a *compile* error. And the trap inside the trap: MST 2 means
+  main OBJ on A, B and E, but on C and D it means **ARM7 work RAM** — so
+  pattern-matching that value onto bank C does not give a bank absent from the
+  OBJ window, it gives a bank the other CPU now owns.
+- **Bank E has no OFS field**, so it can only ever sit at the base of its window.
+  Anything a later task adds to the main OBJ window must go above it; A or B at
+  OFS 0 lands exactly on top. No assertion can catch that — the second bank
+  would be mapped by the later task, not by this file — so it is written down.
 - **Everything stays under 62 KiB in a BG window.** The map base is five bits of
   2 KiB units, so that is BGxCNT's reach; past it a region needs DISPCNT's
   64 KiB term, which is engine-wide and moves all four layers — and engine B has

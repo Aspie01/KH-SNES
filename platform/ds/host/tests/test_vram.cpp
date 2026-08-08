@@ -53,6 +53,16 @@ KH_TEST(vram_the_capability_matrix_refuses_the_tempting_illegal_mappings) {
     // rows of GBATEK's table list A, B, E, F and G, and no others.
     CHECK(!canDo(Bank::C, Use::MainObj));
     CHECK(!canDo(Bank::D, Use::MainObj));
+    // ...and the trap inside the trap.  MST 2 means main OBJ on A, B and E, so
+    // the obvious way to "just put the sprites in C" is to write MST 2 to C --
+    // which is a legal value there, and means hand the bank to the ARM7.  Not an
+    // absent bank: a bank the other CPU owns.
+    CHECK(canDo(Bank::C, Use::Arm7));
+    CHECK(canDo(Bank::D, Use::Arm7));
+    CHECK_EQ(mstFor(Bank::C, Use::Arm7), 2);
+    CHECK_EQ(mstFor(Bank::C, Use::MainObj), mstFor(Bank::D, Use::MainObj));  // both -1
+    for (Bank b : {Bank::A, Bank::B, Bank::E, Bank::F, Bank::G, Bank::H, Bank::I})
+        CHECK(!canDo(b, Use::Arm7));
     CHECK(canDo(Bank::A, Use::MainObj));
     CHECK(canDo(Bank::B, Use::MainObj));
     CHECK(canDo(Bank::E, Use::MainObj));

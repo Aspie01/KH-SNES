@@ -82,13 +82,20 @@ namespace kh::vram {
 //   H       32K   2    -     Slot 0-3
 //   VRAM    SIZE  MST  OFS   2D Graphics Engine B, OBJ Extended Palette
 //   I       16K   3    -     Slot 0  ;(only lower 8K used)
+//   VRAM    SIZE  MST  OFS   <ARM7>, Plain <ARM7>-CPU Access
+//   C,D     128K  2    0..1  6000000h+(20000h*OFS.0)  ;OFS.1 must be zero
 //
 // Two constraints in that table do most of the work here, and neither is
 // guessable:
 //
-//   C AND D CANNOT BE MAIN OBJ.  The main-OBJ rows list A, B, E, F, G and no
-//   others.  Sprites must come out of one of those five, which is what stops
-//   the two big flexible banks being spent on them.
+//   C AND D CANNOT BE MAIN OBJ -- AND THEIR MST 2 IS NOT UNUSED.  The main-OBJ
+//   rows list A, B, E, F, G and no others, so sprites must come from one of
+//   those five, which is what stops the two big flexible banks taking them.  But
+//   look at the last row: on C and D, MST 2 hands the bank to the ARM7 as work
+//   RAM.  So writing the A/B/E "MST 2 means sprites" pattern to bank C does not
+//   produce a bank that is merely absent from the OBJ window -- it produces a
+//   bank the other CPU now owns.  That is why Use::Arm7 exists below: the matrix
+//   has to say what MST 2 on C means, not just that it is not sprites.
 //
 //   H CAN BE ALMOST NOTHING ELSE.  Its only modes are LCDC, sub BG, and sub BG
 //   extended palette.  A 32 KiB bank that can serve exactly one screen is not a
@@ -196,6 +203,7 @@ struct Region {
 enum class Use : uint8_t {
     Lcdc, MainBg, MainObj, SubBg, SubObj,
     Texture, TexPalette, MainBgExtPal, MainObjExtPal, SubBgExtPal, SubObjExtPal,
+    Arm7,       // C and D only, and never wanted here -- see the note above
     Count
 };
 
@@ -207,10 +215,13 @@ constexpr uint16_t BANK_CAN[] = {
     uint16_t(bit(Use::Lcdc) | bit(Use::MainBg) | bit(Use::MainObj) | bit(Use::Texture)),
     // B: identical to A.
     uint16_t(bit(Use::Lcdc) | bit(Use::MainBg) | bit(Use::MainObj) | bit(Use::Texture)),
-    // C: main BG, texture, sub BG.  NOT main OBJ.
-    uint16_t(bit(Use::Lcdc) | bit(Use::MainBg) | bit(Use::Texture) | bit(Use::SubBg)),
-    // D: main BG, texture, sub OBJ.  NOT main OBJ.
-    uint16_t(bit(Use::Lcdc) | bit(Use::MainBg) | bit(Use::Texture) | bit(Use::SubObj)),
+    // C: main BG, texture, sub BG, ARM7 work RAM.  NOT main OBJ -- and its
+    // MST 2, the one that means main OBJ everywhere else, means ARM7 here.
+    uint16_t(bit(Use::Lcdc) | bit(Use::MainBg) | bit(Use::Texture) | bit(Use::SubBg)
+             | bit(Use::Arm7)),
+    // D: main BG, texture, sub OBJ, ARM7 work RAM.  Same trap as C.
+    uint16_t(bit(Use::Lcdc) | bit(Use::MainBg) | bit(Use::Texture) | bit(Use::SubObj)
+             | bit(Use::Arm7)),
     // E: main BG, main OBJ, texture palette, main BG ext palette.  No OFS.
     uint16_t(bit(Use::Lcdc) | bit(Use::MainBg) | bit(Use::MainObj)
              | bit(Use::TexPalette) | bit(Use::MainBgExtPal)),
@@ -247,6 +258,7 @@ constexpr int mstFor(Bank b, Use u) {
         case Use::SubObj: return b == Bank::D ? 4 : 2;   // D is MST 4, I is 2
         case Use::SubBgExtPal: return 2;                 // H only
         case Use::SubObjExtPal: return 3;                // I only
+        case Use::Arm7: return 2;                        // C and D only
         default: return -1;
     }
 }
@@ -558,11 +570,23 @@ static_assert(SUB_CHR.bytes >= 512u * 32u,
 //   dsTileFor() is generated against the boundary for that reason.  No bank
 //   moves; bank E already covers 64 KiB.
 //
-// MORE THAN 128 KiB OF TEXTURE: one slot.  RECOVERY: banks C and D are both
-//   texture-capable at MST 3, so slots 1 and 2 are available without disturbing
-//   anything that draws.  Taking C costs the sub engine's expansion path and
-//   taking D costs sub OBJ's; take D first, since I has four times the sprite
-//   room the bottom screen needs.
+// MORE THAN 128 KiB OF TEXTURE: one slot of the four.  Texture space is 512 KiB
+//   addressed as four 128 KiB slots, slot n at texture offset 0x20000*n, and the
+//   slot is the OFS field -- so any of A-D can be any slot.  In practice the
+//   pairing is FIXED BY CONVENTION at A=0, B=1, C=2, D=3, because libnds's GL
+//   allocator treats banks A-D as one contiguous heap in that order and its
+//   aliases hard-code it.  Here A is slot 0 and B is spent on main BG, so the
+//   slots actually available are 2 (bank C) and 3 (bank D).  RECOVERY: take D
+//   and slot 3 first -- it costs the sub-OBJ expansion path, and I already has
+//   four times the sprite room the bottom screen needs -- then C and slot 2,
+//   which costs the sub-BG one.
+//   Two arithmetic rules go with it, both from PLTT_BASE and TEXIMAGE_PARAM:
+//   texture image data is addressed div-8 so it must be 8-byte aligned, and a
+//   palette base is div-16 for every format except the 4-colour one (which is
+//   div-8), so a 16-colour palette must be 16-byte aligned.  Texture palette
+//   space is 0x18000 bytes across up to six 16 KiB slots -- and F and G can only
+//   reach slots 0, 1, 4 and 5, because their OFS maps to (OFS.0)+(OFS.1*4).
+//   Slots 2 and 3 come only from E.
 //
 // A SECOND SUB-ENGINE BACKGROUND BANK: H is 32 KiB.  RECOVERY: bank I can be sub
 //   BG at MST 1, where it lands at 0x06208000 -- immediately after H, so the two
@@ -577,6 +601,14 @@ static_assert(SUB_CHR.bytes >= 512u * 32u,
 //   `ora #$01` = BG1 only), so the 3D renderer cannot reproduce either.  The 2D
 //   renderer can, which is one more reason both survive in this allocation
 //   rather than one replacing the other.  See docs/behaviour/divergences/.
+//
+// A SECOND BANK IN THE MAIN OBJ WINDOW: bank E has NO OFS field ("Offset not
+//   used by VRAM-E,H,I"), so it can only ever sit at the base of whatever window
+//   it is in -- 0x06400000 here.  Anything else added to that window must
+//   therefore be placed ABOVE it, and A or B at OFS 0 would land exactly on top
+//   of it.  There is no assertion that can catch this, because the second bank
+//   would be mapped by a later task's VRAMCNT write and not by this file: it is
+//   written down instead, which is what this section is for.
 //
 // ANY REGION PAST 62 KiB IN A BG WINDOW: needs DISPCNT's 64 KiB base term, which
 //   is engine-wide and moves all four layers together, and which engine B does
