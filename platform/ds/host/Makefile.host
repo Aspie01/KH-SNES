@@ -25,6 +25,12 @@ CXXFLAGS := -std=c++17 -O2 -g \
             -fno-exceptions -fno-rtti \
             -I$(DS)/include -I$(HERE)
 
+# -MMD -MP so a header change rebuilds what included it.  Without this, editing
+# constants.h relinked stale objects against fresh tests and the suite reported
+# 274 failures that were nothing but a mixed build -- the worst kind of red,
+# because the code was right and the build was lying.
+DEPFLAGS := -MMD -MP
+
 # Globbed, never listed.  Adding a source or a test must not require editing
 # this file: eight tasks share it and four of them run concurrently.
 SRCS := $(HERE)/check.cpp \
@@ -44,7 +50,7 @@ $(BUILD):
 	mkdir -p $(BUILD)
 
 $(BUILD)/%.o: %.cpp | $(BUILD)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
 
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS)
@@ -54,3 +60,5 @@ run: $(TARGET)
 
 clean:
 	rm -rf $(BUILD)
+
+-include $(OBJS:.o=.d)

@@ -1,0 +1,19 @@
+# Traverse Town, Third District -- Nintendo DS cast.  Tiles into town3.txt.
+#
+# Lamp posts come from the l tiles.
+#
+# [pair] is Donald and Goofy, who come down out of the sky and stay standing
+# there afterwards -- so they are not [base], or they would already be waiting
+# when Sora walks in, and they are not derived, because the moment they arrive
+# at is the district's own business.  town.s spawned them from a separate table
+# for the same reason.
+
+[base]
+Sora        23  5         # through the door from the Second District
+
+[pair]
+Donald      20 20
+Goofy       26 20
+
+[doors]
+23  4  23  5              # the only way out

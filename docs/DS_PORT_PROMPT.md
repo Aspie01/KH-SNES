@@ -374,7 +374,34 @@ for the dialogue interpreter.
 - The dialogue script format is unchanged: bytes ≥ 32 are characters, below are
   control codes (`SC_END`, `SC_NL`, `SC_PAGE`). The scripts themselves port
   verbatim from the assembly's `.byte` runs.
-- Spawn tables port verbatim as `constexpr` arrays of `(type, i, j)`.
+- **Spawn tables do not port. They are already data.** `tools/build_assets.py`
+  emits them from `assets/ds/<scene>_cast.txt` into `assets/gen/ds/` as
+  `(type, i, j, variant)` rows terminated by `$FF` — the same three-byte walk
+  `SpawnTable` did, with a fourth byte. Load the binary; do not transcribe the
+  assembly, and do not add a `constexpr` copy beside it.
+  - `<scene>cast.bin` is placed on entry and after a death. It **already
+    contains the prop actors**, which are derived from the map: `T` is a palm,
+    `Y` a coconut palm, `R` a boulder, `r` a rock, `l` a lamp post. Do not
+    synthesise them a second time and do not place them by hand — the cast file
+    refuses a hand-written `Palm` row for that reason.
+  - `<scene><table>.bin` is one deferred table per section — `day1`, `day2`,
+    `pair` — and *when* each is spawned is your scene's business, which is
+    exactly why the pipeline does not decide it.
+  - `<scene>spots.bin` is `(i, j)` pairs: where the Heartless come up.
+  - `<scene>doors.bin` is `(i, j, land_i, land_j)`. It says where the doors are
+    and where Sora stands beside one; it does **not** say what is on the other
+    side. `town.s`'s `doorTable` carried a destination scene and a gating stage
+    in three more bytes per row, and reconstructing that wiring for the 48×32
+    districts is this milestone's job.
+  - `variant`, the fourth byte, selects a line. `TalkTown` dispatched on actor
+    *type*, so its three residents could not tell two townsmen apart; the DS
+    districts place several of each and distinguish them here. Bounds-check it.
+- `MAX_ACTORS` is **128**, not the SNES's 32, and the pool is not the binding
+  limit — `OBJ_BUDGET_SCENERY` is. Read
+  `docs/behaviour/divergences/002-ds-actor-pool.md` before you place anything.
+- **`spawn()` returns −1 on a full pool and every caller must check it.** The
+  SNES signalled this with a clear carry that `SpawnTable` ignored, which is how
+  the bottle under the waterfall went missing for a whole day.
 - **Both bosses mark their slam target on entry to the wind-up**, 44 and 40
   frames before impact. `BEHAVIOUR.md` §4 is corrected on this; getting it
   backwards inverts the dodge window and is the single most consequential error a

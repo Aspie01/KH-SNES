@@ -1,0 +1,62 @@
+# Destiny Islands -- Nintendo DS cast.  Tile coordinates into island.txt.
+#
+# Palms, coconut palms, boulders, rocks and lamp posts are NOT listed here.
+# They are derived from the tile they stand on: T is a palm, Y a palm carrying
+# coconuts, R a boulder, r a rock, l a street lamp.  On the SNES both halves
+# were hand-written and agreed only because somebody kept them in step; a T with
+# no palm on it is an invisible wall.  To add a tree, add a character to the map.
+#
+# Rows are  Type  i  j  [variant]
+# The variant selects a line of dialogue, or one silhouette out of several for a
+# prop.  Nothing reads it until M5; 0 is always valid.
+#
+#   [base]   placed on entry, and again after a death
+#   [day1]   the raft errand's four pieces
+#   [day2]   food and water -- never present at the same time as [day1]
+#   [spots]  where the Heartless come up the night the island falls
+
+[base]
+Sora        24 20         # the lawn above the dock, where he wakes up
+
+# --- the five islanders --------------------------------------------------
+# Spread over four times the ground, so each one is somewhere you have to walk
+# to rather than four of them within one screen of the start.
+Kairi       25 20         # standing over him
+Riku        55 16         # the small island, past the bridge
+Tidus       10  9         # up on the lookout deck
+Selphie     30 18         # the east lawn
+Wakka       20 21         # down by the dock
+
+# --- the back wall of the Secret Place -----------------------------------
+# Reached by wading round the waterfall, not walked into from the lawn.
+Faces        7  5
+Door         8  5
+Scribble     9  5
+
+[day1]
+Log         21 22         # by the dock
+Log         54 17         # the small island, behind Riku
+Cloth       25  9         # inside the treehouse
+Rope        11  9         # the lookout deck, beside Tidus
+
+[day2]
+Fish         5 20         # the west shallows
+Fish        42 19         # the east shallows
+Fish        23 26         # off the south end of the dock
+Mush         8 11         # the west grass, under the headland
+Mush        35 17         # the east grass
+Mush         7  6         # the floor of the Secret Place, below the drawings
+Egg         25  8         # the nest in the treetop
+Bottle      12  7         # under the fall
+
+[spots]
+12 13
+20 15
+30 12
+38 17
+16 19
+28 21
+35 14
+18 11
+40 12
+24 16

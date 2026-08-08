@@ -1,0 +1,29 @@
+# Traverse Town, First District -- Nintendo DS cast.  Tiles into town1.txt.
+#
+# Lamp posts are NOT listed here: an l tile is a lamp post.  See island_cast.txt
+# for why the correspondence is a rule and not a convention.
+#
+# Rows are  Type  i  j  [variant].  The variant picks the line, which is what
+# makes six strangers six people instead of one sentence six times -- dialogue
+# dispatched on actor TYPE on the SNES, and three of these are TownMan.
+#
+#   [base]   placed on entry, and again after a death
+#   [doors]  the door tile, and the tile Sora stands on beside it.  Which
+#            district each one leads to is scene logic (M5), not data here.
+
+[base]
+Sora        20 20         # face down in the middle of the plaza
+
+# The one district with people in it, and now with room for them to be spread
+# out instead of standing in a line.
+Cid         17  6   0     # the lit shop front, beside the Accessory Shop door
+TownMan     10 15   0     # west of the plaza, going nowhere
+TownMan     30 20   1     # under the walkway
+TownMan      7 24   2     # by the south-west crates
+TownWoman   26 22   0     # crossing the square
+TownWoman   38 16   1     # at the foot of the walkway steps
+TownWoman   14  8   2     # outside the shop row
+
+[doors]
+16  4  16  5              # the Accessory Shop
+24  4  24  5              # the way through to the Second District

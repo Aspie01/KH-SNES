@@ -10,6 +10,7 @@ sit inside SNES limits (16 colours per palette, 4bpp tiles, 256-tile pages).
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -2064,6 +2065,268 @@ def load_grid(name: str = "island.txt", subdir: str = "") -> Grid:
     return Grid(rows, name)
 
 
+# ---------------------------------------------------------------------------
+# The cast
+#
+# A scene is a map plus the things standing on it.  On the SNES both halves were
+# hand-written: a table of (type, i, j) triples in assembly, and the map, with
+# nothing checking that they agreed.  They did agree -- every T tile carried
+# exactly one ACT_PALM and so on for R, Y, r and l -- but only because somebody
+# kept them in step by hand, and a T with no palm on it is an invisible wall.
+#
+# So the correspondence is a rule here rather than a coincidence.  Prop actors
+# are DERIVED from the map: the tile says what stands on it, and the cast file
+# never mentions a palm.  Adding a tree to a map is adding one character.
+# ---------------------------------------------------------------------------
+
+# tile code -> the actor that must be standing on it, and nothing else may be.
+PROP_ACTOR = {
+    "T": "Palm",
+    "Y": "PalmC",       # a palm still carrying its coconuts
+    "R": "RockBig",
+    "r": "Rock",
+    "l": "Lamp",        # a street lamp, so somebody can walk behind it
+}
+
+
+def _act_types() -> dict[str, int]:
+    """Read the actor type numbers out of the DS header rather than repeating them.
+
+    There were two copies of this enumeration already (game.inc for the SNES and
+    actor.h for the DS, kept equal by hand and pinned by static_assert).  A third
+    in the asset pipeline would be the one nothing checks, so parse the header:
+    if it will not parse, that is a hard error and not a silent fallback.
+    """
+    path = ROOT / "platform" / "ds" / "include" / "actor.h"
+    text = path.read_text()
+    body = text.split("enum class ActType", 1)
+    if len(body) != 2:
+        raise SystemExit(f"{path}: no 'enum class ActType' to read type numbers from")
+    body = body[1].split("};", 1)[0]
+    out: dict[str, int] = {}
+    for name, num in re.findall(r"^\s*(\w+)\s*=\s*(\d+)\s*,", body, re.M):
+        out[name] = int(num)
+    if "Sora" not in out or "Lamp" not in out:
+        raise SystemExit(f"{path}: parsed {len(out)} actor types but not the ones "
+                         f"the cast files use -- has the enum changed shape?")
+    return out
+
+
+ACT = _act_types()
+
+# Sections that mean something specific.  Any OTHER section name is a table of
+# actors the scene spawns at a moment of its own choosing -- the second day's
+# food, the two who fall out of the sky in the Third District -- because those
+# moments are scene logic and the pipeline has no business enumerating them.
+CAST_END = 0xFF                         # terminates every emitted table
+
+
+class Cast:
+    """One scene's cast: what is placed, where, and when.
+
+    `base` is placed on entry and again after a death.  `spots` is where the
+    Heartless come up.  `doors` is a door tile and the tile Sora is stood on
+    beside it.  Everything else is a named table, kept separate for the reason
+    island.s kept two of them: merged, they would spawn the second day's
+    mushrooms on the first.
+    """
+
+    __slots__ = ("base", "tables", "spots", "doors", "name")
+
+    def __init__(self, name: str):
+        self.name = name
+        self.base: list[tuple[str, int, int, int]] = []
+        self.tables: dict[str, list[tuple[str, int, int, int]]] = {}
+        self.spots: list[tuple[int, int]] = []
+        self.doors: list[tuple[int, int, int, int]] = []
+
+    @property
+    def actors(self):
+        """Every authored actor row, whichever moment it is placed at."""
+        return self.base + [r for t in self.tables.values() for r in t]
+
+    @property
+    def peak(self):
+        """The most actors that can be resident at once, counting generously.
+
+        Every table summed rather than the largest taken: some are alternatives
+        (the island's two days) and some are additive (Donald and Goofy join a
+        district that is already populated), and the pipeline cannot tell which
+        without knowing the scene's logic.  Over-counting a pool budget is the
+        safe direction to be wrong in.
+        """
+        return len(self.base) + sum(len(t) for t in self.tables.values())
+
+
+def load_cast(stem: str) -> Cast:
+    """Read assets/ds/<stem>_cast.txt.  Missing file means an empty cast."""
+    path = ROOT / "assets" / "ds" / f"{stem}_cast.txt"
+    cast = Cast(stem)
+    if not path.exists():
+        return cast
+    section = None
+    for n, raw in enumerate(path.read_text().splitlines(), 1):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        where = f"{path.name}:{n}"
+        if line[0] == "[":
+            section = line.strip("[]").strip()
+            if not section.isidentifier():
+                raise SystemExit(f"{where}: '{section}' is not usable as a "
+                                 f"table name")
+            if section not in ("base", "spots", "doors"):
+                cast.tables.setdefault(section, [])
+            continue
+        if section is None:
+            raise SystemExit(f"{where}: a row before any [section] header")
+        f = line.split()
+        if section == "spots":
+            if len(f) != 2:
+                raise SystemExit(f"{where}: a spot is 'i j', got {len(f)} fields")
+            cast.spots.append((int(f[0]), int(f[1])))
+        elif section == "doors":
+            if len(f) != 4:
+                raise SystemExit(f"{where}: a door is 'i j land_i land_j', "
+                                 f"got {len(f)} fields")
+            cast.doors.append(tuple(int(v) for v in f))   # type: ignore[arg-type]
+        else:
+            if len(f) not in (3, 4):
+                raise SystemExit(f"{where}: an actor is 'Type i j [variant]', "
+                                 f"got {len(f)} fields")
+            if f[0] not in ACT:
+                raise SystemExit(f"{where}: '{f[0]}' is not an ActType")
+            if f[0] in PROP_ACTOR.values():
+                raise SystemExit(
+                    f"{where}: '{f[0]}' is derived from the map, not authored -- "
+                    f"put the tile down instead and it will appear")
+            row = (f[0], int(f[1]), int(f[2]), int(f[3]) if len(f) == 4 else 0)
+            if not 0 <= row[3] <= 255:
+                raise SystemExit(f"{where}: variant {row[3]} does not fit a byte")
+            (cast.base if section == "base" else cast.tables[section]).append(row)
+    return cast
+
+
+def derive_props(grid) -> list[tuple[str, int, int, int]]:
+    """Every prop the map asks for, north to south then west to east.
+
+    The order is the map's, so a scene's prop slots are stable under an edit
+    somewhere else on the map -- which is what keeps a trace diff readable.
+    """
+    return [(PROP_ACTOR[grid[j][i]], i, j, 0)
+            for j in range(grid.h) for i in range(grid.w)
+            if grid[j][i] in PROP_ACTOR]
+
+
+def cast_bytes(rows) -> bytes:
+    """(type, i, j, variant) rows, terminated -- the walk the DS loader does.
+
+    Four bytes rather than the SNES's three.  The fourth is a variant, and it is
+    the reason this format is not just the old one: dialogue dispatched on actor
+    TYPE, so six townspeople all said the same sentence, and six identical
+    strangers read worse than two.  Nothing consumes it until M5; it is here
+    now because adding a field later means re-authoring every file.
+    """
+    out = bytearray()
+    for name, i, j, var in rows:
+        out += bytes((ACT[name], i, j, var))
+    out.append(CAST_END)
+    return bytes(out)
+
+
+# Marker colours for the preview, appended above the sixteen the ground uses.
+# The preview is how placement gets reviewed, and a cast that cannot be seen is
+# a cast nobody checks.
+CAST_MARKERS = [
+    (0, 0, 0),              # 16: outline, so a marker reads on any ground
+    (255, 208, 64),         # 17: somebody who can be talked to
+    (96, 232, 255),         # 18: something that can be picked up
+    (120, 200, 120),        # 19: a derived prop
+    (255, 96, 96),          # 20: where a Heartless comes up
+    (255, 255, 255),        # 21: a door, and the tile it lands on
+    (255, 128, 255),        # 22: the wall of the Secret Place
+    (255, 144, 32),         # 23: Sora
+]
+MARK_OUTLINE, MARK_PERSON, MARK_ITEM, MARK_PROP = 16, 17, 18, 19
+MARK_SPOT, MARK_DOOR, MARK_WALL, MARK_SORA = 20, 21, 22, 23
+
+
+def _marker_of(name: str) -> int:
+    if name == "Sora":
+        return MARK_SORA
+    if name in PROP_ACTOR.values():
+        return MARK_PROP
+    if is_pickup(name) or name == "Fish":
+        return MARK_ITEM
+    if name in ("Door", "Faces", "Scribble", "DoorOpen"):
+        return MARK_WALL
+    return MARK_PERSON
+
+
+def is_pickup(name: str) -> bool:
+    """Log..Bottle, the range whose order also indexes the item tally."""
+    return ACT["Log"] <= ACT.get(name, 0) <= ACT["Bottle"]
+
+
+def draw_cast(world, rows, marker_of=_marker_of) -> None:
+    """Stamp a marker per cast entry onto a copy of the painted world.
+
+    A tile is 16 px, so a marker sits in the middle of one and cannot be
+    mistaken for terrain: a filled diamond in a black surround.
+    """
+    for row in rows:
+        if len(row) == 2:                       # a Heartless spot: no type
+            (i, j), mark = row, MARK_SPOT
+        elif len(row) == 4 and isinstance(row[0], str):
+            _, i, j, _ = row
+            mark = marker_of(row[0])
+        else:                                   # a door and the tile it lands on
+            i, j, mark = row[0], row[1], MARK_DOOR
+        cx, cy = i * TILE + 8, j * TILE + 8
+        for dy in range(-5, 6):
+            for dx in range(-5, 6):
+                d = abs(dx) + abs(dy)
+                if d > 5:
+                    continue
+                x, y = cx + dx, cy + dy
+                if 0 <= x < world.w and 0 <= y < world.h:
+                    world.set(x, y, mark if d <= 3 else MARK_OUTLINE)
+
+
+def build_ds_cast(stem: str, grid, world, palette) -> tuple[Cast, int]:
+    """Emit one scene's cast tables, and a preview with every entry marked."""
+    out = GEN / "ds"
+    out.mkdir(parents=True, exist_ok=True)
+    cast = load_cast(stem)
+    props = derive_props(grid)
+
+    write_bin(out / f"{stem}cast.bin", cast_bytes(props + cast.base))
+    for name, rows in cast.tables.items():
+        write_bin(out / f"{stem}{name}.bin", cast_bytes(rows))
+    if cast.spots:
+        write_bin(out / f"{stem}spots.bin",
+                  bytes(v for s in cast.spots for v in s) + bytes((CAST_END,)))
+    if cast.doors:
+        write_bin(out / f"{stem}doors.bin",
+                  bytes(v for d in cast.doors for v in d) + bytes((CAST_END,)))
+
+    marked = Canvas(world.w, world.h)
+    marked.px = [row[:] for row in world.px]
+    draw_cast(marked, props + cast.actors + cast.spots
+              + [(d[0], d[1]) for d in cast.doors]
+              + [(d[2], d[3]) for d in cast.doors])
+    write_png(marked, list(palette) + CAST_MARKERS,
+              SRC / f"ds_{stem}_cast.png")
+
+    peak = len(props) + cast.peak
+    extra = ", ".join(f"{len(v)} {k}" for k, v in cast.tables.items())
+    print(f"     cast: {len(props)} props from the map + {len(cast.base)} placed"
+          f"{f' + {extra}' if extra else ''}, peak {peak}"
+          f"{f', {len(cast.spots)} spots' if cast.spots else ''}"
+          f"{f', {len(cast.doors)} doors' if cast.doors else ''}")
+    return cast, peak
+
+
 def build_ds_scene(stem: str, grid, palette=None) -> None:
     """Emit one DS scene: characters, a row-major tilemap, collision, height.
 
@@ -2079,12 +2342,14 @@ def build_ds_scene(stem: str, grid, palette=None) -> None:
     write_bin(out / f"{stem}map.bin", tilemap)
     write_bin(out / f"{stem}coll.bin", coll)
     write_bin(out / f"{stem}height.bin", hmap)
-    write_png(world, palette or BG_GROUND, SRC / f"ds_{stem}_preview.png")
+    palette = palette or BG_GROUND
+    write_png(world, palette, SRC / f"ds_{stem}_preview.png")
     walkable = sum(coll)
     cw, chh = world.w // 8, world.h // 8
     streams = "streams" if max(grid.w, grid.h) > DS_BG_TILES else "fits one BG"
     print(f"ds/{stem}: {grid.w}x{grid.h} tiles, {world.w}x{world.h} px, "
           f"{cw}x{chh} chars, {n} unique, {walkable} walkable, {streams}")
+    build_ds_cast(stem, grid, world, palette)
 
 
 def main() -> int:

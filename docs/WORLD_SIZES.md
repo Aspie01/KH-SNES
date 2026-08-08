@@ -109,6 +109,72 @@ The character dedupe is unchanged and still earns its keep at the larger size:
 the 64×32 island folds to **242 unique characters** from 8192 cells, and the
 districts to 85, 107 and 85 from 6144 each.
 
+## Filling them: the cast
+
+An expanded map is empty ground until something stands on it. The SNES kept two
+hand-written halves — a table of `(type, i, j)` triples in assembly and the map —
+with nothing checking that they agreed. They did agree: every `T` tile carried
+exactly one `ACT_PALM`, every `R` an `ACT_ROCKBIG`, `Y` a `PALMC`, `r` a `ROCK`,
+`l` a `LAMP`, one each, no exceptions. But only because somebody kept them in
+step by hand, and a `T` with no palm on it is an **invisible wall**.
+
+So on the DS that correspondence is a rule instead of a coincidence:
+
+- **Prop actors are derived from the map.** The tile says what stands on it and
+  the cast file never mentions a palm. Adding a tree is adding one character;
+  `build_assets.py` emits the actor and `check_map.py` finds it there. The file
+  refuses a hand-written `Palm` row rather than accepting a second source.
+- **The cast file holds only what cannot be derived** — people, items, the
+  Heartless spots, the doors — in `assets/ds/<scene>_cast.txt`, in sections that
+  mirror the tables `island.s` and `town.s` deliberately kept apart, because
+  merged they would spawn the second day's mushrooms on the first.
+- **`check_map.py` reads those files** rather than mirroring them. It derives
+  reach-versus-adjacent from the tile under each entry, so that distinction
+  cannot be *declared* wrongly; and it rejects two entries on one tile, an
+  authored actor standing on a prop tile, an unreachable door or landing, and a
+  cast that does not fit the budgets. It found two real bugs the moment it ran:
+  the Secret Place's mushroom sitting on top of the chalk faces, and a route
+  claim pointing at open water instead of the end of the dock.
+
+What that bought:
+
+| | Props | Placed | Spots | Peak actors |
+| --- | --- | --- | --- | --- |
+| SNES island | 8 | 9 | 10 | 25 |
+| **DS island** | **69** | 9 | 10 | **90** |
+| SNES district (1/2/3) | 2 / 2 / 2 | 3 / 0 / 2 | – / 8 / – | 6 / 5 / 7 |
+| **DS district (1/2/3)** | **13 / 13 / 12** | 8 / 1 / 1 | – / **12** / – | 21 / 14 / 15 |
+
+The island's palms and rocks are placed by grove rather than on a lattice —
+evenly spaced trees read as an orchard — and each placement is flood-filled and
+reverted unless it costs exactly the tile it stands on. Four were refused that
+way; two of them had boxed in a pocket of the small island that the first pass
+shipped. Crates and the lamps' pools of warm paving are terrain rather than
+actors, so they cost no sprite and no pool slot, and they are the cheapest thing
+that stops a courtyard reading as a car park. The Third District's arena is
+deliberately left bare: a 64×64 boss slams down on it and two walkways look into
+it.
+
+Placement is reviewed by looking at it. `assets/src/ds_<scene>_cast.png` is the
+ground with a marker stamped on every cast entry, colour-keyed by kind.
+
+### The pool had to grow, and that is a divergence
+
+`MAX_ACTORS = 32` on the SNES was never an OAM limit — an ordinary actor is one
+32×32 sprite, so a full pool used about 35 of 128 entries. It was WRAM and a
+3.58 MHz CPU. The DS pool holds **128**, which is not a tuning choice: the island
+asks for 69 prop actors before anybody is placed on it, so at 32 it cannot be
+loaded at all.
+
+The pool holds the whole map; **OAM holds what is on screen.** Those are
+different numbers, and the second is the one a dense map has to answer for, so
+`check_map.py` slides a 17×13-tile camera window over every map and enforces
+`OBJ_BUDGET_SCENERY = 96` of the engine's 128, leaving 32 for the transients, a
+four-quadrant boss and Sora. Worst cases today: island 33, districts 5–8.
+
+See `docs/behaviour/divergences/002-ds-actor-pool.md` for what changing the pool
+size does and does not do to the oracle.
+
 ## Consequences still open
 
 - **The 2D ground renderer needs streaming** (§M7 of the porting brief). Until it
@@ -116,16 +182,24 @@ districts to 85, 107 and 85 from 6144 each.
 - **The camera's clamp is per-scene now**, not a constant. `constants.h` carries
   the oracle fixture size and the island's separately; M3 makes it a runtime
   property of the loaded scene.
-- **The scene tables need re-placing per map.** Done: all 50 island spawn points
-  and all 72 district ones re-derived and checked, and every walkable tile on all
-  four maps is reachable from where Sora starts.
-- **More ground means more to fill.** 717 walkable tiles with the old cast
-  density reads as empty, and the districts are emptier still — three of them
-  hold 2647 walkable tiles between them and the shipped cast is Cid, two
-  townspeople, eight Heartless, Donald, Goofy and a boss. The palms, rocks,
-  bushes, crates and lamp posts are sprites placed from spawn tables, so this is
-  a content pass, not an engine one.
-- **The districts are not yet wired to a scene.** The maps and their spawn
-  tables exist and are validated; `town.s`'s door table, which is what makes the
-  three of them one town, is still written against the 32×16 originals. It moves
-  with the scene port in M5.
+- **The districts are not yet wired to a scene.** The maps, their cast and their
+  door tiles exist and are validated, but which district each door leads to is
+  scene logic and the `[doors]` section deliberately does not say. `town.s`'s
+  door table — seven bytes a row, carrying the destination scene and the stage
+  that gates it — is still written against the 32×16 originals. It moves with the
+  scene port in M5.
+- **`variant` is authored and unread.** The fourth byte of a cast row selects a
+  line of dialogue, which is what makes six townspeople six people rather than
+  one sentence six times: on the SNES `TalkTown` dispatched on actor *type*, so
+  it could not have told them apart. The field is filled in and nothing consumes
+  it until M5. It is there now because adding it later means re-authoring every
+  file.
+- **The night is not populated.** It runs on the island's map with its own cast —
+  Riku, Kairi, the columns of darkness, and far more Heartless than the two days
+  ever show — and that is a fifth cast file that does not exist yet. The pool was
+  sized with it in mind (90 of 128 used by the busiest daytime scene), but the
+  numbers are unverified until it is written.
+- **Sprite VRAM is still M4's problem.** Instances share tiles, so the 69 palms
+  and rocks cost per *type* and not per actor — but the bank map that says where
+  those tiles live has not been written, and the OBJ budget check above says
+  nothing about it.

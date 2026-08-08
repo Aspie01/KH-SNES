@@ -86,9 +86,34 @@ constexpr int MAX_STEP = 1;             // MAX_STEP  height steps a move may cro
 
 // ---------------------------------------------------------------------------
 // Actor pool
+//
+// The SNES held 32.  That was never an OAM limit -- an ordinary actor is a
+// single 32x32 sprite and only an AF_HUGE boss takes four, so a full SNES pool
+// used about 35 of its 128 entries.  It was a WRAM and cycle limit: sixteen
+// parallel arrays in the low bank, updated by a 3.58 MHz CPU every frame.
+//
+// Neither limit is the DS's.  The pool is ~3 KB of a 4 MB machine and the ARM9
+// runs at 33 MHz, so what actually bounds it is the OBJ budget below -- and that
+// bounds what is ON SCREEN, not what exists.  This is a divergence and not a
+// free upgrade: see docs/behaviour/divergences/002-ds-actor-pool.md.
+//
+// It is also not optional.  The expanded island asks for 69 prop actors before
+// a single person or item is placed on it, so at 32 the DS worlds cannot be
+// populated at all.
 // ---------------------------------------------------------------------------
-constexpr int MAX_ACTORS = 32;          // MAX_ACTORS
+constexpr int MAX_ACTORS = 128;         // SNES: MAX_ACTORS = 32
+constexpr int SNES_MAX_ACTORS = 32;     // kept, so the oracle diff can explain itself
 constexpr int TRANSIENT_ACTORS = 6;     // TRANSIENT_ACTORS  slack for spawned effects
+
+// One OAM entry per actor, and the main engine has 128 of them -- the sub screen
+// has its own 128 for the HUD, so the two do not compete.  A cast table may not
+// put more than OBJ_BUDGET_SCENERY objects inside one camera window; the rest is
+// held back for the transients, for Sora, and for a boss's four quadrants.
+// tools/check_map.py slides a window over every map and enforces it.
+constexpr int MAX_OBJECTS = 128;        // per 2D engine, so 256 across both screens
+constexpr int OBJ_BUDGET_SCENERY = 96;
+static_assert(OBJ_BUDGET_SCENERY + TRANSIENT_ACTORS + 4 + 1 <= MAX_OBJECTS,
+              "leave room for the transients, a four-quadrant boss and Sora");
 
 // ---------------------------------------------------------------------------
 // Interaction ranges -- half-extents of a box around a point.  A tile is 256 in

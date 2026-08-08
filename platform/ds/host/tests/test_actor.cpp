@@ -238,3 +238,38 @@ KH_TEST(map_size_is_per_scene) {
     // for.  If a district ever exceeds it, MAP_MAX_* is what has to move.
     CHECK(DS_DISTRICT_W <= DS_ISLAND_W);
 }
+
+KH_TEST(actor_pool_is_larger_than_the_snes_and_for_a_reason) {
+    // The SNES held 32 because of WRAM and cycles, not OAM -- a full pool used
+    // about 35 of its 128 entries.  Neither limit is the DS's, and the expanded
+    // island asks for 69 prop actors off the map before anybody is placed on it,
+    // so 32 here is not a sparse world, it is an unloadable one.
+    // See docs/behaviour/divergences/002-ds-actor-pool.md.
+    CHECK_EQ(SNES_MAX_ACTORS, 32);
+    CHECK_EQ(MAX_ACTORS, 128);
+    CHECK(MAX_ACTORS > 69 + TRANSIENT_ACTORS);
+
+    // The pool holds the whole map; OAM holds what is on screen.  Those are
+    // different numbers, and it is the second that bounds a dense map.
+    CHECK_EQ(MAX_OBJECTS, 128);             // per engine; the HUD has its own
+    CHECK(OBJ_BUDGET_SCENERY < MAX_OBJECTS);
+    // Enough left for the transients, a four-quadrant boss and Sora.  Checked
+    // against the numbers as well as the expression constants.h asserts, so
+    // moving either one has to be deliberate.
+    CHECK_EQ(MAX_OBJECTS - OBJ_BUDGET_SCENERY, 32);
+    CHECK(OBJ_BUDGET_SCENERY + TRANSIENT_ACTORS + 4 + 1 <= MAX_OBJECTS);
+}
+
+KH_TEST(actor_pool_still_refuses_past_the_new_ceiling) {
+    // Raising the ceiling must not have turned the refusal into a wrap: a pool
+    // that quietly recycled slot 0 would overwrite whatever stood there.
+    Actors a;
+    a.clear();
+    for (int i = 0; i < MAX_ACTORS; ++i)
+        CHECK_EQ(a.spawn(ActType::Palm, World(), World()), i);
+    CHECK_EQ(a.spawn(ActType::Palm, World(), World()), -1);
+    CHECK_EQ(a.spawn(ActType::Shadow, World(), World()), -1);
+    CHECK_EQ(a.count(ActType::Palm), MAX_ACTORS);
+    CHECK_EQ(a.count(ActType::Shadow), 0);
+    CHECK(a.type[0] == ActType::Palm);
+}

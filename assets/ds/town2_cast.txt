@@ -1,0 +1,29 @@
+# Traverse Town, Second District -- Nintendo DS cast.  Tiles into town2.txt.
+#
+# Lamp posts come from the l tiles.  Nobody is out here: that is the point of
+# the Second District, and filling it with townspeople because there is now
+# three times as much room to fill would be the wrong kind of more.  What the
+# extra ground carries instead is more places for the Heartless to come up, far
+# enough apart that they arrive from somewhere rather than all at once.
+
+[base]
+Sora        28  5         # through the door from the First District
+
+[spots]
+8 12                      # the north-west corner of the square
+28 12                     # ...and the north-east
+7 16                      # west of the fountain
+30 17                     # east of it
+10 21                     # the south-west
+20 22                     # in front of the fountain
+18 26                     # against the south wall
+36 20                     # below the walkway steps
+14 11                     # between the fountain and the north wall
+25 24                     # by the crates
+40 12                     # the alley end of the walkway
+5 26                      # the south-west corner
+
+[doors]
+5  4   5  5               # the way on, to the Third District
+24  4  24  5              # the Hotel
+28  4  28  5              # back to the First District

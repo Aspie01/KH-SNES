@@ -10,15 +10,26 @@ tile whose height is within MAX_STEP of the one being left.
 """
 from __future__ import annotations
 
+import re
 import sys
 from collections import deque
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from build_assets import TERRAIN, load_grid   # noqa: E402
+from build_assets import (                  # noqa: E402
+    ACT, PROP_ACTOR, TERRAIN, derive_props, load_cast, load_grid,
+)
 
 MAX_STEP = 1
+
+ROOT = Path(__file__).resolve().parent.parent
+
+# What one DS screen can show at once, in 16 px tiles: 256x192 is 16x12, plus a
+# partial tile on each axis because the camera does not stop on tile boundaries.
+# This is the window the OBJ budget applies to -- OAM holds what is visible, not
+# what exists, so it is the number a dense map has to answer for.
+SCREEN_TILES = (17, 13)
 
 # Where Sora wakes up, and everything the two days expect him to get to.
 SPAWN = (11, 12)
@@ -132,192 +143,102 @@ TOWN3_NEAR = {"lamp (west)": (7, 7), "lamp (east)": (24, 7)}
 
 
 # ---------------------------------------------------------------------------
-# The Nintendo DS island: 64x32, four times the area, so every spawn point had
-# to be re-placed.  This is the table that proves the expansion did not strand
-# anything -- the Secret Place in particular, which is now sealed on three sides
-# and entered only by wading round the waterfall.
+# The Nintendo DS worlds
+#
+# These are NOT mirrored by hand.  The scenes' spawn data lives in
+# assets/ds/<scene>_cast.txt and the prop actors are derived from the map
+# itself, so this file reads the same bytes the DS build will and the class of
+# bug where the mirror drifts from the table cannot happen.
+#
+# What stays hand-written is the part that is an assertion about the map rather
+# than data the game reads: routes.  "The bridge can be crossed" and "the cave
+# can be entered" are claims about connectivity that no spawn table states, and
+# they are exactly the claims an edit somewhere else quietly breaks.
 # ---------------------------------------------------------------------------
-DS_ISLAND_SPAWN = (24, 20)
-
-DS_ISLAND = {
-    "Sora": (24, 20),
-    "Kairi": (25, 20),
-    "Riku (the small island)": (55, 16),
-    "Tidus (the lookout deck)": (10, 9),
-    "Selphie": (30, 18),
-    "Wakka": (20, 21),
-    # day one
-    "log (by the dock)": (21, 22),
-    "log (the small island)": (54, 17),
-    "cloth (the treehouse)": (25, 9),
-    "rope (the lookout deck)": (11, 9),
-    # day two
-    "mushroom (the west grass)": (8, 11),
-    "mushroom (the east grass)": (35, 17),
-    "mushroom (the Secret Place)": (7, 5),
-    "egg (the treetop)": (25, 8),
-    "bottle (under the fall)": (12, 7),
-    # the chamber wall, which Sora has to stand in front of
-    "chalk faces": (7, 5),
-    "the door": (8, 5),
-    "scribbles": (9, 5),
-    # the passage in, and the pool it is reached through
-    "the cave passage": (11, 6),
-    "the plunge pool": (11, 8),
-    # the race
-    "paopu landing": (55, 15),
-    "the far end of the bridge": (52, 15),
-    "the near end of the bridge": (44, 15),
-    # the night
-    "night Riku": (55, 16),
-    "night Kairi": (8, 6),
-    "shadow spot 1": (12, 13),
-    "shadow spot 2": (20, 15),
-    "shadow spot 3": (30, 12),
-    "shadow spot 4": (38, 17),
-    "shadow spot 5": (16, 19),
-    "shadow spot 6": (28, 21),
-    "shadow spot 7": (35, 14),
-    "shadow spot 8": (18, 11),
-    "shadow spot 9": (40, 12),
-    "shadow spot 10": (24, 16),
+DS_ROUTES = {
+    "island": {
+        "the cave passage": (11, 6),
+        "the plunge pool": (11, 8),
+        "the near end of the bridge": (44, 15),
+        "the far end of the bridge": (52, 15),
+        "the paopu landing": (55, 15),
+        "where Kairi stands the night it falls": (8, 6),
+        "the south end of the dock": (21, 26),
+        # The treehouse floor, its treetop and the lookout deck are not listed:
+        # the cloth, the egg and the rope stand on them, so the cast covers them.
+    },
+    "town1": {
+        "the walkway (west end)": (30, 10),
+        "the walkway (east end)": (43, 10),
+        "the step up to the walkway (west)": (34, 13),
+        "the step up to the walkway (east)": (39, 13),
+        "the alley behind the walkway": (44, 8),
+    },
+    "town2": {
+        "the walkway (north end)": (33, 9),
+        "the walkway (south end)": (43, 14),
+        "the step up to the walkway (west)": (36, 15),
+        "the step up to the walkway (east)": (41, 15),
+        "the alley behind the walkway": (44, 6),
+    },
+    "town3": {
+        "the west walkway": (5, 10),
+        "the east walkway": (42, 10),
+        "the west step up (near)": (8, 12),
+        "the west step up (far)": (15, 12),
+        "the east step up (near)": (32, 12),
+        "the east step up (far)": (39, 12),
+        "the west alley": (3, 6),
+        "the east alley": (44, 6),
+        "the corridor down from the door": (23, 11),
+        "the floor the Guard Armor lands on": (23, 18),
+    },
 }
 
-DS_ISLAND_NEAR = {
-    "coconut palm (west)": (15, 12),
-    "coconut palm (centre)": (31, 12),
-    "coconut palm (south)": (23, 18),
-    "coconut palm (east)": (37, 13),
-    "paopu tree": (56, 15),
-    "fish (west shallows)": (5, 20),
-    "fish (east shallows)": (42, 19),
-    "fish (off the dock)": (24, 25),
-    "boulder (west)": (10, 15),
-    "boulder (centre)": (28, 16),
-    "boulder (by the bridge)": (43, 15),
-    "bush (the headland)": (8, 12),
-    "bush (by the treehouse)": (30, 10),
-    "rock (the south beach)": (27, 22),
-    "rock (the small island)": (54, 19),
-}
-
-
-# ---------------------------------------------------------------------------
-# The Nintendo DS districts: 48x32, three times the area.  A district is walled
-# on all four sides, so unlike the island every one of these maps has exactly
-# one way in and out and the whole map hangs off it -- a door in the wrong
-# column is not a cosmetic mistake, it is a district with no exit.  The
-# expansion also added +2 walkways, which the one-step rule can only admit
-# through the +1 steps beneath them, and alleys behind those walkways that are
-# reachable only round their southern end.  Both are checked from both sides.
-# ---------------------------------------------------------------------------
-DS_TOWN1 = {
-    "Sora": (20, 20),
-    "Cid (outside the Accessory Shop)": (17, 6),
-    "a townsman": (10, 15),
-    "a townswoman": (30, 20),
-    "the Accessory Shop door": (16, 4),
-    "the Accessory Shop landing": (16, 5),
-    "the door to the Second District": (24, 4),
-    "the landing from the Second District": (24, 5),
-    # The north-east walkway is +2, so it is only enterable over the +1 steps.
-    "the step up to the walkway (west)": (34, 13),
-    "the step up to the walkway (east)": (39, 13),
-    "the walkway (west end)": (30, 10),
-    "the walkway (east end)": (43, 10),
-    # The strip between the walkway's building and the east wall, which is
-    # walled off to the north and only opens at its southern end.
-    "the alley behind the walkway": (44, 8),
-}
-
-DS_TOWN2 = {
-    "Sora": (28, 5),
-    "the door back to the First District": (28, 4),
-    "the landing from the First District": (28, 5),
-    "the door to the Third District": (5, 4),
-    "the landing from the Third District": (5, 5),
-    "the Hotel door": (24, 4),
-    "the Hotel landing": (24, 5),
-    # The eight places the Heartless come up.  The fountain is much larger than
-    # it was, so every one of these had to be re-placed off it.
-    "shadow spot 1": (8, 12),
-    "shadow spot 2": (28, 12),
-    "shadow spot 3": (10, 21),
-    "shadow spot 4": (20, 22),
-    "shadow spot 5": (7, 16),
-    "shadow spot 6": (30, 17),
-    "shadow spot 7": (18, 26),
-    "shadow spot 8": (36, 20),
-    "the step up to the walkway (west)": (36, 15),
-    "the step up to the walkway (east)": (41, 15),
-    "the walkway (north end)": (33, 9),
-    "the walkway (south end)": (43, 14),
-    "the alley behind the walkway": (44, 6),
-}
-
-DS_TOWN3 = {
-    "Sora": (23, 5),
-    "the door back to the Second District": (23, 4),
-    "the landing from the Second District": (23, 5),
-    "Donald": (20, 20),
-    "Goofy": (26, 20),
-    # The Guard Armor drops into the middle of the floor, which the two
-    # walkways look down on, so this tile has to stay clear of both of them.
-    "the Guard Armor": (23, 18),
-    "the west step up (near)": (8, 12),
-    "the west step up (far)": (15, 12),
-    "the east step up (near)": (32, 12),
-    "the east step up (far)": (39, 12),
-    "the west walkway": (5, 10),
-    "the east walkway": (42, 10),
-    "the west alley": (3, 6),
-    "the east alley": (44, 6),
-    "the corridor down from the door": (23, 11),
-}
-
-# Lamp posts and crates stand on their own blocked tiles, so like the palms
-# they are checked for a walkable neighbour.  So is the fountain rim, which
-# Sora has to be able to stand at without being able to stand on.
-DS_TOWN1_NEAR = {
-    "lamp (north-west)": (9, 9),
-    "lamp (north-east)": (20, 9),
-    "lamp (south-west)": (9, 22),
-    "lamp (south-east)": (20, 22),
-    "lamp (below the walkway)": (35, 24),
-    "crates (by the shop row)": (3, 6),
-    "crates (south-west)": (4, 26),
-    "crates (south-east)": (43, 26),
-}
-
-DS_TOWN2_NEAR = {
-    "lamp (north-west)": (8, 9),
-    "lamp (north-east)": (28, 9),
-    "lamp (south-west)": (8, 25),
-    "lamp (south-east)": (30, 25),
-    "lamp (below the walkway)": (39, 22),
-    "the fountain rim (north)": (18, 13),
-    "the fountain rim (south)": (18, 20),
-    "crates (by the Third District door)": (4, 6),
-    "crates (the south wall)": (27, 27),
-    "crates (south-east)": (43, 26),
-}
-
-DS_TOWN3_NEAR = {
-    "lamp (north-west)": (6, 16),
-    "lamp (north-east)": (41, 16),
-    "lamp (south-west)": (6, 25),
-    "lamp (south-east)": (41, 25),
-    "crates (south-west)": (4, 26),
-    "crates (south-east)": (43, 26),
+# The blocked scenery Sora has to be able to stand beside without standing on:
+# crates and the fountain rim.  Prop actors are not listed -- they come off the
+# map, and the checker finds them there.
+DS_ADJACENT = {
+    "town1": {
+        "crates (by the shop row)": (3, 6),
+        "crates (south-west)": (4, 26),
+        "crates (south-east)": (43, 26),
+    },
+    "town2": {
+        "the fountain rim (north)": (18, 13),
+        "the fountain rim (south)": (18, 20),
+        "crates (by the Third District door)": (4, 6),
+        "crates (the south wall)": (27, 27),
+        "crates (south-east)": (43, 26),
+    },
+    "town3": {
+        "crates (south-west)": (4, 26),
+        "crates (south-east)": (43, 26),
+    },
 }
 
 
-def check(label: str, grid, spawn: tuple[int, int],
-          reach: dict, adjacent: dict) -> int:
-    """Flood-fill one map with the engine's rule and check every spawn point.
+def ds_limits() -> tuple[int, int, int]:
+    """MAX_ACTORS, TRANSIENT_ACTORS and the object budget, read from the header.
 
-    The map's dimensions come from the map, not from a constant: the DS worlds
-    are larger than the SNES ones, and this checker has to serve both.
+    Read rather than repeated: a pool budget checked against a stale copy of the
+    pool size is worse than no check at all.
+    """
+    text = (ROOT / "platform" / "ds" / "include" / "constants.h").read_text()
+    out = {}
+    for name in ("MAX_ACTORS", "TRANSIENT_ACTORS", "OBJ_BUDGET_SCENERY"):
+        m = re.search(rf"^constexpr int {name} = (\d+);", text, re.M)
+        if not m:
+            raise SystemExit(f"constants.h: no '{name}' to check the cast against")
+        out[name] = int(m.group(1))
+    return out["MAX_ACTORS"], out["TRANSIENT_ACTORS"], out["OBJ_BUDGET_SCENERY"]
+
+
+def walk(grid, spawn: tuple[int, int]):
+    """The engine's own reachability: walkable, and within MAX_STEP of height.
+
+    Returns (walkable, height, reached), with reached None if the spawn itself
+    is not standable -- there is nothing to say about a map nobody can enter.
     """
     W, H = grid.w, grid.h
     walkable, height = {}, {}
@@ -325,11 +246,8 @@ def check(label: str, grid, spawn: tuple[int, int],
         for i in range(W):
             code = TERRAIN[grid[j][i]]
             walkable[(i, j)], height[(i, j)] = code[3], code[4]
-
     if not walkable[spawn]:
-        print(f"{label}: spawn {spawn} is not walkable "
-              f"('{grid[spawn[1]][spawn[0]]}')")
-        return 1
+        return walkable, height, None
 
     seen = {spawn}
     queue = deque([spawn])
@@ -345,6 +263,28 @@ def check(label: str, grid, spawn: tuple[int, int],
                 continue
             seen.add(n)
             queue.append(n)
+    return walkable, height, seen
+
+
+def neighbours(grid, pos):
+    i, j = pos
+    return [(i + di, j + dj) for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            if 0 <= i + di < grid.w and 0 <= j + dj < grid.h]
+
+
+def check(label: str, grid, spawn: tuple[int, int],
+          reach: dict, adjacent: dict) -> int:
+    """Flood-fill one map with the engine's rule and check every spawn point.
+
+    The map's dimensions come from the map, not from a constant: the DS worlds
+    are larger than the SNES ones, and this checker has to serve both.
+    """
+    W, H = grid.w, grid.h
+    walkable, height, seen = walk(grid, spawn)
+    if seen is None:
+        print(f"{label}: spawn {spawn} is not walkable "
+              f"('{grid[spawn[1]][spawn[0]]}')")
+        return 1
 
     bad = []
     for name, pos in reach.items():
@@ -369,6 +309,128 @@ def check(label: str, grid, spawn: tuple[int, int],
     return 0
 
 
+def check_ds(stem: str, routes: dict, adjacent: dict) -> int:
+    """Check one DS scene against its own cast file and the map it stands on.
+
+    Nothing here is a mirror of anything: the props come off the map, the people
+    and items and spots come out of assets/ds/<stem>_cast.txt, and the pool and
+    object budgets come out of the DS headers.  What is checked:
+
+      1. Sora is placed, and every walkable tile is reachable from him.  An
+         unreachable pocket is not automatically wrong, but on these maps it has
+         always been a mistake, so it is reported.
+      2. Every actor on a walkable tile is reachable; every actor on a blocked
+         one has a reachable neighbour.  Which case applies is derived from the
+         tile, not declared -- so it cannot be declared wrongly.
+      3. No two entries stand on the same tile, and nothing authored stands on a
+         prop tile, which is blocked and would leave that actor stuck inside a
+         tree.
+      4. Doors and their landings are reachable, from both sides.
+      5. The cast fits the actor pool, and no camera window holds more objects
+         than the OBJ budget.
+    """
+    grid = load_grid(f"{stem}.txt", subdir="ds")
+    cast = load_cast(stem)
+    props = derive_props(grid)
+    label = f"ds/{stem}"
+
+    sora = [(i, j) for name, i, j, _ in cast.base if name == "Sora"]
+    if len(sora) != 1:
+        print(f"{label}: {len(sora)} Sora in [base]; there must be exactly one")
+        return 1
+    spawn = sora[0]
+
+    walkable, height, seen = walk(grid, spawn)
+    if seen is None:
+        print(f"{label}: Sora at {spawn} is not walkable "
+              f"('{grid[spawn[1]][spawn[0]]}')")
+        return 1
+
+    bad = []
+
+    # --- 2, 3: every placed thing, and nothing on top of anything else -------
+    at: dict[tuple[int, int], str] = {}
+    for who, rows in (("a prop", props), ("the cast", cast.actors)):
+        for name, i, j, _ in rows:
+            pos = (i, j)
+            if not (0 <= i < grid.w and 0 <= j < grid.h):
+                bad.append(f"  {name} at {pos} is off a {grid.w}x{grid.h} map")
+                continue
+            code = grid[j][i]
+            if who == "the cast" and code in PROP_ACTOR:
+                bad.append(f"  {name} at {pos} stands on '{code}', which is a "
+                           f"{PROP_ACTOR[code]} -- blocked, so it would be "
+                           f"stuck inside one")
+            elif pos in at:
+                bad.append(f"  {name} at {pos} is on top of {at[pos]}")
+            elif walkable[pos]:
+                if pos not in seen:
+                    bad.append(f"  {name} at {pos} '{code}' -- walled off")
+            elif not any(n in seen for n in neighbours(grid, pos)):
+                bad.append(f"  {name} at {pos} '{code}' -- blocked, and nothing "
+                           f"walkable beside it")
+            at[pos] = name
+
+    # --- the Heartless, the doors, and the routes ---------------------------
+    for i, j in cast.spots:
+        if (i, j) not in seen:
+            why = "blocked" if not walkable[(i, j)] else "walled off"
+            bad.append(f"  a Heartless spot at {(i, j)} "
+                       f"'{grid[j][i]}' -- {why}")
+    for di, dj, li, lj in cast.doors:
+        for pos, what in (((di, dj), "a door"), ((li, lj), "its landing")):
+            if pos not in seen:
+                bad.append(f"  {what} at {pos} '{grid[pos[1]][pos[0]]}' -- "
+                           f"{'blocked' if not walkable[pos] else 'walled off'}")
+    for name, pos in routes.items():
+        if pos not in seen:
+            bad.append(f"  {name} at {pos} '{grid[pos[1]][pos[0]]}' -- "
+                       f"{'blocked' if not walkable[pos] else 'walled off'}")
+    for name, pos in adjacent.items():
+        if not any(n in seen for n in neighbours(grid, pos)):
+            bad.append(f"  {name} at {pos} -- nothing walkable beside it")
+
+    # --- 5: the two budgets -------------------------------------------------
+    max_actors, transient, obj_budget = ds_limits()
+    peak = len(props) + cast.peak
+    if peak + transient > max_actors:
+        bad.append(f"  {peak} actors at peak + {transient} transient slots "
+                   f"exceeds MAX_ACTORS = {max_actors}")
+
+    # A camera window is what the hardware has to draw at once.  The pool holds
+    # the whole map; OAM holds what is on screen, so this is the number that
+    # matters and it is not the one the pool budget checks.
+    win_w, win_h = SCREEN_TILES
+    resident = props + cast.base + [r for t in cast.tables.values() for r in t]
+    worst, where = 0, (0, 0)
+    for j0 in range(max(1, grid.h - win_h + 1)):
+        for i0 in range(max(1, grid.w - win_w + 1)):
+            n = sum(1 for _, i, j, _ in resident
+                    if i0 <= i < i0 + win_w and j0 <= j < j0 + win_h)
+            if n > worst:
+                worst, where = n, (i0, j0)
+    if worst > obj_budget:
+        bad.append(f"  {worst} objects inside the {win_w}x{win_h} window at "
+                   f"{where} exceeds the OBJ budget of {obj_budget}")
+
+    if bad:
+        print(f"{label}: cast problems:")
+        print("\n".join(bad))
+        return 1
+
+    total = sum(1 for v in walkable.values() if v)
+    stranded = total - len(seen)
+    print(f"{label} ok: {grid.w}x{grid.h}, {len(seen)} of {total} walkable tiles "
+          f"reachable from Sora at {spawn}"
+          f"{f' ({stranded} STRANDED)' if stranded else ''}, "
+          f"{len(props)} props + {len(cast.base)} placed"
+          f"{f' + {cast.peak - len(cast.base)} later' if cast.peak > len(cast.base) else ''}"
+          f", {len(cast.spots)} spots, {len(cast.doors)} doors, "
+          f"{len(routes) + len(adjacent)} routes; peak {peak}+{transient} of "
+          f"{max_actors}, worst window {worst} of {obj_budget}")
+    return 1 if stranded else 0
+
+
 def main() -> int:
     bad = check("island", load_grid(), SPAWN, REACH, ADJACENT)
     bad |= check("fragment", load_grid("fragment.txt"), FRAGMENT["Sora"],
@@ -378,14 +440,10 @@ def main() -> int:
                               ("town3", TOWN3, TOWN3_NEAR)):
         bad |= check(name, load_grid(f"{name}.txt"), reach["Sora"], reach, near)
 
-    # ...and the DS worlds, which are a different size and live beside them.
-    bad |= check("ds/island", load_grid("island.txt", subdir="ds"),
-                 DS_ISLAND_SPAWN, DS_ISLAND, DS_ISLAND_NEAR)
-    for name, reach, near in (("town1", DS_TOWN1, DS_TOWN1_NEAR),
-                              ("town2", DS_TOWN2, DS_TOWN2_NEAR),
-                              ("town3", DS_TOWN3, DS_TOWN3_NEAR)):
-        bad |= check(f"ds/{name}", load_grid(f"{name}.txt", subdir="ds"),
-                     reach["Sora"], reach, near)
+    # ...and the DS worlds, which are a different size, live beside them, and
+    # carry their cast in data rather than in a table copied into this file.
+    for stem in ("island", "town1", "town2", "town3"):
+        bad |= check_ds(stem, DS_ROUTES.get(stem, {}), DS_ADJACENT.get(stem, {}))
     return bad
 
 
