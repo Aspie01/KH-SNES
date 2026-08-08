@@ -396,8 +396,31 @@ for the dialogue interpreter.
 | `host/hostblob.h` | reading a scene's tables off disk, host tier only |
 | `host/tests/test_text.cpp`, `test_scene.cpp` | 24 cases against the real emitted data |
 
-What that leaves for this milestone is the **four stage machines**, and the
-scripts themselves as `constexpr` byte arrays.
+**Two of the four stage machines are also landed:** `include/stage.h`,
+`source/stage_dive.cpp`, `source/stage_town.cpp`, `host/tests/test_stage.cpp` —
+19 cases, every transition driven and every beat's frame count asserted. Also in
+`stage.h`: `Rng` (the Galois LFSR, bit-exact, with the repeated-subtraction spot
+pick), `ScreenFx` (the one place contended effects are arbitrated), and the
+`SceneAction` / `StageStep` protocol.
+
+**A machine is pure logic.** It reads the world, advances its stage and timers,
+writes `ScreenFx`, and returns an *action* for the caller to perform. It never
+loads a scene, opens a box or touches a register. Follow that shape for the other
+two: it is what makes "no renderer required" true, and it keeps the second
+virtual out of the codebase.
+
+Two things the two landed machines learned that the other two will hit:
+
+- **A timer set to N and counted down to zero has a period of N + 1.** The
+  Second District's wave is `TOWN_GAP = 80` and arrives every **81** frames. The
+  audit records this for animation rates; it is true of every timer in the game.
+- **An action the caller does not perform is a state the machine never leaves.**
+  `RaiseArmor` is a one-shot, and `WatchArmor` only stops waiting once an
+  `ActType::Armor` exists — so a test that ignores the action sails past the
+  stage. That is the protocol working, not a bug, but it catches you once.
+
+What is left is the **island and night machines**, and the scripts themselves as
+`constexpr` byte arrays.
 
 - Stage machines as `enum class`, transitions exactly as `BEHAVIOUR.md` §6 gives
   them — **and read `BEHAVIOUR-AUDIT.md` findings 7, 8, 14, 15, 16 first**, which

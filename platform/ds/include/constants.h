@@ -404,7 +404,12 @@ constexpr int FLASH_GAP_VAR = 127;      // FLASH_GAP_VAR  plus a random 0..127
 constexpr int TOWN_SHADOWS = 5;         // TOWN_SHADOWS  alive at once
 constexpr int TOWN_WAVE = 8;            // TOWN_WAVE  arrivals before the way opens
 constexpr int TOWN_GAP = 80;            // TOWN_GAP
-constexpr int TOWN_SPOTS = 8;           // TOWN_SPOTS
+constexpr int TOWN_SPOTS = 8;           // TOWN_SPOTS, the SNES table's size; the
+                                        // DS reads the count from the file
+// A Heartless arriving in your face reads as a bug rather than as a Heartless,
+// so a spot within 64 px of the player is refused and retried shortly.  §6.
+constexpr int32_t SPAWN_CLEAR = 1024;   // Q12.4: 64 px
+constexpr int SPAWN_RETRY = 12;         // frames
 constexpr int DOOR_ROW = 4;             // DOOR_ROW  every district door is in row 4
 constexpr int DOOR_FADE = 30;           // DOOR_FADE  each half of a transition
 constexpr int FALL_WAIT = 70;           // FALL_WAIT
