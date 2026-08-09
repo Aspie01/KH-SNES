@@ -613,7 +613,94 @@ against the specification. No renderer required — these are logic tests.
 
 ---
 
-# §M6 — The trace oracle — **Tier 1**
+# §M6 — The trace oracle — **SNES half LANDED, DS half BLOCKED**
+
+**Done.** `tools/snes_opcodes.py`, `tools/snes_cpu.py`, `tools/snes_trace.py`,
+`tools/trace_diff.py`.
+
+**The driving mechanism.** The brief asked for one and said establishing it was
+part of the milestone. It is not Mednafen: no emulator here can be stepped
+frame-accurately from outside, and `playtest.sh`'s wall-clock sleeps drift, so it
+can say what the game looks like after about two seconds but never what WRAM held
+on frame 137. So the ROM runs on a **headless 65816 interpreter** instead, and
+four properties of this ROM — each checked, not assumed — make that far cheaper
+than it sounds:
+
+- **The APU is never touched.** `APUIO0-3` are defined in `snes.inc` and
+  referenced nowhere, so there is no SPC700 handshake and no boot ROM. This is
+  the thing that normally makes headless SNES emulation hard.
+- **Exactly three registers are read** — `HVBJOY`, `RDNMI`, `JOY1L`. Everything
+  else is write-only to the ROM, so a sink is faithful. DMA is the one exception,
+  and only because `CLEAR_WRAM` zeroes 128 KiB through the WRAM port.
+- **89 opcodes, 9 addressing modes**, no long calls, no decimal, no indirect
+  jumps, no block moves.
+- **All WRAM mutation is frame-synchronous**, because `WaitVBlank` spins on a
+  WRAM byte the NMI sets.
+
+That last one is what makes the trace exact **despite the interpreter having no
+timing model at all**: instruction costs could only matter by moving the NMI to a
+different point in a frame's work, and if the CPU is parked there is no work to
+move it into. So the frame boundary is *detected* — run until the CPU is idling
+in `WaitVBlank`, reading the flag and writing nothing — rather than counted. If
+it ever fails to park, the run stops and names the frame, because from there on
+the trace would depend on costs that are only approximate. It has never failed:
+the busiest frame observed is 14785 instructions against a frame's budget.
+
+**The opcode table is taken from the assembler, not from a reference.** ca65
+assembled this ROM, so its listings say exactly which byte it emitted for every
+instruction in it; `snes_opcodes.py --regen` re-assembles the frozen sources into
+a temporary directory with `-l` and reads the bytes back, and the default action
+checks the committed table still matches. Coverage is therefore exact by
+construction, and **the decoder hard-errors on any byte outside the 89** — which
+is the strongest self-check available, because a desynchronised decoder is
+reported at the instruction that caused it rather than as a corrupt trace two
+hundred frames later.
+
+**Verified against the specification, independently.** After boot the oracle has
+`frameCount` exact, `sceneId` = `SCENE_DIVE`, Sora at `(4224, 2944)` = exactly
+`CELL_X(16)`/`CELL_Y(11)`, and the Dive's seven-actor cast live. Driven with a
+scripted input he walks east at **+24 Q12.4 per frame** — `WALK_SPEED = 24` — and
+stops at the platform edge, and the dialogue box dismisses on the second press,
+which is `txtHold` behaving as §13 describes.
+
+**`trace_diff.py` reads `docs/behaviour/divergences/`** and suppresses only what a
+recorded divergence excuses, counting every suppression by which divergence
+excused it so a divergence that has quietly become a blanket is visible.
+`--strict` suppresses nothing. Proven by perturbation: on a trace with `px` and
+`php` altered from frame 40, the `px` change is excused by divergence 004 and the
+`php` change is reported with its earliest frame.
+
+## What is blocked, and by what
+
+**The DS half cannot be traced yet, because the DS side does not simulate
+actors.** `platform/ds/source/grid.cpp` provides `tryMoveActor` and **nothing
+calls it.** There is no `UpdateWorld` equivalent — no `UpdateSora`, no
+`UpdateShadow`, no boss AI, no orbs, no pickups. The host tier has the movement
+primitive (§M3), the scene machines (§M5) and the actor *table*, but not the
+per-actor behaviour that connects them.
+
+**That is a hole in this milestone list, not in the work.** §M3 is "movement,
+collision and the camera" and delivered the primitive; §M5 is the scene-level
+state machines. The per-actor simulation belongs to neither and was never given a
+milestone of its own. §M6 is simply where it surfaces, because you cannot diff
+traces of a simulation that does not simulate.
+
+So §M6's exit criterion — a trace from each platform for the same input — is met
+on the SNES side and cannot yet be met on the DS side. What is needed first is a
+**§M3b: the actor simulation**, ported from `world.s`, with `UpdateSora` and
+`UpdateHeartless` as the two that matter; everything else in the trace is already
+in place to receive it.
+
+One smaller thing found while building the differ: **a divergence's
+`trace_fields` cannot say which scenes it applies to.** Divergence 004 lists
+`actorX`/`actorY` because a station's cast moved inward, and the differ therefore
+suppresses actor positions *everywhere*, including on the island where nothing
+moved. The front matter needs a `scenes:` key. Until it has one, read the
+per-divergence suppression counts the differ prints rather than trusting them.
+
+---
+
+## The original brief
 
 Make the SNES build testable against yours.
 
