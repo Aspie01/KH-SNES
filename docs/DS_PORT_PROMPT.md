@@ -193,7 +193,7 @@ do not describe intent as though it were a result.
 
 ---
 
-# §M0 — Prove the host tier, and nothing else — **Tier 1**
+# §M0 — Prove the host tier, and nothing else — **LANDED**, and audited
 
 Deliberately tiny. Its only job is to establish that a platform-neutral build
 exists and runs, before anyone writes engine code into a vacuum.
@@ -223,6 +223,60 @@ line and the expression is sufficient and adds no dependency.
 - `toRender(World::fromInt(1)).raw() == 4096`.
 - **A compile-fail check, documented not automated:** state in a comment that
   `World w = 3;` must not compile, and that `World + Render` must not compile.
+
+## The audit: the build was lying in three places, and the harness in one
+
+§M0 is the smallest milestone and the one everything else stands on, so its
+failures are the ones that look like other people's bugs.
+
+- **`trace_main.o` had no dependency tracking at all.** `-include
+  $(OBJS:.o=.d)` covered the test binary's objects; the emitter's object was in
+  `TRACE_OBJS` and nowhere else, so its `.d` file was written on every build and
+  read on none of them. Editing `trace.h`, `stage.h`, `world.h` or
+  `constants.h` left it stale and silent. For a *test* binary a stale object
+  shows up as a failing assertion; for the trace emitter it does not — it is the
+  tool the whole oracle comparison trusts, and a stale `trace_main.o` linked
+  against a fresh library disagrees about the layout of `SceneView` and `Camera`
+  rather than failing to build. **The failure mode is not red, it is a trace
+  that is quietly wrong.**
+
+- **Deleting a test file did not relink.** Every remaining prerequisite is older
+  than the target, so make is right to do nothing — and the binary goes on
+  running the deleted file's cases. Demonstrated at 188 cases from 187 files.
+  A stamp of the source *set* is now a prerequisite of both binaries.
+
+- **Nothing ran the cases in any order but one.** They share a process and a
+  good deal of file-scope state, so a case that only passes because an earlier
+  one left something behind is a real failure that goes red the day somebody
+  inserts a test above it — and the blame lands on the insertion. `run` now runs
+  the suite twice, forwards and reversed, and requires both.
+
+- **Two cases could share a name.** `KH_TEST` makes the function `static`, so
+  the linker will not catch it, and a failure in either would be reported as the
+  other. `ktest::add` checks.
+
+## And the compile-fail checks, automated — which found something at once
+
+The brief asked for them "documented not automated", and documented is where
+they stayed. A type-safety property nothing exercises is a property that has
+already stopped holding by the time anybody notices — the same shape as a table
+with no consumer, a divergence that cannot fire, a routine with no caller.
+
+`platform/ds/host/nocompile/` holds one file per rejection and
+`make -f Makefile.host typecheck` requires the compiler to refuse each. Five:
+`World w = 3;`, `World + Render`, `TownStage == DiveStage`, arithmetic on an
+`ActType`, and a bare `int` where a `Dir` is wanted. All five verified by
+loosening each in turn and watching the target catch it.
+
+Writing them found the thing this section is really about. They are the first
+code in the project to spell `kh::World` **from outside the namespace**, and it
+does not compile: **`fixed.h` was the only header not in `namespace kh`.** It
+worked because `constants.h` includes it before opening the namespace, so
+unqualified lookup from inside found the global one, and every user is either
+inside `kh` or says `using namespace kh`. Nobody had ever written the qualified
+name — except four files' worth of comments, which were wrong. `World`,
+`Render`, `TILE_PX` and `tileOf` are short generic global names in a target that
+links libnds, which is C and full of short generic global names.
   If either does compile, `fixed.h` is wrong — report it, do not work around it.
 
 **Exit criteria.** `make -f platform/ds/host/Makefile.host && ./<binary>` exits

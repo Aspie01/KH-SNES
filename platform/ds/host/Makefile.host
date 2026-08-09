@@ -54,7 +54,26 @@ TRACE := $(BUILD)/dstrace
 
 VPATH := $(HERE) $(HERE)/tests $(DS)/source $(wildcard $(DS)/source/*)
 
-.PHONY: all run trace clean
+# Things that MUST NOT COMPILE.  §M0 asked for "a compile-fail check, documented
+# not automated" -- `World w = 3;` and `World + Render`.  Documented is where it
+# stayed, and a type safety property nothing exercises is a property that has
+# already stopped holding by the time anybody notices.  One file per rejection,
+# each compiled with -fsyntax-only and required to FAIL.
+NOCOMPILE := $(wildcard $(HERE)/nocompile/*.cpp)
+
+# ...and a stamp that changes when the SET of sources does.
+#
+# Both binaries depend on their objects, and make is right that nothing needs
+# rebuilding when a source is DELETED -- every remaining prerequisite is older
+# than the target.  So the binary keeps the removed file's cases in it, and the
+# suite goes on reporting a count that includes tests whose source is gone.
+# Proven by deleting one: 188 cases, from 187 files.
+$(shell mkdir -p $(BUILD))
+$(shell echo '$(SRCS) $(SIM)' | cmp -s - $(BUILD)/.sources \
+        || echo '$(SRCS) $(SIM)' > $(BUILD)/.sources)
+LISTSTAMP := $(BUILD)/.sources
+
+.PHONY: all run trace typecheck clean
 
 all: $(TARGET) $(TRACE)
 
@@ -64,18 +83,48 @@ $(BUILD):
 $(BUILD)/%.o: %.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c -o $@ $<
 
-$(TARGET): $(OBJS)
+$(TARGET): $(OBJS) $(LISTSTAMP)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS)
 
-$(TRACE): $(TRACE_OBJS)
+$(TRACE): $(TRACE_OBJS) $(LISTSTAMP)
 	$(CXX) $(CXXFLAGS) -o $@ $(TRACE_OBJS)
 
 trace: $(TRACE)
 
-run: $(TARGET)
+# The suite twice: once in registration order and once REVERSED.  Cases share a
+# process and a good deal of file-scope state, so a test that only passes
+# because an earlier one left something behind is a real and invisible failure
+# mode.  Running the same set backwards is the cheapest thing that finds it.
+run: $(TARGET) typecheck
 	@$(TARGET)
+	@$(TARGET) --reverse > /dev/null || { \
+	    echo "  the suite passes in registration order and FAILS reversed:"; \
+	    $(TARGET) --reverse | grep -E 'FAIL|  in ' | head -20; \
+	    echo "  a case is depending on what an earlier one left behind"; \
+	    exit 1; }
+
+typecheck:
+	@fail=0; n=0; \
+	for f in $(NOCOMPILE); do \
+	    n=$$((n + 1)); \
+	    if $(CXX) $(CXXFLAGS) -fsyntax-only $$f 2> /dev/null; then \
+	        echo "  COMPILED AND MUST NOT: $$f"; fail=1; \
+	    fi; \
+	done; \
+	if [ $$fail -ne 0 ]; then exit 1; fi; \
+	echo "$$n rejections, all correctly refused by the compiler"
 
 clean:
 	rm -rf $(BUILD)
 
--include $(OBJS:.o=.d)
+# EVERY object's dependencies, not just the test binary's.  trace_main.o was in
+# TRACE_OBJS and not in OBJS, so its .d file was written on every build and
+# included on none of them -- which meant editing trace.h, stage.h, world.h or
+# constants.h left the emitter's object stale and nothing said so.
+#
+# For a TEST binary a stale object shows up as a failing assertion.  For the
+# trace emitter it does not: it is the tool the whole oracle comparison trusts,
+# and a stale trace_main.o linked against a fresh library disagrees about the
+# layout of SceneView and Camera rather than failing to build.  The failure mode
+# is not red, it is a trace that is quietly wrong.
+-include $(sort $(OBJS:.o=.d) $(TRACE_OBJS:.o=.d))

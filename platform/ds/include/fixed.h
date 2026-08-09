@@ -32,6 +32,22 @@
 
 #include <stdint.h>
 
+// EVERYTHING IN THIS FILE IS IN `kh`, and it was not until §M0's audit.
+//
+// fixed.h was the one header outside the namespace every other header is in.
+// It compiled because constants.h includes it BEFORE opening `namespace kh`,
+// so unqualified lookup from inside found `::World` -- and every user is either
+// inside the namespace or says `using namespace kh`, so nothing ever wrote
+// `kh::World` and found out that it did not exist.  The comments did, in four
+// files.
+//
+// Two reasons it matters beyond tidiness.  `World`, `Render`, `TILE_PX` and
+// `tileOf` are short, generic, global names in a target that links libnds --
+// which is C, and full of short generic global names.  And a header whose types
+// cannot be named from outside cannot be used from outside, which is exactly
+// what a compile-fail check that spells `kh::World` discovers on its first run.
+namespace kh {
+
 template <int F>
 class Fixed {
 public:
@@ -127,3 +143,5 @@ constexpr World tileCentre(int32_t t) {
 static_assert(sizeof(World) == 4, "the whole engine indexes arrays of these");
 static_assert(World::fromInt(16).raw() == 256, "Q12.4 parity with the SNES");
 static_assert(tileOf(World::fromInt(-1)) == -1, "must floor, not truncate");
+
+}  // namespace kh

@@ -8,6 +8,10 @@
 #include "check.h"
 #include "fixed.h"
 
+// fixed.h is in `kh` like every other header, which it was not until §M0's
+// audit -- this file said `World` unqualified and got the global one.
+using namespace kh;
+
 KH_TEST(fixed_snes_parity) {
     // 16 pixels of world per unit of 16.  This single line is the contract with
     // the 65816 build.
