@@ -2,8 +2,11 @@
 id: 003
 spec_section: "3,6"
 trace_fields: [shadowAlive, shadowSpot, nightTimer]
+scenes: []               # NO SCENARIO EXERCISES THIS -- see conditional
+unreachable: [shadowAlive, shadowSpot]   # the trace carries actors, not a Shadow census
 platform: ds
 reason: the night's map is four times the area; six Shadows spread over it are one Shadow on screen
+conditional: applies at SHIPPING density only.  The night fixture calls NightMachine::setDensity() to run the SNES's six-at-seventy, which is what makes an oracle comparison of the night possible at all -- so this divergence is real in play and invisible to trace_check.py
 ---
 
 # The night is populated for a bigger island

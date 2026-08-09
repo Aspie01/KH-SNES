@@ -237,8 +237,13 @@ def check(case: Case, outdir: Path, verbose: bool) -> bool:
          "--frames", str(case.frames - case.first), "--input", case.script,
          "-o", str(ds)], f"the DS emitter for {case.name}")
 
+    # --scene, so that only the divergences whose front matter says they apply
+    # HERE can suppress anything.  Without it the differ loads all six, which is
+    # how divergence 004 -- "a station is drawn smaller" -- came to excuse every
+    # actor position in every scenario, 1604 of them in `dive` alone.
     diff = subprocess.run(
-        [sys.executable, "tools/trace_diff.py", str(snes), str(ds)],
+        [sys.executable, "tools/trace_diff.py", "--scene", case.name,
+         str(snes), str(ds)],
         cwd=ROOT, capture_output=True, text=True)
     if verbose:
         print(diff.stdout)
@@ -257,17 +262,16 @@ def check(case: Case, outdir: Path, verbose: bool) -> bool:
             print(f"  {case.name}: FAILED -- the two traces are not identical")
             print(diff.stdout.strip())
             return False
-        # --strict would now report the two mandated camera divergences, so the
-        # differ is run WITHOUT it and required to excuse everything -- which is
-        # divergence 001 doing the job it was written for and never once did,
-        # because until v2 of the format neither of its fields was a column.
-        soft = subprocess.run(
-            [sys.executable, "tools/trace_diff.py", str(snes), str(ds)],
-            cwd=ROOT, capture_output=True, text=True)
-        if soft.returncode != 0:
+        # ...and the differ, which was run above, is required to have excused
+        # everything -- which is divergence 001 doing the job it was written for
+        # and never once did, because until v2 of the format neither of its
+        # fields was a column.  (This used to spawn the differ a SECOND time
+        # with byte-identical arguments and read the second one's exit code.
+        # Two runs, one answer.)
+        if diff.returncode != 0:
             print(f"  {case.name}: FAILED -- something outside the camera is "
                   f"unexplained")
-            print(soft.stdout.strip())
+            print(diff.stdout.strip())
             return False
         print(f"  {case.name}: {len(a)} frames, identical from frame "
               f"{case.first} (camera per divergence 001) -- {case.note}")

@@ -22,6 +22,16 @@ counted and summarised by which divergence excused it, so a divergence that is
 excusing far more than it should -- the sign that it has become a blanket -- is
 visible.  `--strict` refuses to suppress anything at all.
 
+AND A DIVERGENCE IS SCOPED TO SCENES.  `--scene NAME` loads only the divergences
+whose front matter says they apply there.  This is not a refinement, it is the
+hole the milestone that built this tool wrote down and left open: divergence 004
+describes a station drawn smaller and names `actorX`/`actorY`, so it suppressed
+every actor position in every scenario -- 1604 differences in `dive` alone, and
+it would have blanketed the island and the town just as thoroughly.  Passing
+`--any-scene` restores the old behaviour, deliberately and out loud; one of the
+two is REQUIRED, because a blanket you had to ask for is a different thing from
+one you got by default.
+
 THE FIRST DIVERGENCE IS THE ONLY ONE THAT MATTERS.  Once two simulations differ
 they keep differing, so the tail is noise.  The report leads with the earliest
 frame and field, and everything after it is a summary.
@@ -55,6 +65,9 @@ FIELD_ALIASES = {
 }
 
 
+ANY_SCENE = "*"
+
+
 class Divergence:
     def __init__(self, path: Path):
         self.path = path
@@ -65,34 +78,71 @@ class Divergence:
                              f"knows what it excuses")
         fm = m.group(1)
         self.id = self._one(fm, "id")
+        self.spec_section = self._one(fm, "spec_section")
         self.platform = self._one(fm, "platform")
         self.reason = self._one(fm, "reason")
         self.conditional = self._one(fm, "conditional", required=False)
-        fields = re.search(r"^trace_fields:\s*\[(.*?)\]", fm, re.M)
-        self.fields = {f.strip() for f in fields.group(1).split(",")} if fields else set()
+        self.fields = self._list(fm, "trace_fields", path)
+        # WHICH SCENES.  Required, and there is deliberately no default: the
+        # whole failure this key exists to fix is a divergence that applied
+        # everywhere because nobody said where it applied.  A default would be
+        # that failure with a nicer name.  An EMPTY list is legal and means "no
+        # scenario exercises this", which is a real state -- 003 and 006 are
+        # both in it -- and it requires a `conditional:` saying why.
+        self.scenes = self._list(fm, "scenes", path)
+        # ...and the field names this divergence KNOWS the format cannot carry.
+        # Declaring them turns a silently dead suppression rule into a stated
+        # one, and keeps the check live in both directions: a typo adds a name
+        # that is not declared, and a column being added makes a declared name
+        # reachable.  Either way check_divergences.py fails.
+        self.unreachable = self._list(fm, "unreachable", path, required=False)
         title = re.search(r"^#\s+(.*)$", text, re.M)
         self.title = title.group(1).strip() if title else path.stem
 
     @staticmethod
     def _one(fm: str, key: str, required: bool = True) -> str:
-        m = re.search(rf"^{key}:\s*(.*)$", fm, re.M)
+        m = re.search(rf"^{key}:\s*(.*?)\s*(?:#.*)?$", fm, re.M)
         if not m:
             if required:
                 raise SystemExit(f"a divergence is missing its `{key}:`")
             return ""
         return m.group(1).strip().strip('"')
 
+    @staticmethod
+    def _list(fm: str, key: str, path: Path, required: bool = True) -> set[str]:
+        m = re.search(rf"^{key}:\s*\[(.*?)\]", fm, re.M)
+        if not m:
+            if required:
+                raise SystemExit(f"{path.name}: no `{key}:` list")
+            return set()
+        return {f.strip() for f in m.group(1).split(",") if f.strip()}
+
     def excuses(self, column: str) -> bool:
         if column in self.fields:
             return True
         return bool(FIELD_ALIASES.get(column, set()) & self.fields)
+
+    def applies_to(self, scene: str | None) -> bool:
+        """Whether this divergence is in scope for a scenario.
+
+        `scene` of None is the --any-scene case, which is the caller saying it
+        does not know and accepts the blanket.
+        """
+        return scene is None or ANY_SCENE in self.scenes or scene in self.scenes
 
 
 def load_divergences() -> list[Divergence]:
     if not DIVERGENCES.is_dir():
         raise SystemExit(f"{DIVERGENCES} is missing; this tool needs it to know "
                          f"which differences were decided on purpose")
-    return [Divergence(p) for p in sorted(DIVERGENCES.glob("*.md"))]
+    divs = [Divergence(p) for p in sorted(DIVERGENCES.glob("*.md"))]
+    seen: dict[str, Path] = {}
+    for d in divs:
+        if d.id in seen:
+            raise SystemExit(f"two divergences both call themselves {d.id}: "
+                             f"{seen[d.id].name} and {d.path.name}")
+        seen[d.id] = d.path
+    return divs
 
 
 class Trace:
@@ -208,6 +258,18 @@ def _excuse(column: str, divs: list[Divergence], strict: bool):
     return None
 
 
+def reachable_fields(columns: list[str]) -> set[str]:
+    """Every divergence field name this format can actually reach.
+
+    A `trace_fields` entry that is not in here is a suppression rule that will
+    never suppress anything, whatever the trace does.
+    """
+    out = set(columns) | {"actor" + p.capitalize() for p in ACTOR_PARTS}
+    for names in FIELD_ALIASES.values():
+        out |= names
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -215,16 +277,52 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("right", type=Path)
     ap.add_argument("--strict", action="store_true",
                     help="report every difference, excused or not")
+    ap.add_argument("--scene", default=None,
+                    help="the scenario these traces are of, so that only the "
+                         "divergences scoped to it can suppress anything")
+    ap.add_argument("--any-scene", action="store_true",
+                    help="no scene is known: let every divergence apply.  Say "
+                         "this out loud rather than getting it by default")
     ap.add_argument("--max", type=int, default=20,
                     help="how many unexplained differences to print in full")
     args = ap.parse_args(argv)
 
+    # One of the two, never neither.  The failure this guards against is the one
+    # the milestone recorded and left open -- a divergence scoped to nothing
+    # excusing everything -- and a default would reintroduce it silently.
+    if (args.scene is None) == (not args.any_scene):
+        raise SystemExit("give --scene NAME or --any-scene.  A divergence is "
+                         "scoped to the scenes it describes, and applying all "
+                         "of them to a trace of one scene is how 004 came to "
+                         "suppress every actor position in the project.")
+
     a, b = Trace(args.left), Trace(args.right)
     check_comparable(a, b)
-    divs = load_divergences()
+    every = load_divergences()
+    divs = [d for d in every if d.applies_to(args.scene)]
+    out_of_scope = [d for d in every if d not in divs]
     print(f"{a.platform} @ {a.rev}   vs   {b.platform} @ {b.rev}")
-    print(f"{len(divs)} divergences on file, covering "
-          f"{sum(len(d.fields) for d in divs)} field names")
+    scope = f"scene {args.scene}" if args.scene else "EVERY SCENE (--any-scene)"
+    print(f"{len(divs)} of {len(every)} divergences in scope for {scope}, "
+          f"covering {sum(len(d.fields) for d in divs)} field names")
+
+    # A divergence excusing nothing HERE is not a problem; a divergence that is
+    # never in scope anywhere would be, and that is check_divergences.py's job.
+    if out_of_scope:
+        print("  not in scope, so they cannot suppress anything here: "
+              + ", ".join(f"{d.id} ({'/'.join(sorted(d.scenes)) or 'no scenario'})"
+                          for d in out_of_scope))
+
+    # `platform:` was parsed and never read.  A divergence describes a deliberate
+    # deviation ON a platform, so one naming a platform that is not in this pair
+    # is being applied to a comparison it was not written about.
+    here = {a.platform, b.platform}
+    astray = [d for d in divs if d.platform and d.platform not in here]
+    if astray:
+        raise SystemExit(
+            "a divergence in scope describes a platform neither trace is:\n  "
+            + "\n  ".join(f"{d.id} says platform: {d.platform}, and this pair is "
+                          f"{' vs '.join(sorted(here))}" for d in astray))
 
     only_a = sorted(set(a.frames) - set(b.frames))
     only_b = sorted(set(b.frames) - set(a.frames))
@@ -234,6 +332,12 @@ def main(argv: list[str] | None = None) -> int:
 
     unexplained: list[tuple] = []
     excused: dict[str, int] = {}
+    # WHAT it excused and WHERE, not just how many.  A count alone cannot tell
+    # "excusing the thing it describes" from "excusing everything" -- 004 reports
+    # 1604 either way -- so the columns and the frame span go in the report and
+    # a reader can judge the shape rather than the size.
+    excused_cols: dict[str, set[str]] = {}
+    excused_span: dict[str, tuple[int, int]] = {}
     first_field_at: dict[str, int] = {}
     for f, col, x, y, why in compare(a, b, divs, args.strict):
         if why is None:
@@ -241,12 +345,29 @@ def main(argv: list[str] | None = None) -> int:
             first_field_at.setdefault(col, f)
         else:
             excused[why.id] = excused.get(why.id, 0) + 1
+            excused_cols.setdefault(why.id, set()).add(re.sub(r"\[\d+\]$", "[]", col))
+            lo, hi = excused_span.get(why.id, (f, f))
+            excused_span[why.id] = (min(lo, f), max(hi, f))
 
     if excused:
         print("\nexplained by a recorded divergence:")
         for d in divs:
             if d.id in excused:
+                # `reason:` was parsed and never printed -- the one line every
+                # file carries saying WHY the difference is deliberate, and the
+                # report showed the heading instead.
+                lo, hi = excused_span[d.id]
                 print(f"  {d.id}  {excused[d.id]:6} difference(s)  {d.title}")
+                print(f"       in {', '.join(sorted(excused_cols[d.id]))} "
+                      f"over frames {lo}-{hi}")
+                print(f"       because {d.reason}")
+                if d.conditional:
+                    # ...and `conditional:` was parsed and dropped on the floor.
+                    # It cannot be checked from here -- it is a statement about a
+                    # renderer this comparison never runs -- so it is carried
+                    # into the report as an ASSUMPTION the reader has to accept,
+                    # which is the honest treatment of an unverifiable claim.
+                    print(f"       ASSUMING {d.conditional}")
 
     # ...and the other half of the same idea.  The docstring says a divergence
     # that has quietly become a blanket should be visible; so should one that
@@ -254,16 +375,32 @@ def main(argv: list[str] | None = None) -> int:
     # is a suppression rule that will never suppress anything.  Divergence 001
     # was in that state for as long as the trace existed -- it named camY and
     # bgVOfs when neither was a column -- and nothing said so.
-    reachable = set(a.columns) | {"actor" + p.capitalize() for p in ACTOR_PARTS}
-    for names in FIELD_ALIASES.values():
-        reachable |= names
-    dead = [(d, sorted(f for f in d.fields if f not in reachable)) for d in divs]
-    dead = [(d, f) for d, f in dead if f and len(f) == len(d.fields)]
-    if dead:
-        print("\ncannot fire against this format -- every field they name is "
-              "state the trace does not carry:")
-        for d, fields in dead:
-            print(f"  {d.id}  {', '.join(fields)}  ({d.title})")
+    #
+    # PER FIELD, not per divergence.  The first version of this reported only
+    # the WHOLLY dead ones, which meant a divergence with two dead names out of
+    # three looked healthy -- and 003 was exactly that: `nightTimer` reaches a
+    # column through an alias, `shadowAlive` and `shadowSpot` reach nothing,
+    # and the report said nothing because one of the three worked.  A partly
+    # dead divergence is the more dangerous kind, because it fires.
+    reachable = reachable_fields(a.columns)
+    for d in divs:
+        dead = sorted(f for f in d.fields if f not in reachable)
+        if not dead:
+            continue
+        whole = len(dead) == len(d.fields)
+        head = "cannot fire at all" if whole else \
+               f"{len(dead)} of its {len(d.fields)} field names cannot fire"
+        # Declared or not.  A DECLARED dead name is a decision -- 005 names
+        # dialogue state the trace does not sample, on purpose, and its real
+        # consequence is the dive pair's recorded first divergence instead.  An
+        # UNDECLARED one is a typo or a column that went away.
+        how = ("declared unreachable, so this is expected"
+               if dead and set(dead) <= d.unreachable
+               else "NOT DECLARED -- a typo, or a column that went away")
+        print(f"\n{d.id} {head} against this format -- "
+              f"{', '.join(dead)} {'is' if len(dead) == 1 else 'are'} state the "
+              f"trace does not carry  ({d.title})")
+        print(f"     {how}")
 
     if not unexplained:
         print("\nno unexplained divergence.")

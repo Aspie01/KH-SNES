@@ -2,6 +2,7 @@
 id: 001
 spec_section: "7,9"
 trace_fields: [camY, bgVOfs]
+scenes: [*]          # the screen is 32 lines shorter in every scene there is
 platform: ds
 reason: the DS is 256x192; the SNES was 256x224
 ---

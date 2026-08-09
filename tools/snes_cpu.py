@@ -68,7 +68,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from snes_opcodes import OPCODES, FIXED_LEN            # noqa: E402
+from snes_opcodes import (OPCODES, SIZED_MODES, eight_bit,      # noqa: E402
+                          sized)
 
 # Master cycles per CPU cycle on FastROM (3.58 MHz against the 21.47 MHz master
 # clock).  WRAM and the register file are slow-bus and cost 8 rather than 6, but
@@ -410,7 +411,16 @@ class Cpu:
             return ptr >> 16, ptr & 0xFFFF
         raise AssertionError(f"no effective address for mode {mode}")
 
-    def _operand(self, mnemonic: str, mode: str, eight: bool) -> int:
+    def _operand(self, mnemonic: str, mode: str) -> int:
+        """The operand, at the width the mnemonic and the flags say.
+
+        The width used to be the caller's third argument, which meant nine
+        call sites each restating a fact snes_opcodes.py already knew -- and
+        getting one wrong would not raise, it would desynchronise the decoder
+        and blame the next instruction.  One statement now, in the module whose
+        job is to be that statement.
+        """
+        eight = eight_bit(mnemonic, self.m8, self.x8)
         if mode == "imm":
             return self._fetch8() if eight else self._fetch16()
         bank, addr = self._ea(mode)
@@ -428,26 +438,31 @@ class Cpu:
         mnem, mode = entry
         self.instrs += 1
         n = CYCLES_SPECIAL.get(mnem, CYCLES_PER_MODE[mode])
-        if mode in ("imm", "dp", "dp_x", "abs", "abs_x", "abs_y", "ind_y",
-                    "lng", "lng_y") and not (self.m8 if mnem not in
-                    ("ldx", "ldy", "cpx", "cpy", "stx", "sty") else self.x8):
-            n += 1              # sixteen-bit operand: one more bus access
+        # A sixteen-bit operand is one more bus access -- but only where the P
+        # register sizes the operand at all.  `jmp` and `jsr` take `abs` and
+        # their operand is a DESTINATION, so this used to charge them an extra
+        # cycle on every jump executed with a 16-bit accumulator.  Conservative,
+        # so the frame-fit assertion never missed an overrun; it just measured
+        # the ROM as slower than it is.
+        if (mode in SIZED_MODES and sized(mnem)
+                and not eight_bit(mnem, self.m8, self.x8)):
+            n += 1
         self.cycles += n * MASTER_PER_CPU
         getattr(self, "_op_" + mnem)(mode)
 
     # --- loads and stores ---------------------------------------------------
     def _op_lda(self, mode: str) -> None:
-        v = self._operand("lda", mode, self.m8)
+        v = self._operand("lda", mode)
         self.set_a(v)
         self._nz(v, self.m8)
 
     def _op_ldx(self, mode: str) -> None:
-        v = self._operand("ldx", mode, self.x8)
+        v = self._operand("ldx", mode)
         self.x = v & (0xFF if self.x8 else 0xFFFF)
         self._nz(self.x, self.x8)
 
     def _op_ldy(self, mode: str) -> None:
-        v = self._operand("ldy", mode, self.x8)
+        v = self._operand("ldy", mode)
         self.y = v & (0xFF if self.x8 else 0xFFFF)
         self._nz(self.y, self.x8)
 
@@ -470,7 +485,7 @@ class Cpu:
     # --- arithmetic ---------------------------------------------------------
     def _op_adc(self, mode: str) -> None:
         assert not self.p & FLAG_D, "decimal mode is not implemented and this ROM never enters it"
-        v = self._operand("adc", mode, self.m8)
+        v = self._operand("adc", mode)
         if self.m8:
             a = self.a
             r = a + v + (1 if self.p & FLAG_C else 0)
@@ -487,7 +502,7 @@ class Cpu:
 
     def _op_sbc(self, mode: str) -> None:
         assert not self.p & FLAG_D, "decimal mode is not implemented and this ROM never enters it"
-        v = self._operand("sbc", mode, self.m8)
+        v = self._operand("sbc", mode)
         # SBC is ADC of the ones' complement: carry SET means no borrow.
         if self.m8:
             a, v = self.a, v ^ 0xFF
@@ -510,17 +525,17 @@ class Cpu:
         self._nz(r & mask, eight)
 
     def _op_cmp(self, mode: str) -> None:
-        self._compare(self.c, self._operand("cmp", mode, self.m8), self.m8)
+        self._compare(self.c, self._operand("cmp", mode), self.m8)
 
     def _op_cpx(self, mode: str) -> None:
-        self._compare(self.x, self._operand("cpx", mode, self.x8), self.x8)
+        self._compare(self.x, self._operand("cpx", mode), self.x8)
 
     def _op_cpy(self, mode: str) -> None:
-        self._compare(self.y, self._operand("cpy", mode, self.x8), self.x8)
+        self._compare(self.y, self._operand("cpy", mode), self.x8)
 
     # --- logic --------------------------------------------------------------
     def _logic(self, mode: str, mnem: str, f) -> None:
-        v = self._operand(mnem, mode, self.m8)
+        v = self._operand(mnem, mode)
         r = f(self.c & (0xFF if self.m8 else 0xFFFF), v)
         self.set_a(r)
         self._nz(r, self.m8)

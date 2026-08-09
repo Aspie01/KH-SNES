@@ -93,16 +93,81 @@ FIXED_LEN = {
     "abs": 2, "abs_x": 2, "abs_y": 2,
 }
 
-# Which flag decides an immediate's width: 'm' for the accumulator, 'x' for the
-# index registers.  cpx/cpy follow x, everything else here follows m.
-IMM_WIDTH_FLAG = {"ldx": "x", "ldy": "x", "cpx": "x", "cpy": "x"}
+# Which flag decides an OPERAND's width, for every mnemonic that has one:
+#
+#   'm'   the accumulator size flag
+#   'x'   the index register size flag
+#   'a'   NEITHER -- the operand is an ADDRESS, and an address is not sized by
+#         the P register at all
+#
+# TOTAL, AND WITH NO DEFAULT.  A `.get(mnem, "m")` is how an index-register
+# instruction added later becomes accumulator-width in silence, and silence is
+# the whole failure mode here: a wrong width does not raise, it makes the
+# interpreter read one byte where the CPU read two, and the next opcode it
+# decodes is an operand.  check() below asserts this table covers every mnemonic
+# in OPCODES that reaches a sized addressing mode, so a new one cannot be
+# omitted.
+#
+# THE STORES ARE IN HERE, and they are why this is a table of operands rather
+# than of immediates.  There is no `stx #imm` -- you cannot store to a constant
+# -- so for instruction LENGTH the stores never matter.  But the width of what
+# they move is still x-governed, and that costs a bus access, so a table that
+# stopped at the immediates would be right about lengths and wrong about cycles.
+# snes_cpu.py had exactly that split: a four-mnemonic set for widths and a
+# separate six-mnemonic literal for cycles, with nothing saying why they differed.
+#
+# AND jmp/jsr ARE 'a', which is the entry that was missing everywhere.  Both
+# take `abs`, so both reached the cycle rule, and the rule asked "is the operand
+# eight bits?" of an instruction whose operand is a destination.  See check().
+WIDTH_FLAG = {
+    "adc": "m", "and": "m", "cmp": "m", "dec": "m", "eor": "m", "inc": "m",
+    "lda": "m", "ora": "m", "sbc": "m", "sta": "m", "stz": "m",
+    "cpx": "x", "cpy": "x", "ldx": "x", "ldy": "x", "stx": "x", "sty": "x",
+    "jmp": "a", "jsr": "a",
+}
 
 
-def operand_len(mnemonic: str, mode: str, m: int, x: int) -> int:
+def width_flag(mnemonic: str) -> str:
+    """'m', 'x' or 'a': which size flag governs this instruction's operand."""
+    try:
+        return WIDTH_FLAG[mnemonic]
+    except KeyError:
+        raise AssertionError(
+            f"{mnemonic} reaches a sized addressing mode and WIDTH_FLAG does "
+            f"not classify it, so its operand width would be a guess") from None
+
+
+def sized(mnemonic: str) -> bool:
+    """Whether the P register sizes this instruction's operand at all."""
+    return width_flag(mnemonic) != "a"
+
+
+def eight_bit(mnemonic: str, m8: bool, x8: bool) -> bool:
+    """Whether this instruction's operand is one byte, given the flags in force.
+
+    THE ONE PLACE THAT DECIDES IT.  snes_cpu.py used to answer this at nine
+    hand-written call sites -- `self._operand("cpx", mode, self.x8)` and eight
+    like it -- while this module carried a table that answered it and that
+    nothing called.  A wrong answer here does not raise: the interpreter reads
+    one byte where the CPU read two, the decoder desynchronises, and the next
+    opcode is an operand.  That is the failure `snes_opcodes.py` exists to make
+    impossible, and it was the one part of instruction decoding still restated
+    by hand.
+    """
+    flag = width_flag(mnemonic)
+    if flag == "a":
+        raise AssertionError(
+            f"{mnemonic}'s operand is an address; the m and x flags do not "
+            f"size it, and asking is how it came to be charged an extra bus "
+            f"access on every 16-bit-accumulator jump")
+    return m8 if flag == "m" else x8
+
+
+def operand_len(mnemonic: str, mode: str, m8: bool, x8: bool) -> int:
+    """How many bytes follow the opcode, given the flags in force."""
     if mode != "imm":
         return FIXED_LEN[mode]
-    flag = IMM_WIDTH_FLAG.get(mnemonic, "m")
-    return 1 if (m if flag == "m" else x) else 2
+    return 1 if eight_bit(mnemonic, m8, x8) else 2
 
 
 _LINE = re.compile(r"^[0-9A-F]{6}r?\s+\d+\s{2}((?:[0-9A-Frx]{2} )+)\s*(.*)$")
@@ -245,6 +310,39 @@ def audit_runs() -> int:
     return 1 if missing else 0
 
 
+# The addressing modes whose operand the P register sizes.  `acc`, `imp` and
+# `rel` are not here: an accumulator operand is the register, an implied one does
+# not exist, and a branch displacement is always one signed byte.
+SIZED_MODES = ("imm", "dp", "dp_x", "dp_y", "abs", "abs_x", "abs_y",
+               "ind_y", "lng", "lng_y")
+
+
+def check_widths() -> int:
+    """Is WIDTH_FLAG total over the mnemonics that need it?
+
+    The width of an operand is the one part of decoding that is not a property
+    of the opcode byte, and getting it wrong desynchronises the decoder rather
+    than raising.  So the table has no default, and this is what makes "no
+    default" mean something: every mnemonic in OPCODES that reaches a sized
+    addressing mode has to be in it, and nothing else may be.
+    """
+    need = {m for m, mode in OPCODES.values() if mode in SIZED_MODES}
+    bad = 0
+    for m in sorted(need - set(WIDTH_FLAG)):
+        print(f"  {m} reaches a sized addressing mode and WIDTH_FLAG does not "
+              f"classify it; its operand width would be a guess")
+        bad += 1
+    for m in sorted(set(WIDTH_FLAG) - need):
+        print(f"  WIDTH_FLAG classifies {m}, which never reaches a sized "
+              f"addressing mode in this ROM -- a rule with nothing to apply to")
+        bad += 1
+    for m in sorted(need & set(WIDTH_FLAG)):
+        if WIDTH_FLAG[m] not in ("m", "x", "a"):
+            print(f"  WIDTH_FLAG[{m}] is {WIDTH_FLAG[m]!r}, not m, x or a")
+            bad += 1
+    return bad
+
+
 def check() -> int:
     """Does the table above still match what the assembler emits?"""
     found = scan_listings()
@@ -270,6 +368,7 @@ def check() -> int:
     # ...and the same again from the other direction, over the raw bytes, so an
     # opcode hidden inside a macro cannot slip past the way `ror` did.
     bad += audit_runs()
+    bad += check_widths()
     if bad:
         print(f"opcodes: {bad} disagreement(s) with the assembler")
         return 1

@@ -2,6 +2,7 @@
 id: 002
 spec_section: "1,11"
 trace_fields: [actorSlot, actorCount]
+scenes: [*]          # the pool size is a property of the build, not of a scene
 platform: ds
 reason: the expanded DS maps ask for more actors than 32; the SNES limit was WRAM and cycles, not OAM
 ---

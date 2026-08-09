@@ -2,6 +2,8 @@
 id: 005
 spec_section: "13"
 trace_fields: [txtState, txtPtr, txtRow]
+scenes: [*]              # a paged message can appear in any scene that speaks
+unreachable: [txtState, txtPtr, txtRow]  # the trace samples no dialogue state, on purpose
 platform: ds
 reason: SC_PAGE ended the message instead of paging, so 63% of the dialogue was unreachable
 ---

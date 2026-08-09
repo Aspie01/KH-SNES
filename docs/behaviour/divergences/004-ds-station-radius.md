@@ -2,6 +2,7 @@
 id: 004
 spec_section: "7,8"
 trace_fields: [collision, actorX, actorY]
+scenes: [dive]          # only `dive` uses the DS's own station content -- `station` and `darkside` hold the oracle's ground and cast equal on purpose
 platform: ds
 reason: a 220 px disc fits 224 lines and not 192; the Station of Awakening was clipped
 ---

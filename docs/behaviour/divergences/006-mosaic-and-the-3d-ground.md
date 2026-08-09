@@ -2,6 +2,8 @@
 id: 006
 spec_section: "6,7"
 trace_fields: [mosaicAmt]
+scenes: []               # NO SCENARIO EXERCISES THIS -- see conditional
+unreachable: [mosaicAmt]                 # the trace samples no PPU state
 platform: ds
 reason: the DS 3D layer cannot be mosaicked, and two beats coarsen the ground with mosaic
 conditional: applies only when the 3D quad GroundRenderer is the active one

@@ -130,6 +130,11 @@ sha256sum -c docs/oracle-baseline.sha256    # all 45 lines must say OK
 python3 tools/check_map.py                  # all 5 maps OK
 python3 tools/check_modes.py                # must say modes ok
 python3 tools/check_constants.py            # game.inc vs the DS, BY VALUE
+python3 tools/check_divergences.py          # the divergence corpus, against
+                                            #   the format and the scenarios
+python3 tools/build_scripts.py --check      # gen/scripts.h vs the frozen ROM
+python3 tools/snes_opcodes.py               # the table vs what ca65 emitted
+make -f platform/ds/host/Makefile.host run  # the host suite, both orders
 ```
 
 **And when the simulation changes**, `python3 tools/trace_check.py` — about a
@@ -158,12 +163,30 @@ forces some of this — **do not edit `BEHAVIOUR.md`'s prose.** Create
 
 ```
 ---
-id: 003
-spec_section: "7"
+id: 001
+spec_section: "7,9"
 trace_fields: [camY, bgVOfs]
+scenes: [*]
+platform: ds
 reason: 256x192 screen; the camera centres on playerY-96, not playerY-112
 ---
+
+# A one-line heading, which is what the suppression report calls it
 ```
+
+Every key there is **required**, and `tools/check_divergences.py` in Gate 0 is
+what makes that true — the template above used to be missing `platform:` and
+`scenes:` and would now be rejected by the tool it is a template for.
+
+- **`scenes:`** is the list of `trace_check.py` scenarios this applies to, `[*]`
+  for all of them, or `[]` for "no scenario exercises this" — which is a real
+  and honest state and then needs a `conditional:` saying why. There is
+  deliberately no default: a divergence that applied everywhere because nobody
+  said where it applied is the exact failure this key was added to fix.
+- **`unreachable:`** is optional and lists the `trace_fields` names the trace
+  format cannot carry. Declaring them turns a silently dead suppression rule
+  into a stated one, and the check runs both ways: an undeclared dead name is a
+  typo, and a declared name that has become a column is a stale declaration.
 
 One file per divergence, so twenty agents never edit the same file, and so the
 trace comparison in §M6 can read the directory and know which differences are
@@ -1057,7 +1080,8 @@ flips a parity that never recovers.
 
 So the interpreter now charges cycles, dominated **not by instructions but by
 DMA at a fixed eight master cycles a byte**, and asserts each frame against one
-NTSC frame. Measured: ordinary frames run at **31.9%**, the reset path at 584%
+NTSC frame. Measured: ordinary frames run at **31.8%** (31.9% before the
+re-audit below corrected the cycle rule), the reset path at 584%
 (exempt — it clears 128 KiB through a byte port before NMI is armed). A
 `LoadScene` call moves ~31 KiB, which is ~70% on its own, so **scene-transition
 frames are the case to watch** and are close to the limit. When one crosses it
@@ -1094,6 +1118,119 @@ One smaller thing found while building the differ: **a divergence's
 suppresses actor positions *everywhere*, including on the island where nothing
 moved. The front matter needs a `scenes:` key. Until it has one, read the
 per-divergence suppression counts the differ prints rather than trusting them.
+
+**That is now closed, and it was worse than the paragraph above thought.**
+See the re-audit below.
+
+---
+
+## The re-audit: the divergence corpus was data nothing validated
+
+The question the rest of this sweep asks — *is everything present used, and is
+everything used present?* — has an unusually sharp answer here, because a
+divergence file is not documentation. It is **data that switches off part of the
+only check comparing the port against the frozen ROM.** Six files, each a rule,
+and until this pass the only thing that read them was `trace_diff.py` — which
+runs only under `trace_check.py`, which needs the ROM and the 65816 interpreter
+and is deliberately not in Gate 0. So neither was the corpus.
+
+**The scope hole was load-bearing, and here is the proof.** Take the `station`
+pair — a scenario that holds the *oracle's own* collision map and cast positions
+equal precisely so that any difference at all is a difference in the code — and
+move Sora sixteen raw units south on one frame. Before this pass:
+
+```
+$ trace_diff.py snes-station.trace ds-station-bent.trace
+  004       1 difference(s)  The Stations of Awakening are drawn smaller
+no unexplained divergence.
+$ echo $?
+0
+```
+
+**Exit 0, on a trace with the player in the wrong place.** Divergence 004
+describes a *disc radius* and it silently excused a movement bug, in a scenario
+whose entire purpose is that content is held equal. With `--scene station` the
+same pair reports `FIRST UNEXPLAINED DIVERGENCE: frame 60, field py: snes=3304
+ds=3320` and exits 1. In `dive`, where 004 genuinely does apply, it excuses 1604
+differences — so the count alone could never have distinguished the two cases.
+
+`--scene NAME` or `--any-scene` is now **required**: a blanket you asked for is a
+different thing from one you got by default.
+
+**Three of the five front-matter keys were parsed and dropped on the floor.**
+`reason:` — the one line every file carries saying *why* the difference is
+deliberate — was read and never printed; the report showed the `# heading`
+instead. `conditional:` was read and discarded entirely, so divergence 006's
+"applies only when the 3D quad `GroundRenderer` is the active one" bound nothing.
+`platform:` was read and never compared against the pair being diffed.
+`spec_section:` was not parsed at all, by anything, in any of the six files. All
+four are now consumed, and the suppression report prints *what* each divergence
+excused and *over which frames* rather than only how many — because a count
+cannot tell "excusing the thing it describes" from "excusing everything".
+
+**The dead-field report could only see a wholly dead divergence.** It listed a
+divergence when *every* field it named was unreachable, so 003 — `nightTimer`
+reaches a column through an alias, `shadowAlive` and `shadowSpot` reach nothing —
+looked healthy with two of its three names inert. A partly dead rule is the more
+dangerous kind, because it fires. Reported per name now.
+
+**And two divergences turned out to describe things no scenario can see.**
+003 is the night's density, and the night *fixture* calls
+`NightMachine::setDensity()` to run at the SNES's six-at-seventy — which is what
+makes an oracle comparison of the night possible at all. 006 needs the 3D
+renderer, which no scenario runs. Both are `scenes: []` now, each with a
+`conditional:` saying why, and `check_divergences.py` prints the count of them:
+**two of six divergences are real in play and invisible to `trace_check.py`**,
+which is the honest measure of how much of the port's deviation is actually
+verified. A field name the format cannot carry is likewise declared, in
+`unreachable:`, and checked *both* ways — an undeclared dead name is a typo, and
+a declared name that has become a column is a stale declaration.
+
+**`tools/check_divergences.py` is the standing check, and it is in Gate 0**
+because it needs no ROM: front matter complete, ids unique and matching their
+filenames, every field name reachable or declared, every scene a real scenario,
+every `spec_section` a real section of `BEHAVIOUR.md`, every `platform` one the
+traces carry. Eight deliberate breakages, all fired.
+
+**The Gate 0 block in §0.5 was three steps out of date** and the divergence
+template in §0.6 was missing `platform:` and `scenes:` — it would have been
+rejected by the tool it is a template for. Both corrected.
+
+## ...and the interpreter was deciding operand width by hand
+
+`snes_opcodes.py` exists so that instruction decoding comes from the assembler
+rather than from a reference, and its docstring calls the hard-error on an
+unknown byte "the strongest self-check available". One part of decoding was
+outside it: **operand width**, the only property of an instruction's length that
+is not a property of its opcode byte.
+
+- `operand_len()` was **called by nothing**, and `IMM_WIDTH_FLAG`, the table it
+  consulted, fed nothing else.
+- `snes_cpu.py` **imported `FIXED_LEN` and never used it**.
+- Instead the interpreter answered the width question at **nine hand-written
+  call sites** — `self._operand("cpx", mode, self.x8)` and eight like it — plus
+  a **tenth, separate, six-mnemonic literal** for the cycle penalty. Two lists,
+  differing (the cycle one adds `stx`/`sty`), with nothing saying why.
+
+A wrong answer there does not raise. The interpreter reads one byte where the
+CPU read two, the decoder desynchronises, and the next opcode it decodes is an
+operand — the exact failure the module was written to make impossible.
+
+There is one statement now, `WIDTH_FLAG`, and it is **total with no default**,
+because `.get(mnem, "m")` is how an index-register instruction added later
+becomes accumulator-width in silence. `check_widths()` in Gate 0 asserts it
+covers every mnemonic reaching a sized addressing mode and contains nothing else.
+
+**Making it total found a real defect.** `jmp` and `jsr` take `abs`, so both
+reached the cycle rule, and the rule asked *"is the operand eight bits?"* of an
+instruction whose operand is a **destination**. Every jump executed with a
+16-bit accumulator was charged an extra bus access. Conservative — the frame-fit
+assertion could only ever have fired early, never late — but the busiest
+ordinary frame of the Dive measures **113520 master cycles, 31.8% of a frame**,
+not the 113970 and 31.9% quoted above. `WIDTH_FLAG` has a third value, `'a'`,
+for an operand the P register does not size, and `eight_bit()` refuses to answer
+for one. Traces before and after are **byte-identical**, verified on the whole
+seven-scenario run.
 
 ---
 
