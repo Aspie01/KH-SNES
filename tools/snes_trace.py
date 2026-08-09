@@ -40,7 +40,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from snes_cpu import Bus, Cpu, Unmapped                # noqa: E402
+from snes_cpu import (Bus, Cpu, Unmapped,               # noqa: E402
+                      MASTER_PER_FRAME)
 
 ROOT = Path(__file__).resolve().parent.parent
 ROM = ROOT / "platform" / "snes" / "kh.sfc"
@@ -208,6 +209,9 @@ class Machine:
         self.strict = strict
         self.frame = -1
         self.busiest = 0
+        self.worst_cost = 0
+        self.reset_cost = 0
+        self.worst_frame = -1
         # Generous: the reset path clears 128 KiB of WRAM through a byte port.
         self.cap = 4_000_000
         # Idleness detection, kept symbol-free on purpose: WaitVBlank is not in
@@ -264,6 +268,7 @@ class Machine:
         """
         self.bus.pad = pad
         before = self.cpu.instrs
+        cyc0 = self.cpu.cycles + self.bus.dma_cycles
         self._recent_pc.clear()
         self._wrote = False
         self.bus.watch_hit = False
@@ -291,7 +296,38 @@ class Machine:
                 self.bus.watch_hit = False
         self.frame += 1
         took = self.cpu.instrs - before
+        cost = (self.cpu.cycles + self.bus.dma_cycles) - cyc0
         self.busiest = max(self.busiest, took)
+        # Frame 0 is the reset path and is not a frame in this sense, so it is
+        # kept apart rather than allowed to hide every normal frame behind it.
+        if self.frame == 0:
+            self.reset_cost = cost
+        elif cost > self.worst_cost:
+            self.worst_cost, self.worst_frame = cost, self.frame
+
+        # THE ASSERTION THAT MATTERS, and it is not the one this file used to
+        # make.  Running until the CPU parks and then declaring it parked proves
+        # nothing -- it is true by construction.  The real question is whether
+        # the frame's WORK FITS IN A FRAME, because if it does not, hardware
+        # fires the NMI mid-work and WaitVBlank's `stz vblankFlag` throws that
+        # flag away: one game update then consumes TWO NMIs, frameCount advances
+        # by two while the logic advances by one, and `frameCount & 2` drives
+        # shakeX straight into WRAM at dive.s:183, night.s:788, town.s:793 and
+        # town.s:975.  The parity never recovers, so the trace is wrong from
+        # there on in a way no later check would notice.
+        #
+        # Frame 0 is exempt: it is the reset path, which clears 128 KiB of WRAM
+        # through a byte port before NMI is even armed, and is not a frame in
+        # this sense at all.
+        if self.strict and self.frame > 0 and cost > MASTER_PER_FRAME:
+            raise SystemExit(
+                f"frame {self.frame} needs {cost} master cycles and a frame is "
+                f"{MASTER_PER_FRAME} ({100.0 * cost / MASTER_PER_FRAME:.0f}%).  "
+                f"On hardware the NMI would land mid-work, WaitVBlank would "
+                f"discard the flag, and frameCount would advance twice for one "
+                f"update -- so shakeX's parity, the mote spread and the flash "
+                f"palette would all diverge, permanently.  Nothing after this "
+                f"frame is trustworthy.")
 
         # The frame's work is done and the state is what the NMI is about to
         # upload.  THIS is the sample point, and the DS side must match it:
@@ -348,8 +384,17 @@ def main(argv: list[str] | None = None) -> int:
             except Unmapped as e:
                 raise SystemExit(f"frame {n}: {e}")
         print(f"ran {args.frames} frames, {m.cpu.instrs} instructions, "
-              f"{m.bus.dma_bytes} DMA bytes, busiest frame {m.busiest} "
-              f"instructions", file=sys.stderr)
+              f"{m.bus.dma_bytes} DMA bytes", file=sys.stderr)
+        pct = 100.0 * m.worst_cost / MASTER_PER_FRAME
+        print(f"reset (frame 0, exempt): {m.reset_cost} master cycles = "
+              f"{100.0 * m.reset_cost / MASTER_PER_FRAME:.0f}% of a frame",
+              file=sys.stderr)
+        print(f"busiest ordinary frame: #{m.worst_frame}, {m.worst_cost} master "
+              f"cycles = {pct:.1f}% of a frame", file=sys.stderr)
+        if pct > 70.0:
+            print(f"  WARNING: that is close to the limit.  A frame over 100% "
+                  f"makes the trace wrong from that frame on -- see run_frame.",
+                  file=sys.stderr)
         if m.bus.unknown_reads:
             print("reads from nowhere: "
                   + ", ".join(f"${a:06X} x{n}" for a, n in

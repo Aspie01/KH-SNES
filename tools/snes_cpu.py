@@ -26,12 +26,29 @@ properties of this particular ROM, each checked rather than assumed:
     ReadPad -> TextUpdate -> SceneUpdate -> UpdateWorld -> UpdateCamera ->
     BuildOam, and WaitVBlank spins on `vblankFlag`, a WRAM byte the NMI sets.
 
-  * THEREFORE CYCLE ACCURACY IS IRRELEVANT -- PROVIDED the CPU is parked in that
-    spin loop when the NMI arrives.  If it is, the interpreter's instruction
-    costs cannot affect a single WRAM byte, because the only thing they could
-    change is *where* in the frame's work the NMI lands, and there is no work in
-    progress.  That is not an assumption here: `--strict` asserts it on every
-    frame and the run fails if it is ever false.  See spinCheck below.
+  * THEREFORE CYCLE ACCURACY IS ALMOST IRRELEVANT -- but not entirely, and the
+    exception is the whole reason this file charges cycles at all.
+
+    An earlier version of this docstring claimed the frame model was exact
+    "provided the CPU is parked in the spin loop when the NMI arrives", and
+    asserted exactly that.  THE ASSERTION WAS VACUOUS: the driver runs until the
+    CPU parks and then declares it parked.  It proved nothing.
+
+    The condition that actually matters is different.  If a frame's work exceeds
+    a frame, hardware fires the NMI mid-work -- and WaitVBlank's opening
+    `stz vblankFlag` then THROWS THAT FLAG AWAY, so one game update consumes two
+    NMIs.  frameCount advances by two while the logic advances by one, and
+    frameCount is not cosmetic: `frameCount & 2` picks shakeX at dive.s:183,
+    night.s:788, town.s:793 and town.s:975, the flash palette at oam.s:292, the
+    mote spread at dive.s:512 and the dark column's cel at night.s:577.  A single
+    swallowed NMI flips a parity that never recovers.
+
+    So the real question is "does the work fit in a frame", and answering it
+    needs a cost model -- dominated not by instructions but by DMA, at a fixed
+    eight master cycles a byte.  A LoadScene call moves about 31 KiB, which is
+    70% of a frame on its own.  Ordinary frames measure around 32%; the check is
+    in run_frame() and the run stops rather than emitting a trace it cannot
+    stand behind.
 
 WHAT IS DELIBERATELY NOT MODELLED, and why it is safe: VRAM, CGRAM and OAM.  The
 ROM never reads them back, and no trace field lives there.  DMA to those targets
@@ -51,7 +68,39 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from snes_opcodes import OPCODES, operand_len          # noqa: E402
+from snes_opcodes import OPCODES, FIXED_LEN            # noqa: E402
+
+# Master cycles per CPU cycle on FastROM (3.58 MHz against the 21.47 MHz master
+# clock).  WRAM and the register file are slow-bus and cost 8 rather than 6, but
+# that difference is inside this estimate's error bars and the frame check that
+# uses it carries margin -- see CYCLES_PER_MODE.
+MASTER_PER_CPU = 6
+
+# CPU cycles by addressing mode: the standard 65816 counts, +1 when the operand
+# is sixteen bits wide.  AN ESTIMATE, and deliberately labelled as one: nothing
+# in the trace depends on it.  The ONE thing it is used for is asking whether a
+# frame's work fits inside a frame, which is a question about a ~1% boolean at a
+# ~10% margin, so an estimate answers it and a wrong answer is visible as a
+# frame near the limit rather than as a silently wrong trace.
+CYCLES_PER_MODE = {
+    "imp": 2, "acc": 2, "imm": 2, "imm8": 3, "rel": 2,
+    "dp": 3, "dp_x": 4, "dp_y": 4, "abs": 4, "abs_x": 4, "abs_y": 4,
+    "ind_y": 5, "lng": 6, "lng_y": 6,
+}
+# The ones whose cost is nothing like their addressing mode.
+CYCLES_SPECIAL = {
+    "jsr": 6, "rts": 6, "rti": 7, "jmp": 3,
+    "pha": 3, "phx": 3, "phy": 3, "phb": 3, "phk": 3, "phd": 4,
+    "pla": 4, "plx": 4, "ply": 4, "plb": 4, "pld": 5,
+}
+
+# fullsnes: DMA costs "fixed 8 master cycles per byte", independent of the
+# A-bus bank's speed.  This is the DOMINANT term on any frame that calls
+# LoadScene -- the Dive path moves 31304 bytes, which is 250432 master cycles.
+MASTER_PER_DMA_BYTE = 8
+
+# One NTSC frame: 262 scanlines of 1364 master cycles.
+MASTER_PER_FRAME = 262 * 1364
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -86,7 +135,8 @@ class Bus:
         self.dmap = self.bbad = self.a1b = 0
         self.a1t = self.das = 0
         self.wmadd = 0                  # the WRAM port's own address
-        self.dma_bytes = 0              # counted, for the record
+        self.dma_bytes = 0
+        self.dma_cycles = 0             # 8 master cycles a byte, and it dominates
         self.unknown_reads: dict[int, int] = {}
         # The driver watches one WRAM address to know when the CPU is waiting
         # for VBlank rather than merely looping.  Set by Machine; -1 disables.
@@ -227,6 +277,7 @@ class Bus:
             count -= 1
             i += 1
             self.dma_bytes += 1
+            self.dma_cycles += MASTER_PER_DMA_BYTE
         self.a1t = src
         self.das = 0
 
@@ -376,7 +427,12 @@ class Cpu:
                 f"desynchronised, or the CPU is running data")
         mnem, mode = entry
         self.instrs += 1
-        self.cycles += 4        # see the module docstring on why this is enough
+        n = CYCLES_SPECIAL.get(mnem, CYCLES_PER_MODE[mode])
+        if mode in ("imm", "dp", "dp_x", "abs", "abs_x", "abs_y", "ind_y",
+                    "lng", "lng_y") and not (self.m8 if mnem not in
+                    ("ldx", "ldy", "cpx", "cpy", "stx", "sty") else self.x8):
+            n += 1              # sixteen-bit operand: one more bus access
+        self.cycles += n * MASTER_PER_CPU
         getattr(self, "_op_" + mnem)(mode)
 
     # --- loads and stores ---------------------------------------------------

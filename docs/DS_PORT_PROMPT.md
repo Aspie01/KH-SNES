@@ -637,14 +637,31 @@ than it sounds:
 - **All WRAM mutation is frame-synchronous**, because `WaitVBlank` spins on a
   WRAM byte the NMI sets.
 
-That last one is what makes the trace exact **despite the interpreter having no
-timing model at all**: instruction costs could only matter by moving the NMI to a
-different point in a frame's work, and if the CPU is parked there is no work to
-move it into. So the frame boundary is *detected* — run until the CPU is idling
-in `WaitVBlank`, reading the flag and writing nothing — rather than counted. If
-it ever fails to park, the run stops and names the frame, because from there on
-the trace would depend on costs that are only approximate. It has never failed:
-the busiest frame observed is 14785 instructions against a frame's budget.
+The frame boundary is therefore *detected* — run until the CPU is idling in
+`WaitVBlank`, reading the flag and writing nothing — rather than counted.
+
+**But that alone does not make the trace exact, and the first version of this
+claimed it did.** An independent review of the machine model caught it: the
+assertion "the CPU was parked when the NMI fired" is **vacuous**, because the
+driver runs until the CPU parks. It proved nothing.
+
+The condition that actually matters is whether **a frame's work fits in a
+frame**. If it does not, hardware fires the NMI mid-work and `WaitVBlank`'s
+opening `stz vblankFlag` *throws that flag away* — so one game update consumes
+two NMIs, and `frameCount` advances by two while the logic advances by one.
+`frameCount` is not cosmetic: `frameCount & 2` picks `shakeX` (dive.s:183,
+night.s:788, town.s:793, town.s:975), the flash palette (oam.s:292), the mote
+spread (dive.s:512) and the dark column's cel (night.s:577). One swallowed NMI
+flips a parity that never recovers.
+
+So the interpreter now charges cycles, dominated **not by instructions but by
+DMA at a fixed eight master cycles a byte**, and asserts each frame against one
+NTSC frame. Measured: ordinary frames run at **31.9%**, the reset path at 584%
+(exempt — it clears 128 KiB through a byte port before NMI is armed). A
+`LoadScene` call moves ~31 KiB, which is ~70% on its own, so **scene-transition
+frames are the case to watch** and are close to the limit. When one crosses it
+the run stops and names the frame rather than emitting a trace it cannot stand
+behind — proven by lowering the budget, which fires with exactly that diagnosis.
 
 **The opcode table is taken from the assembler, not from a reference.** ca65
 assembled this ROM, so its listings say exactly which byte it emitted for every
