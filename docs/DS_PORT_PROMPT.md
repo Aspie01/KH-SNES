@@ -1912,14 +1912,70 @@ The cases run against the **real** `islandmap.bin`, every entry compared, walkin
 the camera pixel-by-pixel across the whole island and back. A streamer tested on
 a synthetic grid would only agree with itself.
 
+## Step three: the depth sort
+
+`device/oam.cpp`. **This is the first piece of the device tier with a real
+oracle.** The initialisation had GBATEK and the streamer had arithmetic; neither
+had a frozen implementation to be right or wrong against. Depth does —
+`platform/snes/src/oam.s` is 689 lines that already decided every one of these
+questions, so the DS's only job is to answer them the same way, and every rule
+is cited to the line that establishes it.
+
+The scheme, in that file's own words: "sprites are drawn strictly in OAM order:
+slot 0 is frontmost. Seen from three-quarters overhead, being further down the
+screen means being nearer, so sorting actors by world Y descending … makes a
+character walk behind a palm when north of it and in front of it when south,
+with no per-object layer authoring at all."
+
+| rule | why it is not obvious |
+| --- | --- |
+| the sort is **stable** | `oam.s:132`'s `bcs @place` stops on *equal*, so ties keep scan order — the actor's own slot number. Two actors on one row is the island's palm rows and the town's wave arriving on one line; `std::sort` would be free to swap them differently each frame and two still sprites would flicker past each other |
+| the cull happens **before** a slot is taken | `oam.s:452-464` wraps the write, and the cursor advances only on a write. An off-screen actor is **free**, so 128 limits what is *drawn*, not what *exists* — backwards, that is a big map running out of sprites while showing almost none |
+| depth is the **ground** position | the key is `lda actY,x`, before the `z*8` lift `feet()` applies. Someone on a raised deck keeps the deck's depth |
+| the boss takes no actor slot | `oam.s:398-402` returns without advancing for a `Huge` actor, which is what lets it be in the sort at all |
+| shadows are in **sort order** too | they are all behind the actors, but they overlap *each other* |
+
+Two divergences reach here and both are forced: the cull rectangle is **32 lines
+shorter** (001), so an actor between y 192 and 224 is drawn on the SNES and
+culled here; and the ceiling is now **reachable** (002), because the pool is 128
+against the oracle's 32, so a busy frame has four times the candidates for the
+same 128 entries. The SNES could not fill OAM from a 32-actor pool; the DS can.
+
+**Seven breakages. Six fired immediately — and the seventh is the useful one.**
+
+Mutating the sort key to subtract the height lift — the mutation standing for
+"sorted on screen Y" — **did not fire**. Chasing it found two real things:
+
+1. **No test could tell world-Y sorting from screen-Y sorting.** A camera
+   subtracts the same offset from every actor, so both orderings agree on every
+   scrolling case that can be written. They part company only on *height*.
+   `oamsort_depth_is_the_ground_position_and_ignores_the_height_lift` is the
+   case that distinguishes them, and it did not exist.
+2. **The comparison was written twice.** The loop compared
+   `a.y[out[j-1]].raw()` against a key computed as `a.y[i].raw()` — the same
+   comparison in two forms, agreeing only because both were the raw Y. The
+   mutation changed one side and not the other and produced the right order by
+   accident. Add a bias or a tie-break to the key and only one side follows,
+   which is not an ordering error you can see but a comparator that is no longer
+   transitive. It is a named `sortKey()` used on both sides now, and with that
+   the probe fires.
+
+A probe that does not fire is worth as much as one that does.
+
 ## What §M7 still has to do, when a toolchain exists
 
-~~two-screen init consuming `vram_map.h`~~ → ~~2D tilemap ground renderer
-implementing `GroundRenderer`~~ **both done — see the two sections above** →
-sprites and the Y-sort → the bottom screen (HUD, command menu, minimap) → touch
-input → the 3D quad backend as a second `GroundRenderer`.
+~~two-screen init~~ → ~~2D tilemap ground renderer~~ → ~~sprites and the
+Y-sort~~ **three done — see the sections above** → the bottom screen (HUD,
+command menu, minimap) → touch input → the 3D quad backend as a second
+`GroundRenderer`.
 
-**The four that remain are where the stub stops paying**, and that is the honest
+Half of "sprites and the Y-sort" is done: the **depth logic** — who is in front
+of whom, who is on screen, who gets one of the 128 slots, and where each goes.
+What is left of it is the **attribute packing**: attr0/attr1/attr2, the tile
+number through `dsTileFor()`, the palette and the flip bits. That is mechanical
+and derivable, and `SpriteSlot` is the boundary it consumes.
+
+**The three that remain are where the stub stops paying**, and that is the honest
 reason they are not written rather than a shortage of effort. Each needs
 decisions a screen would inform — how the streamer schedules its column and row
 rewrites, what the Y-sort does with a tie, what the bottom screen's furniture
