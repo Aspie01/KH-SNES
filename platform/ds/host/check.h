@@ -16,7 +16,21 @@
 
 namespace ktest {
 
-constexpr int MAX_CASES = 256;
+// Fixed, not grown: the array is zero-initialised before any dynamic
+// initialisation runs, which is what makes self-registration work with no heap
+// and no init-order dance.  A std::vector here would need to exist before the
+// first KH_TEST registers into it, and that is the ordering problem this design
+// exists to not have.
+//
+// Raised from 256 when the HUD took the suite past it.  The overflow was
+// handled exactly right -- add() printed "more than 256 test cases; raise
+// MAX_CASES" and counted each dropped registration as a failure -- but the
+// bottom line then read "10 failures", which looks like ten broken assertions
+// rather than five cases that never ran.  The diagnostic was above it and easy
+// to miss under a grep for FAIL.  Worth knowing if it happens again: the count
+// is registrations dropped times two, because the suite runs forwards and
+// reversed.
+constexpr int MAX_CASES = 512;
 
 struct Case {
     const char* name;

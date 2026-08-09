@@ -83,7 +83,7 @@ Two structural notes about the districts, both learned by getting them wrong:
   that last one had hidden the only exit.
 - **A district hangs off its door row, and there are six door tiles in all.**
   The island tolerates a mistake in a corner; a district does not, because the
-  whole map is reached through row 4 — `DOOR_ROW`, `constants.h:477` — and
+  whole map is reached through row 4 — `DOOR_ROW`, `constants.h:522` — and
   every other column of that row is wall. Checked, not assumed, against
   `build_assets.TERRAIN`: row 4 of each of the three maps is unbroken +3
   building except at town1 (16,4) and (24,4), town2 (5,4), (24,4) and (28,4),

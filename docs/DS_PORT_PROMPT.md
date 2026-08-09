@@ -2012,6 +2012,74 @@ to compile.
 shadow inheriting the actor's palette, a shadow inheriting its mirror bit,
 unused slots left alone, priority 1 instead of 2, and the park at 240.
 
+## Step four: the bottom screen — and the half of the specification nobody was checking
+
+**The bottom screen is three reservations and only one of them is a port.**
+`vram_map.h` reserves `HUD_MAP`, `MENU_MAP` and `MINIMAP_MAP`; the HUD *is* a
+port, because `hud.s` is 598 lines that already decided what it shows and where.
+The command menu is **new** — the SNES had no such thing, and inventing one here
+would be designing a game rather than porting one. The minimap is new too,
+though less arbitrarily: it is a downscale of data that exists, but what it
+should *look* like still needs a screen. Both stay reservations, which is a
+better state than a guess: an empty region with a name gets filled in, a wrong
+one has to be noticed first.
+
+What moved is only *where*. On the SNES the HUD was BG3 of the only screen —
+"the 2bpp layer and, with the mode-1 priority bit set, it draws above everything
+else, which is exactly what a HUD wants." The DS has a second screen, so the
+content is unchanged and the layer-priority argument evaporates.
+
+### The real find: `text.inc` was checked by nothing
+
+Building the gauge needed `CH_BAR_FULL`, and it was not there. Nor were
+twenty-one others. **23 of `text.inc`'s 48 constants had never reached the DS**
+— every gauge glyph, the entire nine-patch the dialogue window is drawn from,
+`CH_CLEAR`, and all seven box and menu geometry numbers.
+
+It was invisible from **both** directions at once, which is why six milestones
+went by:
+
+- `check_constants.py` read `game.inc` **and only `game.inc`**. `text.inc` — the
+  other half of the specification's numbers — was checked by nothing.
+- Its DS-side reader looked in **three headers by name** (`fixed.h`,
+  `constants.h`, `actor.h`). Anything in any other header was invisible, so the
+  tool reported `SC_END` as missing while it sat in `text.h`. That is a false
+  negative that makes a check *worse* than useless: the honest way to clear it
+  is to add an excuse for something that is not missing, and then the excuse
+  goes stale in silence.
+
+It is obvious in hindsight why the gap existed. §M5 ported the dialogue
+*interpreter* and did it carefully — `SC_END`, `TS_REVEAL`, `TM_RAFT`, `TEXT_W`,
+`TEXT_H` are all present and correct — and left *rendering* to §M7. So the file
+looked ported. The half that was missing was the half nothing needed yet, which
+is exactly the half a checker is for.
+
+Both halves are fixed: the tool reads both includes and globs every DS header,
+`TS_`/`TM_` join the enum families, the 22 portable constants are ported, and
+`TXT_ATTR` is excused with the reason (a SNES BG3 attribute is a priority bit
+plus a 3-bit palette; a DS entry has no priority bit — priority is per *layer* —
+and four palette bits, so there is no number to carry). **347 constants checked,
+up from 300.**
+
+### The HUD
+
+Seven breakages, all fired: `== 0` for `<= 0` (a death would *refill* the
+gauge, because an actor sits at negative HP for the frame between the killing
+hit and the death being processed), blanking with the opaque cell instead of
+`CH_CLEAR`, dropping the blank pass entirely, drawing a gauge for an empty
+player slot, one bar position for both bosses, the SNES's palette number
+carried across, and a cell worth one point instead of two — that last one at
+compile time, because `HP_BAR_CELLS * 2 == SORA_MAX_HP` is a `static_assert`
+and `hud.s:22` asks for exactly that check in prose.
+
+Two things the run turned up in the harness rather than the code. The suite hit
+`MAX_CASES = 256`: `add()` diagnosed it correctly and counted each dropped
+registration as a failure, but the bottom line then read "10 failures", which
+looks like ten broken assertions rather than five cases that never ran. Raised
+to 512, with the arithmetic written down. And `check_worldsizes.py` caught a
+`constants.h:477` citation that my own insertion had shifted — the check earning
+its place the first time something moved under it.
+
 ## What §M7 still has to do, when a toolchain exists
 
 ~~two-screen init~~ → ~~2D tilemap ground renderer~~ → ~~sprites and the
@@ -2025,7 +2093,14 @@ result into OAM — a dozen lines that need a `swiWaitForVBlank` and therefore
 libnds, which is the first thing in this milestone genuinely blocked rather than
 merely unverifiable.
 
-**The three that remain are where the stub stops paying**, and that is the honest
+The bottom screen's other two panels — the command menu and the minimap — are
+**new content**, not deferred work, and they need a screen to judge. What
+remains of the HUD itself is the boss's name and Kairi's checklist, both of
+which are script strings: `PutLabel` walks them out of the same table the
+dialogue does, and putting a second string layout in `hud.cpp` would be the
+beginning of a second text renderer.
+
+**The rest is where the stub stops paying**, and that is the honest
 reason they are not written rather than a shortage of effort. Each needs
 decisions a screen would inform — how the streamer schedules its column and row
 rewrites, what the Y-sort does with a tie, what the bottom screen's furniture

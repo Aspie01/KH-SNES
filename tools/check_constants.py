@@ -32,7 +32,22 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-INC = ROOT / "platform" / "snes" / "src" / "game.inc"
+# BOTH include files, and the second one is the point of this paragraph.
+#
+# This tool read game.inc and only game.inc for its whole existence, and
+# text.inc -- the other half of the specification's numbers, the font's glyph
+# indices and the dialogue box's geometry -- was checked by NOTHING.  Twenty-three
+# of its forty-eight constants had never reached the DS at all: every gauge
+# glyph, the entire nine-patch the dialogue window is drawn from, CH_CLEAR, and
+# all seven box and menu geometry numbers.
+#
+# It is obvious in hindsight why they were missed and why nothing noticed.  §M5
+# ported the dialogue INTERPRETER and did it carefully -- SC_END, TS_REVEAL,
+# TM_RAFT, TEXT_W and TEXT_H are all present and correct -- and left rendering
+# to §M7.  So the file looked ported.  The half that was missing was the half
+# nothing needed yet, which is exactly the half a checker is for.
+INCS = (ROOT / "platform" / "snes" / "src" / "game.inc",
+        ROOT / "platform" / "snes" / "src" / "text.inc")
 DS = ROOT / "platform" / "ds" / "include"
 
 # The enum-shaped families.  The SNES numbers them by hand and the DS uses an
@@ -54,6 +69,10 @@ FAMILIES = {
     "GAS_": ("ArmorState", "constants.h"),
     "RAFT_": ("RaftName", "constants.h"),
     "AF_": ("ActFlags", "actor.h"),
+    # text.inc's two, which are enum classes here for the same reason the
+    # others are: a txtState cannot be compared against a txtMode.
+    "TS_": ("TextState", "text.h"),
+    "TM_": ("TextMode", "text.h"),
 }
 
 # The two families the DS keeps as a NAMESPACE of constants rather than an enum,
@@ -118,6 +137,12 @@ NEED_INDEX = {
 # an entry that is no longer needed fails the run.
 EXCUSED = {
     "GAME_INC": "the include guard, not a constant",
+    "TXT_ATTR": "a SNES BG3 map attribute -- priority bit plus palette 4 in a "
+                "three-bit field.  The DS packs a map entry differently (palette "
+                "in bits 12-15, no priority bit: priority is per LAYER in "
+                "BGxCNT), so there is no number to carry across.  See "
+                "device/hud.cpp, which builds the DS's equivalent.",
+    "TEXT_INC": "the include guard, not a constant",
     "MAP_W_SHIFT": "log2 of a fixed map width; DS map size is per scene and "
                    "SceneGround indexes with a multiply instead",
     # The SNES PPU.  vram_map.h is the DS's answer to all of these and it does
@@ -171,9 +196,23 @@ DIVERGED = {
 
 def snes_constants() -> list[tuple[str, str]]:
     out = []
-    for m in re.finditer(r"^([A-Z][A-Z0-9_]*)\s*=\s*(.+?)\s*(?:;.*)?$",
-                         INC.read_text(), re.M):
-        out.append((m.group(1), m.group(2).strip()))
+    seen: dict[str, str] = {}
+    for inc in INCS:
+        for m in re.finditer(r"^([A-Z][A-Z0-9_]*)\s*=\s*(.+?)\s*(?:;.*)?$",
+                             inc.read_text(), re.M):
+            name, val = m.group(1), m.group(2).strip()
+            # A name defined in both files with different values would make
+            # "the SNES says X" ambiguous, and the check would then be against
+            # whichever file was read last.  There are none today.
+            if name in seen and seen[name] != val:
+                raise SystemExit(
+                    f"{name} is defined in more than one include with different "
+                    f"values ({seen[name]} and {val}); the specification has to "
+                    f"have one answer")
+            if name in seen:
+                continue
+            seen[name] = val
+            out.append((name, val))
     return out
 
 
@@ -205,9 +244,24 @@ def ds_scalars() -> dict[str, int]:
     """
     out: dict[str, int] = {}
     # fixed.h FIRST: constants.h derives from TILE_PX and evaluate() resolves
-    # names in the order it meets them.
-    text = "".join((DS / f).read_text()
-                   for f in ("fixed.h", "constants.h", "actor.h"))
+    # names in the order it meets them.  Then EVERY OTHER HEADER, rather than
+    # the hardcoded three this used to read.
+    #
+    # That list was the second half of the same defect as the missing text.inc.
+    # A constant living in any header but those three was invisible here, so the
+    # tool would report SC_END as absent while it sat in text.h -- a false
+    # negative that makes the check worse than useless, because the honest way
+    # to clear it is to add an excuse for something that is not actually
+    # missing, and then the excuse goes stale silently.
+    #
+    # Globbed, so a header added later is read without this file changing.  gen/
+    # is deliberately included: a generated constant is still a constant, and
+    # gen/assets.h holds several the specification has opinions about.
+    first = ("fixed.h", "constants.h", "actor.h")
+    rest = sorted(f for f in DS.rglob("*.h")
+                  if f.name not in first)
+    text = "".join((DS / f).read_text() for f in first)
+    text += "".join(f.read_text() for f in rest)
     pat = re.compile(r"constexpr\s+(?:\w+(?:<\d+>)?\s+)+(\w+)\s*=\s*([^;]+);")
     for m in pat.finditer(text):
         name, rhs = m.group(1), m.group(2).strip()
@@ -385,15 +439,16 @@ def main(argv=None) -> int:
 
     stale = sorted(set(EXCUSED) - used_excuses)
     for n in stale:
-        bad.append(f"{n} is excused and no longer exists in game.inc; a stale "
-                   f"exclusion is how a checker stops checking")
+        bad.append(f"{n} is excused and no longer exists in either include; a "
+                   f"stale exclusion is how a checker stops checking")
 
     if bad:
         print(f"constants: {len(bad)} problem(s)\n", file=sys.stderr)
         for b in bad:
             print(f"  {b}", file=sys.stderr)
         return 1
-    print(f"constants ok: {checked} of game.inc's checked by value against the "
+    print(f"constants ok: {checked} of "
+          f"{' and '.join(i.name for i in INCS)} checked by value against the "
           f"DS headers, {len(EXCUSED)} excused with a reason")
     return 0
 

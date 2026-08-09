@@ -142,6 +142,51 @@ constexpr uint8_t CH_SLASH = 44;
 constexpr uint8_t CH_CURSOR = 45;       // menu selection arrow
 constexpr uint8_t CH_ADVANCE = 46;      // "press a button" indicator
 
+// THE REST OF THE FONT, which was in text.inc and had never been ported.
+//
+// §M5 took the dialogue INTERPRETER out of text.inc -- the control codes, the
+// states, the modes, the line geometry -- and did it carefully.  It left the
+// PRESENTATION glyphs, reasonably, because nothing drew anything yet.  Then
+// nothing noticed for six milestones, because tools/check_constants.py read
+// game.inc and not text.inc, and its DS-side reader looked in three headers by
+// name.  Twenty-two constants, invisible from both directions at once.
+//
+// Both halves of that are fixed; this is the content.
+constexpr uint8_t CH_BAR_L = 48;        // HP gauge pieces
+constexpr uint8_t CH_BAR_FULL = 49;
+constexpr uint8_t CH_BAR_HALF = 50;     // an odd point of HP is half a cell
+constexpr uint8_t CH_BAR_EMPTY = 51;
+constexpr uint8_t CH_BAR_R = 52;
+
+// The dialogue window's nine-patch.  Drawn on the MAIN engine over the world,
+// not down here -- vram_map.h puts the box on BG3 of engine A because "a line
+// of dialogue belongs with the thing that is speaking".
+constexpr uint8_t CH_WIN_TL = 56;
+constexpr uint8_t CH_WIN_T = 57;
+constexpr uint8_t CH_WIN_TR = 58;
+constexpr uint8_t CH_WIN_L = 59;
+constexpr uint8_t CH_WIN_C = 60;
+constexpr uint8_t CH_WIN_R = 61;
+constexpr uint8_t CH_WIN_BL = 62;
+constexpr uint8_t CH_WIN_B = 63;
+constexpr uint8_t CH_WIN_BR = 64;
+
+// "the one genuinely transparent cell" (text.inc) -- every other glyph carries
+// an opaque background so text can sit inside the window.
+constexpr uint8_t CH_CLEAR = 127;
+
+// Dialogue box geometry, in tilemap cells.  BOX_ROW is a row of a 224-line
+// screen; the DS box sits 32 lines higher for the same reason everything else
+// does, and that adjustment belongs to whoever draws it rather than here --
+// this is the SNES's number, carried so the port has something to adjust FROM.
+constexpr int BOX_ROW = 20;             // BOX_ROW
+constexpr int BOX_ROWS = 7;             // BOX_ROWS
+constexpr int TEXT_COL = 2;             // TEXT_COL   first column of the text
+constexpr int TEXT_ROW = 1;             // TEXT_ROW   box-relative
+constexpr int PROMPT_ROW = 3;           // PROMPT_ROW yes/no under a 3-line ask
+constexpr int MENU_ROW = 2;             // MENU_ROW   a 3-way menu needs one more
+constexpr int OPT_W = 11;               // OPT_W      cells an option may take
+
 // ---------------------------------------------------------------------------
 // Actor pool
 //
