@@ -88,3 +88,24 @@ apply and are kept in `constants.h` for exactly that comparison. A DS run agains
 a *fixture* that shows 20 Shadows has loaded the wrong scene data, and
 `trace_diff.py` should treat it as a hard failure rather than an expected
 divergence.
+
+## How the two densities coexist (added with §M6b)
+
+`SHADOW_MAX` and `SHADOW_GAP` were single constants on the SNES and are three
+pairs here — the island's 20 at 42, the fragment's 6 at 70, and the SNES's own 6
+at 70 for oracle fixtures. Until the night trace existed there was **no way to
+select between them**: `NightMachine::spawnShadows` used `SHADOW_MAX_NIGHT`
+unconditionally, so `SHADOW_MAX_FRAG` was a constant nothing could reach and the
+fragment would have run at island density on the one map the DS did *not*
+expand.
+
+`NightMachine::setDensity(alive, gap)` is the seam. The default stays the
+island's, because that is where the night starts; whoever loads the fragment
+says so, and `tools/trace_check.py`'s `night` scenario sets the SNES's six-at-
+seventy so that 770 frames can be compared against the ROM byte for byte.
+
+**The spot COUNT is part of the same decision and is easy to miss.**
+`Rng::pick()` reduces by repeated subtraction of the count, so ten spots and
+thirty-five spots turn the same LFSR sequence into different tiles. An oracle
+fixture therefore needs `nightSpots` as `night.s:1057` has it — the ten — and not
+`assets/gen/ds/nightspots.bin`.

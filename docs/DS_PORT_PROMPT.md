@@ -131,8 +131,8 @@ python3 tools/check_map.py                  # all 5 maps OK
 python3 tools/check_modes.py                # must say modes ok
 ```
 
-**And when the simulation changes**, `python3 tools/trace_check.py` — half a
-minute, both machines, five scenarios. Not in Gate 0 because it needs the ROM
+**And when the simulation changes**, `python3 tools/trace_check.py` — about a
+minute, both machines, six scenarios. Not in Gate 0 because it needs the ROM
 and the 65816 interpreter, but it is the check that notices a change in
 behaviour rather than a change in output.
 
@@ -755,10 +755,11 @@ suppressed and no divergence file involved:
 | `station` | 130 | the walk, the rim of the disc, one swing |
 | `darkside` | 285 | rest → fist → orbs, the Shadow the slam leaves, an orb expiring |
 | `armor` | 384 | the drop, the landing freeze, the walk, the fist that connects |
+| `night` | 770 | the storm, six Shadows arriving off the LFSR, the ceiling where the draws stop |
 | `race` | 670 | Riku's whole waypoint course, every frame of it |
 
-`tools/trace_check.py` runs all of them plus the fifth against both machines in
-about half a minute. It is not in Gate 0 because it needs the ROM and the
+`tools/trace_check.py` runs all of them plus the sixth against both machines in
+about a minute. It is not in Gate 0 because it needs the ROM and the
 interpreter; run it whenever the simulation changes.
 
 **Why a scenario and not a game.** The oracle boots the ROM and the ROM does the
@@ -811,6 +812,62 @@ twelve so that cannot quietly stop being true.
 changing the position encoding fails the host tests; and *fixing* Darkside's
 reproduced fist bug makes `trace_check.py` fail the `darkside` pair at frame
 116, by name. That last one is the whole point of the machinery.
+
+## The night, and the RNG it took to get there
+
+The brief names exactly one determinism hazard: "the RNG is a 16-bit Galois LFSR
+seeded to `$ACE1` by `InitWorld` and to `$1D57` by `TownBegin` — seed yours
+identically and advance it at the same points, or the Heartless spawn positions
+diverge immediately and the diff is worthless." **Nothing before the night
+tested it**, because nothing before the night drew from it: the stations, both
+bosses and the race are fully deterministic. The night draws from two places at
+once — the flash wait and the spawn spot — so a trace that matches proves the
+sequence *and* the order of the draws.
+
+It now matches for 770 frames, through six arrivals, one refusal-and-retry, and
+305 frames at the ceiling. Four things had to be fixed first, and none of them
+would have been found by reading:
+
+- **`NightMachine::begin()` and `restart()` did not draw.** `ArmLightning` is one
+  `Rand` and it is called from three places — `NightBegin` (night.s:83),
+  `NightRestart` (night.s:108) and the end of a wait (night.s:302). Only the
+  third was reproduced. `restart()` set the wait to `FLASH_GAP_MIN` under a
+  comment that said it drew. Both now take the `Rng`, which is why their
+  signatures changed.
+- **`begin()` left the spawn timer at zero**, so the first Shadow of the search
+  arrived on its opening frame instead of seventy-one frames into it. `NightBegin`
+  sets `spawnTimer = SHADOW_GAP` before anything runs (night.s:81).
+- **`begin()` did not arm the opening flash.** "No fade back in: the storm
+  arrives with the first flash of lightning" — `flashTimer = FLASH_LEN`,
+  night.s:89.
+- **The density was hard-coded, so `SHADOW_MAX_FRAG` could not be selected.**
+  `spawnShadows` always used `SHADOW_MAX_NIGHT`, which meant the fragment would
+  have run at island density on a map that was never expanded, and an oracle
+  fixture could not run at the SNES's six-at-seventy at all.
+  `NightMachine::setDensity()` is the seam; divergence 003 is where the three
+  pairs of numbers come from.
+
+**And one trap that is the harness's and not the game's, worth writing down
+because the next fixture will hit it.** `rngState` is seeded by `InitWorld`,
+`InitWorld` runs when the ISLAND is entered or restarted, and `RestartScene`'s
+night branch calls `NightRestart` instead. Poke straight into the night and the
+LFSR is still **zero** — and a Galois register at zero is a fixed point, so every
+flash waits exactly `FLASH_GAP_MIN` and every Shadow of the whole night comes up
+on spot zero. `TownBegin` carries a comment warning about precisely this
+(town.s:68). The first version of the night scenario did exactly that, matched
+nothing, and looked like an RNG bug; the fix is a **two-stage poke** — restart
+onto the island so `InitWorld` runs, then restart into the night — so the seeding
+is the game's own code. On the shipped path the Dive's `@swap` calls `InitWorld`
+(dive.s:610), so this never happens in play.
+
+**A fifth thing, found on the way and now part of the model.** The first emitted
+frame of a poked scenario is the frame `RestartScene` ran, and on that frame
+`GameOverUpdate` runs *instead of* the scene script — so the world updated and
+the stage machine did not. The other three scenarios never noticed, because
+their machines do nothing on a frame with a live boss; the night has a running
+timer, and one extra update at the start put every Shadow of the next four
+hundred frames one frame early. `Scenario::first` is now an enum with that case
+in it.
 
 ---
 

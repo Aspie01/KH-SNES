@@ -111,6 +111,32 @@ KH_TEST(stage_rng_is_the_snes_lfsr_bit_for_bit) {
     }
 }
 
+KH_TEST(stage_rng_a_state_of_zero_is_a_fixed_point_and_stays_there) {
+    // A Galois shift register whose state is zero stays zero: `asl 0` is 0 with
+    // the carry clear, so there is no xor and nothing ever moves.  town.s:68
+    // carries a comment warning about exactly this -- "every Heartless in the
+    // Second District would then come up on the same paving stone" -- and it is
+    // not hypothetical.  `rngState` is seeded by InitWorld, InitWorld runs when
+    // the ISLAND is entered or restarted, and RestartScene's night branch calls
+    // NightRestart instead.  Restart straight into the night without having been
+    // to the island and the LFSR is still zero: every flash waits exactly
+    // FLASH_GAP_MIN and every Shadow of the whole night comes up on spot zero.
+    //
+    // Found by the oracle, not by reading.  §M6b's night scenario was written
+    // that way first, and five Shadows in a row arriving on the same tile is
+    // what it takes to notice.
+    Rng r;
+    r.seed(0);
+    for (int i = 0; i < 64; ++i) {
+        CHECK_EQ(r.next(), 0);
+        CHECK_EQ(r.state(), 0);
+        CHECK_EQ(r.pick(10), 0);
+    }
+    // ...and the two real seeds are the way out of it, which is why both exist.
+    CHECK(Rng::WORLD_SEED != 0);
+    CHECK(Rng::TOWN_SEED != 0);
+}
+
 KH_TEST(stage_rng_spot_choice_is_repeated_subtraction_not_a_modulo) {
     // "Spawn-spot selection is `Rand & $00FF` reduced by repeated subtraction of
     // the spot count, not a modulo."  For a count that divides 256 the two agree;

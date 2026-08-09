@@ -364,7 +364,19 @@ private:
 // ---------------------------------------------------------------------------
 class NightMachine {
 public:
-    void begin();
+    // NightBegin takes the RNG because it DRAWS FROM IT: `jsr ArmLightning`
+    // (night.s:83) is one `Rand`, and so is the one in NightRestart.  That is
+    // not a detail -- the flash wait and the Shadow spots come out of the same
+    // LFSR, so a night that skips the draw runs every later arrival off a
+    // different sequence.  §M6 names this as THE determinism hazard, and the
+    // trace found it: the first version of this file set `wait_` to the minimum
+    // with no draw, under a comment saying it drew.
+    //
+    // It also arms the first flash and sets the spawn timer to the gap, both of
+    // which NightBegin does and neither of which is cosmetic: with the timer at
+    // zero the first Shadow arrives on the first frame of the search instead of
+    // seventy-one frames into it.
+    void begin(Rng& rng);
     StageStep update(SceneView& view, ScreenFx& fx);
 
     NightStage stage() const { return stage_; }
@@ -380,15 +392,28 @@ public:
     // A death rewinds to whichever of the two searches was in progress -- and
     // clears the Keyblade if it had not been earned yet.  It also has to put the
     // screen-wide effects back, because a death can land in the middle of the
-    // island coming apart.
-    StageStep restart(bool onFragment, ScreenFx& fx);
+    // island coming apart.  It re-arms the lightning, which is the second draw.
+    StageStep restart(Rng& rng, bool onFragment, ScreenFx& fx);
     // Where the Shadows come up.  The night spawns them in BOTH searches and
     // has no wave cap -- unlike the Second District, they keep arriving for as
     // long as the search lasts.
     void setSpots(const Tile* spots, int count) { spots_ = spots; nSpots_ = count; }
     int spawnTimer() const { return spawn_; }
 
+    // HOW DENSE THE NIGHT IS, and it belongs to the MAP rather than to this
+    // machine.  The SNES had one pair of numbers because the night and the
+    // fragment ran on maps of similar size; the DS island is four times what it
+    // was and the fragment is deliberately untouched, so the island wants 20 at
+    // a 42-frame gap and the fragment still wants 6 at 70 -- see divergence 003
+    // and the derivation in constants.h.  The default is the island's, because
+    // that is where the night starts; whoever loads the fragment says so, and so
+    // does an oracle fixture, which needs the SNES's 6 and 70.
+    void setDensity(int alive, int gap) { shadowMax_ = alive; shadowGap_ = gap; }
+    int shadowMax() const { return shadowMax_; }
+    int shadowGap() const { return shadowGap_; }
+
 private:
+    void armLightning(Rng& rng);
     void lightning(SceneView& view, ScreenFx& fx);
     void spawnShadows(SceneView& view);
     StageStep column(SceneView& view, SceneAction make, NightStage next,
@@ -404,6 +429,8 @@ private:
     bool key_ = false;
     const Tile* spots_ = nullptr;
     int nSpots_ = 0;
+    int shadowMax_ = SHADOW_MAX_NIGHT;
+    int shadowGap_ = SHADOW_GAP;
 };
 
 }  // namespace kh

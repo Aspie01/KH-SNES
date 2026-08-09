@@ -23,7 +23,7 @@ TWO FAMILIES OF SCENARIO, and the expectation differs because the question does:
     deliberate: two simulations that have diverged keep diverging, so the count
     is noise and the first is the fact.
 
-Runs in about half a minute, nearly all of it the 65816 interpreter.  Not part
+Runs in about a minute, nearly all of it the 65816 interpreter.  Not part
 of Gate 0 for that reason -- run it whenever the simulation changes, and it is
 the check that would catch a "helpful" repair of a reproduced SNES bug: fixing
 Darkside's fist makes the darkside pair differ at frame 116, by name.
@@ -63,6 +63,11 @@ CASES = [
     Case("armor", 400, "traces/idle.txt",
          poke=["sceneId=6", "townStage=5", "deadFlag=2"], strict=False, first=16,
          note="the drop, the landing freeze, the walk and the fist that connects"),
+    Case("night", 800, "traces/idle.txt",
+         poke=["sceneId=3", "deadFlag=2", "30:sceneId=4", "30:deadFlag=2"],
+         strict=False, first=30,
+         note="the storm, the search, the LFSR they both draw from, and the "
+              "ceiling at six where the draws stop"),
     Case("race", 700, "traces/idle.txt",
          poke=["sceneId=3", "deadFlag=2", "30:questState=6", "30:rikuWp=0"],
          strict=False, first=30,

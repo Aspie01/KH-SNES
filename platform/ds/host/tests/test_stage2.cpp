@@ -355,10 +355,89 @@ KH_TEST(stage_night_the_keyblade_starts_absent) {
     // Audit, LoadScene's side effects: "keyGot is set to 1 ... The night is the
     // only scene that clears keyGot, and it does so itself after LoadScene."
     // Before it, the Shadows can neither be hurt nor hurt Sora.
+    Rng rng;
     NightMachine m;
-    m.begin();
+    m.begin(rng);
     CHECK(!m.keyGot());
     CHECK(m.stage() == NightStage::Intro);
+}
+
+KH_TEST(stage_night_beginning_and_restarting_both_draw_from_the_lfsr) {
+    // ArmLightning is one `Rand`, and it is called from THREE places:
+    // NightBegin (night.s:83), NightRestart (night.s:108) and the end of a wait
+    // (night.s:302).  All three matter, because the flash wait and the Shadow
+    // spots come out of the SAME register -- a night that skips a draw runs
+    // every later arrival off a different sequence than the oracle's.
+    //
+    // This file used to leave both of the first two undrawn: begin() set the
+    // wait to zero and restart() set it to the floor, under a comment that said
+    // it drew.  §M6b's night trace is what found it -- 370 frames that could not
+    // agree until the draws were in the right places.
+    Rng r;
+    ScreenFx fx;
+    NightMachine m;
+    const uint16_t before = r.state();
+    m.begin(r);
+    CHECK(r.state() != before);                     // it DREW
+    CHECK(m.flashWait() >= FLASH_GAP_MIN);
+    CHECK(m.flashWait() <= FLASH_GAP_MIN + FLASH_GAP_VAR);
+    // ...and it opens with a flash and a full spawn gap, both of which
+    // NightBegin sets before the first frame runs.
+    CHECK_EQ(m.flashTimer(), FLASH_LEN);
+    CHECK_EQ(m.spawnTimer(), m.shadowGap());
+
+    // $ACE1 draws $EF, so the opening wait is 150 + (0xEF & 127) = 261 -- the
+    // number the oracle's WRAM holds on the frame the night starts.
+    Rng seeded;
+    NightMachine n;
+    n.begin(seeded);
+    CHECK_EQ(n.flashWait(), FLASH_GAP_MIN + (0xEF & FLASH_GAP_VAR));
+    CHECK_EQ(n.flashWait(), 261);
+
+    // A retry draws again, so it does not reproduce the run that killed him.
+    const uint16_t mid = seeded.state();
+    n.setStage(NightStage::Riku);
+    n.restart(seeded, false, fx);
+    CHECK(seeded.state() != mid);
+    CHECK_EQ(n.flashTimer(), 0);                    // NightRestart clears it
+    CHECK_EQ(n.spawnTimer(), n.shadowGap());
+}
+
+KH_TEST(stage_night_how_dense_the_night_is_belongs_to_the_map) {
+    // One pair of numbers on the SNES because the night and the fragment ran on
+    // maps of similar size; three pairs here because they no longer do, and
+    // SHADOW_MAX_FRAG existed with nothing able to select it until the oracle
+    // fixture needed the same mechanism.  divergence 003.
+    Stub w;
+    ScreenFx fx;
+    NightMachine m;
+    m.begin(w.rng);
+    CHECK_EQ(m.shadowMax(), SHADOW_MAX_NIGHT);      // the island, by default
+    CHECK_EQ(m.shadowGap(), SHADOW_GAP);
+
+    // The SNES's density, which is what an oracle fixture runs at.
+    m.setDensity(SNES_SHADOW_MAX, SNES_SHADOW_GAP);
+    CHECK_EQ(m.shadowMax(), SNES_SHADOW_MAX);
+    CHECK_EQ(m.shadowGap(), SNES_SHADOW_GAP);
+
+    const Tile spots[] = {{20, 15}, {30, 12}, {38, 17}, {16, 19}, {24, 20},
+                          {33, 22}, {12, 18}, {28, 25}};
+    m.setSpots(spots, 8);
+    m.setStage(NightStage::Seek);
+    // Run long enough to fill twice over and it holds at SIX, not twenty.
+    for (int i = 0; i < (SNES_SHADOW_GAP + 1) * (SNES_SHADOW_MAX + 8); ++i)
+        step(m, w, fx);
+    CHECK_EQ(w.actors.count(ActType::Shadow), SNES_SHADOW_MAX);
+    // ...and the gap it filled at was the SNES's, not the island's.
+    CHECK(SNES_SHADOW_GAP != SHADOW_GAP);
+
+    // The fragment is the third pair, and it is the SNES's numbers because the
+    // fragment's map is the one the DS did not expand.
+    NightMachine f;
+    Stub v;
+    f.begin(v.rng);
+    f.setDensity(SHADOW_MAX_FRAG, SNES_SHADOW_GAP);
+    CHECK_EQ(f.shadowMax(), SNES_SHADOW_MAX);
 }
 
 KH_TEST(stage_night_lightning_is_two_strikes_in_one_flash) {
@@ -368,12 +447,15 @@ KH_TEST(stage_night_lightning_is_two_strikes_in_one_flash) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Seek);
     openBox(w);                                 // the storm runs through it
 
-    // The first frame arms a strike; the eight after it are the flash.
-    step(m, w, fx);
+    // THE STORM ARRIVES WITH THE FIRST FLASH.  NightBegin sets flashTimer to
+    // FLASH_LEN itself (night.s:89) rather than leaving the first frame to arm
+    // one -- "no fade back in", the comment says, because the flash IS the fade
+    // in.  This test used to spend a frame arming; that frame was the port's and
+    // not the SNES's, and the night trace is what said so.
     CHECK_EQ(m.flashTimer(), FLASH_LEN);
     uint8_t seen[FLASH_LEN] = {};
     for (int i = 0; i < FLASH_LEN; ++i) {
@@ -397,10 +479,12 @@ KH_TEST(stage_night_the_gap_between_flashes_is_150_plus_a_random_127) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Seek);
 
-    step(m, w, fx);                             // arms the first strike
+    // ArmLightning ran inside begin(), so the wait for the SECOND flash is
+    // already drawn before the first frame -- and drawing it is what keeps this
+    // machine's LFSR in step with the oracle's.
     const int wait = m.flashWait();
     CHECK(wait >= FLASH_GAP_MIN);
     CHECK(wait <= FLASH_GAP_MIN + FLASH_GAP_VAR);
@@ -421,7 +505,7 @@ KH_TEST(stage_night_riku_and_kairi_become_columns_after_dark_hold) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Seek);
 
     m.talkToRiku();
@@ -445,7 +529,7 @@ KH_TEST(stage_night_the_keyblade_arrives_on_a_flash_of_its_own) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Key);
     CHECK(!m.keyGot());
 
@@ -465,7 +549,7 @@ KH_TEST(stage_night_kairi_opens_the_door_by_retyping_it) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Kairi);
 
     const StageStep s = m.talkToKairi();
@@ -500,7 +584,7 @@ KH_TEST(stage_night_the_tear_reaches_full_mosaic_where_the_shatter_did_not) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Door);
     // Come in through the door beat so the timer is armed as the scene arms it.
     m.talkToKairi();
@@ -538,7 +622,7 @@ KH_TEST(stage_night_the_boss_sweeps_its_craters_where_the_dive_does_not) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Boss);
     w.actors.spawn(ActType::Darkside, World::fromInt(0), World::fromInt(0));
     for (int i = 0; i < 120; ++i) step(m, w, fx);
@@ -570,14 +654,15 @@ KH_TEST(stage_night_the_flash_is_suppressed_from_end_onward) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Boss);
     w.actors.spawn(ActType::Darkside, World::fromInt(0), World::fromInt(0));
 
-    step(m, w, fx);                             // Boss < End, so lightning arms
-    CHECK_EQ(m.flashTimer(), FLASH_LEN);
+    CHECK_EQ(m.flashTimer(), FLASH_LEN);        // begin() armed one
+    step(m, w, fx);                             // Boss < End, so it runs
+    CHECK_EQ(m.flashTimer(), FLASH_LEN - 1);
     step(m, w, fx);
-    CHECK_EQ(m.flashTimer(), FLASH_LEN - 1);    // and it is running
+    CHECK_EQ(m.flashTimer(), FLASH_LEN - 2);    // ...and keeps running
 
     for (int i = 0; i < MAX_ACTORS; ++i)
         if (w.actors.type[i] == ActType::Darkside) w.actors.type[i] = ActType::None;
@@ -610,7 +695,7 @@ KH_TEST(stage_night_end_fade_runs_through_the_box_and_ramps_to_31) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Boss);
     w.actors.spawn(ActType::Darkside, World::fromInt(0), World::fromInt(0));
     for (int i = 0; i < MAX_ACTORS; ++i)
@@ -637,7 +722,7 @@ KH_TEST(stage_night_the_card_hands_over_to_the_town) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Over);
     const StageStep s = step(m, w, fx);
     CHECK(s.action == SceneAction::EnterTown);
@@ -649,7 +734,7 @@ KH_TEST(stage_night_every_stage_is_reachable_end_to_end) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     bool seen[int(NightStage::Over) + 1] = {};
     seen[int(m.stage())] = true;
 
@@ -686,29 +771,30 @@ KH_TEST(stage_night_a_death_before_the_keyblade_takes_it_back) {
     // CLEARS keyGot; stage >= N_KAIRI rewinds to N_KAIRI, keeps the Keyblade and
     // re-runs OpenTheDoor."  LoadScene hands keyGot back as 1, so the night is
     // the only scene that has to take it away again.
+    Rng rng;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(rng);
     m.setStage(NightStage::Riku);            // still looking for him
-    const StageStep before = m.restart(false, fx);
+    const StageStep before = m.restart(rng, false, fx);
     CHECK(m.stage() == NightStage::Seek);
     CHECK(!m.keyGot());
     CHECK(before.action == SceneAction::RespawnNightCast);
 
     // ...and after it, the Keyblade stays and the door stays open.
     NightMachine n;
-    n.begin();
+    n.begin(rng);
     n.setStage(NightStage::Door);
-    const StageStep after = n.restart(false, fx);
+    const StageStep after = n.restart(rng, false, fx);
     CHECK(n.stage() == NightStage::Kairi);
     CHECK(n.keyGot());
     CHECK(after.action == SceneAction::RespawnNightCast);
 
     // On the fragment it re-raises the boss instead.
     NightMachine f;
-    f.begin();
+    f.begin(rng);
     f.setStage(NightStage::Boss);
-    const StageStep frag = f.restart(true, fx);
+    const StageStep frag = f.restart(rng, true, fx);
     CHECK(f.stage() == NightStage::Boss);
     CHECK(f.keyGot());
     CHECK(frag.action == SceneAction::RespawnFragment);
@@ -723,7 +809,7 @@ KH_TEST(stage_night_a_death_mid_tear_puts_the_screen_back) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     m.setStage(NightStage::Door);
     m.talkToKairi();
     while (m.stage() == NightStage::Door) step(m, w, fx);
@@ -734,7 +820,7 @@ KH_TEST(stage_night_a_death_mid_tear_puts_the_screen_back) {
     CHECK(fx.brightness < 15);
     CHECK(fx.shakeX != 0);
 
-    m.restart(false, fx);
+    m.restart(w.rng, false, fx);
     CHECK_EQ(fx.mosaic, 0);
     CHECK_EQ(fx.shakeX, 0);
     CHECK_EQ(fx.whiteout, 0);
@@ -857,15 +943,23 @@ KH_TEST(stage_night_shadows_arrive_through_both_searches_and_never_stop) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     const Tile spots[] = {{20, 15}, {30, 12}, {38, 17}, {16, 19}};
     m.setSpots(spots, 4);
     m.setStage(NightStage::Seek);
     // Sora is at (11,12); every spot above is well clear of him.
 
-    // The first arrival is immediate, and the next is SHADOW_GAP + 1 later.
-    step(m, w, fx);
-    CHECK_EQ(w.actors.count(ActType::Shadow), 1);
+    // THE FIRST ARRIVAL IS NOT IMMEDIATE.  NightBegin sets spawnTimer to the gap
+    // (night.s:81) before the search starts, so the island is empty for the first
+    // seventy-one frames of it and the player gets that long to move.  This test
+    // used to assert an arrival on frame one, which is what a machine whose
+    // begin() left the timer at zero does; the night trace is what said so.
+    int first = 0;
+    while (first < 4096 && w.actors.count(ActType::Shadow) == 0) {
+        step(m, w, fx);
+        ++first;
+    }
+    CHECK_EQ(first, SHADOW_GAP + 1);
     int gap = 0;
     while (gap < 4096 && w.actors.count(ActType::Shadow) == 1) {
         step(m, w, fx);
@@ -887,10 +981,10 @@ KH_TEST(stage_night_shadows_arrive_through_both_searches_and_never_stop) {
     // And the second search spawns too, which is the half a port forgets.
     Stub v;
     NightMachine n;
-    n.begin();
+    n.begin(w.rng);
     n.setSpots(spots, 4);
     n.setStage(NightStage::Kairi);
-    step(n, v, fx);
+    for (int i = 0; i <= SHADOW_GAP; ++i) step(n, v, fx);
     CHECK_EQ(v.actors.count(ActType::Shadow), 1);
 }
 
@@ -900,12 +994,13 @@ KH_TEST(stage_night_a_spot_on_top_of_the_player_is_refused_here_too) {
     Stub w;
     ScreenFx fx;
     NightMachine m;
-    m.begin();
+    m.begin(w.rng);
     const Tile one[] = {{11, 12}};      // exactly where Sora is standing
     m.setSpots(one, 1);
     m.setStage(NightStage::Seek);
 
-    step(m, w, fx);
+    // The opening gap first -- begin() arms it -- and then the refusal.
+    for (int i = 0; i <= SHADOW_GAP; ++i) step(m, w, fx);
     CHECK_EQ(w.actors.count(ActType::Shadow), 0);
     CHECK_EQ(m.spawnTimer(), SPAWN_RETRY);
 

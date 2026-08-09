@@ -326,7 +326,15 @@ bool stepMachine() {
             g_sim.island.setRikuWaypoint(g_sim.world.rikuWp);
             s = g_sim.island.update(v, g_sim.fx);
             break;
-        case Machine::Night:  s = g_sim.night.update(v, g_sim.fx); break;
+        case Machine::Night:
+            s = g_sim.night.update(v, g_sim.fx);
+            // keyGot is one global on the SNES that NightUpdate writes and
+            // UpdateWorld reads, in that order within a frame -- so the copy
+            // has to be handed over HERE, between the two, and not at the top
+            // of the next frame.  It gates both directions: a wooden sword
+            // cannot hurt a Shadow and a Shadow cannot hurt Sora.
+            g_sim.world.keyGot = g_sim.night.keyGot();
+            break;
         case Machine::Town:   s = g_sim.town.update(v, g_sim.fx); break;
     }
     return perform(s);
@@ -335,16 +343,28 @@ bool stepMachine() {
 // ---------------------------------------------------------------------------
 // The scenarios
 // ---------------------------------------------------------------------------
+// What the FIRST emitted frame was on the oracle, which is never simply "a
+// frame".  Getting this wrong is an off-by-one in the only direction that
+// matters, and the night is what found it: its machine has a live timer, so one
+// extra update at the start put every Shadow of the next four hundred frames one
+// frame early.
+enum class FirstFrame : uint8_t {
+    // The oracle's frame 0: the reset path.  State exists and no game update has
+    // run at all, so the line is emitted before any work.
+    Reset,
+    // The frame RestartScene ran.  GameOverUpdate runs INSTEAD of the scene
+    // script (main.s dispatches on deadFlag), so on that frame the world updated
+    // and the stage machine did not -- the scene it rebuilt gets its first
+    // update on the frame AFTER.
+    Retry,
+};
+
 struct Scenario {
     const char* name;
     const char* what;
     const char* oracle;         // the snes_trace.py run this pairs with
     int firstFrame;             // what the first emitted line is numbered
-    // The oracle's frame 0 is the RESET PATH, which runs no game update -- so a
-    // scenario that starts from reset emits its first line before doing any
-    // work.  One reached by --poke does not: by the frame its state exists, the
-    // ROM has already updated the world that frame.
-    bool sampleAtReset;
+    FirstFrame first;
     bool (*setup)();
 };
 
@@ -542,35 +562,119 @@ bool setupRace() {
     return true;
 }
 
+// --- night: the storm, the search, and the LFSR they both come out of --------
+//
+// THIS IS THE SCENARIO THE RNG IS FOR.  The brief names one determinism hazard
+// by name: "the RNG is a 16-bit Galois LFSR seeded to $ACE1 by InitWorld and to
+// $1D57 by TownBegin -- seed yours identically and advance it at the same
+// points, or the Heartless spawn positions diverge immediately and the diff is
+// worthless."  Nothing before this scenario tested it, because nothing before
+// this scenario drew from it: the stations, the bosses and the race are all
+// deterministic.  The night draws from two places at once -- the flash wait and
+// the spawn spot -- so a trace that matches proves the sequence AND the order.
+//
+// Reaching it takes a TWO-STAGE poke, and the reason is the whole point.
+// Restarting straight into the night looks like it works and is worthless:
+// `rngState` is seeded by InitWorld (world.s:52), InitWorld is called when the
+// ISLAND is entered or restarted, and RestartScene's night branch calls
+// NightRestart instead -- so on that route the LFSR is still zero, and a Galois
+// shift register whose state is zero STAYS ZERO.  Every flash waits exactly
+// FLASH_GAP_MIN and every Shadow comes up on the same tile, for ever.  TownBegin
+// has a comment warning about precisely this (town.s:68).  So: restart onto the
+// island first, which runs InitWorld and seeds $ACE1, and only then restart into
+// the night.  The setup is the game's own code, twice over.
+//
+// The cast is the island's after dark -- the island's minus the coconuts and the
+// other three children, with Riku out on the small island and Kairi at the cave.
+constexpr CastRow ORACLE_NIGHT[] = {
+    {ActType::Sora, 12, 12},        // where she was standing this afternoon
+    {ActType::Riku, 27, 8},         // the small island, past the raised bridge
+    {ActType::Kairi, 2, 7},         // the Secret Place, with her back to it
+    {ActType::Palm, 15, 4},   {ActType::Palm, 6, 7},
+    {ActType::Palm, 16, 10},  {ActType::Palm, 27, 7},
+    {ActType::Palm, 9, 10},   {ActType::Palm, 13, 10},
+    {ActType::RockBig, 15, 9}, {ActType::Rock, 8, 12},
+    {ActType::Faces, 1, 6},   {ActType::Door, 2, 6},
+    {ActType::Scribble, 3, 6},
+};
+
+// nightSpots, night.s:1057.  Ten of them, against the DS's thirty-five --
+// divergence 003 -- and the SNES's ten are what an oracle fixture needs,
+// because rng.pick() reduces modulo the COUNT and a different count is a
+// different sequence of spots from the same LFSR.
+constexpr Tile ORACLE_NIGHT_SPOTS[] = {
+    {7, 9}, {17, 9}, {10, 10}, {5, 10}, {14, 11},
+    {19, 11}, {12, 8}, {26, 8}, {9, 6}, {15, 7},
+};
+
+bool setupNight() {
+    // The night is the island after dark: the same collision, the same heights,
+    // byte for byte.  What makes it night is one palette upload.
+    if (!loadGround(true, "collmap.bin", "heightmap.bin", ORACLE_MAP_W,
+                    ORACLE_MAP_H))
+        return false;
+    if (!spawnRows(ORACLE_NIGHT,
+                   int(sizeof ORACLE_NIGHT / sizeof *ORACLE_NIGHT)))
+        return false;
+
+    g_sim.night.setSpots(ORACLE_NIGHT_SPOTS,
+                         int(sizeof ORACLE_NIGHT_SPOTS
+                             / sizeof *ORACLE_NIGHT_SPOTS));
+    // The SNES's density, not the island's.  Six alive at a seventy-frame gap.
+    g_sim.night.setDensity(SNES_SHADOW_MAX, SNES_SHADOW_GAP);
+
+    // THE SEED, AND THE FIRST DRAW.  InitWorld seeds $ACE1 at reset and nothing
+    // in the Dive touches the LFSR, so its state when RestartScene runs is still
+    // the seed -- and NightRestart's ArmLightning is the first draw of the game.
+    // restart() makes that draw, which is why it takes the Rng.
+    g_sim.rng.seed(Rng::WORLD_SEED);
+    g_sim.night.restart(g_sim.rng, false, g_sim.fx);
+    // ...and diveStage is the gate again: the island restart that seeded the
+    // LFSR also wrote DIVE_ARRIVED (dive.s:388), and it stays written.
+    g_sim.dive.begin();
+    g_sim.dive.setStage(DiveStage::Arrived);
+    // Its RespawnNightCast is what the rows above are: the cast is already up.
+    g_sim.world.keyGot = g_sim.night.keyGot();      // a wooden sword, for now
+    g_sim.machine = Machine::Night;
+    g_sim.scene = SceneId::Night;
+    return true;
+}
+
 constexpr Scenario SCENARIOS[] = {
     {"station",
      "the first Station of Awakening, the oracle's ground and cast, the "
      "opening line already dismissed",
      "tools/snes_trace.py --frames 130 --input traces/station.txt "
      "--poke txtState=0",
-     0, true, setupStation},
+     0, FirstFrame::Reset, setupStation},
     {"dive",
      "the same scene as the DS ships it: its own smaller disc, its own cast "
      "positions, and the intro box open",
      "tools/snes_trace.py --frames 150 --input traces/dive.txt",
-     0, true, setupDive},
+     0, FirstFrame::Reset, setupDive},
     {"darkside",
      "the third station and the boss, the oracle's ground, nobody interfering",
      "tools/snes_trace.py --frames 300 --input traces/idle.txt --poke sceneId=2 "
      "--poke deadFlag=2 --no-strict",
-     15, false, setupDarkside},
+     15, FirstFrame::Retry, setupDarkside},
     {"armor",
      "the Guard Armor coming down on the First District, the oracle's ground "
      "and cast",
      "tools/snes_trace.py --frames 400 --input traces/idle.txt --poke sceneId=6 "
      "--poke townStage=5 --poke deadFlag=2 --no-strict",
-     16, false, setupArmor},
+     16, FirstFrame::Retry, setupArmor},
+    {"night",
+     "the storm, the search, and the LFSR the flash wait and the spawn spots "
+     "both come out of -- the one scenario that tests the RNG",
+     "tools/snes_trace.py --frames 400 --input traces/idle.txt --poke sceneId=3 "
+     "--poke deadFlag=2 --poke 30:sceneId=4 --poke 30:deadFlag=2 --no-strict",
+     30, FirstFrame::Retry, setupNight},
     {"race",
      "Riku running the course while the island stands still, the oracle's "
      "ground and cast",
      "tools/snes_trace.py --frames 700 --input traces/idle.txt --poke sceneId=3 "
      "--poke deadFlag=2 --poke 30:questState=6 --poke 30:rikuWp=0 --no-strict",
-     30, false, setupRace},
+     30, FirstFrame::Retry, setupRace},
 };
 
 const Scenario* findScenario(const char* name) {
@@ -658,7 +762,7 @@ int main(int argc, char** argv) {
         const int label = sc->firstFrame + n;
         // The oracle's frame 0 is the reset path: state exists, no update has
         // run.  Every other frame is one iteration of MainLoop.
-        const bool doWork = !(sc->sampleAtReset && n == 0);
+        const bool doWork = !(sc->first == FirstFrame::Reset && n == 0);
         if (doWork) {
             g_sim.frame = uint32_t(label);
             // ReadPad.  padPressed is (now & ~last), and `last` starts at zero
@@ -676,7 +780,10 @@ int main(int argc, char** argv) {
             prevHeld = held;
 
             g_sim.dialogue.update(g_sim.pad);
-            if (!stepMachine()) { status = 1; break; }
+            // ...except on the retry frame, where the scene script did not run.
+            if (!(sc->first == FirstFrame::Retry && n == 0)) {
+                if (!stepMachine()) { status = 1; break; }
+            }
             SceneView v = g_sim.view();
             updateWorld(g_sim.world, v, g_sim.fx);
         }

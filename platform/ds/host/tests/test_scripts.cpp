@@ -231,7 +231,7 @@ KH_TEST(scripts_the_stage_machines_name_real_lines) {
 
     // Walk the night end to end and check every line it names.
     NightMachine n;
-    n.begin();
+    n.begin(rng);
     int said = 0;
     for (int guard = 0; guard < 2000; ++guard) {
         const StageStep s = n.update(view, fx);

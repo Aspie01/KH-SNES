@@ -2,15 +2,27 @@
 
 namespace kh {
 
-void NightMachine::begin() {
+// ArmLightning, night.s:233.  One draw from the LFSR, masked to seven bits and
+// added to the floor.  It is a named routine here for the same reason it is one
+// over there: it is called from THREE places -- NightBegin, NightRestart and the
+// end of a wait -- and the whole of the night's determinism is that those three
+// draw exactly once each.
+void NightMachine::armLightning(Rng& rng) {
+    wait_ = FLASH_GAP_MIN + (rng.next() & FLASH_GAP_VAR);
+}
+
+void NightMachine::begin(Rng& rng) {
     stage_ = NightStage::Intro;
     timer_ = 0;
-    flash_ = 0;
-    wait_ = 0;
-    spawn_ = 0;
+    // NightBegin sets spawnTimer to the gap before anything runs, so the first
+    // Shadow of the search arrives a full gap in and not on the opening frame.
+    spawn_ = shadowGap_;
     // The night is the ONLY scene that clears keyGot, and it does so itself
     // after LoadScene -- which sets it to 1.  Audit, LoadScene's side effects.
     key_ = false;
+    armLightning(rng);
+    // "No fade back in: the storm arrives with the first flash of lightning."
+    flash_ = FLASH_LEN;
 }
 
 // One frame of the storm.
@@ -40,7 +52,7 @@ void NightMachine::lightning(SceneView& view, ScreenFx& fx) {
     }
     flash_ = FLASH_LEN;
     // Armed for the NEXT flash while this one runs: 150 plus a random 0..127.
-    wait_ = FLASH_GAP_MIN + (view.rng.next() & FLASH_GAP_VAR);
+    armLightning(view.rng);
 }
 
 // Shadows arriving, for as long as the search lasts.  Unlike the Second
@@ -52,8 +64,11 @@ void NightMachine::spawnShadows(SceneView& view) {
         --spawn_;
         return;
     }
-    spawn_ = SHADOW_GAP;
-    const SpotOutcome r = spawnAtSpot(view, spots_, nSpots_, SHADOW_MAX_NIGHT);
+    spawn_ = shadowGap_;
+    // The cap is tested BEFORE the draw on both machines (night.s:359 `bcs
+    // @out`), so a night at its ceiling advances the LFSR not at all -- which is
+    // what keeps the sequence the same however many Shadows are standing.
+    const SpotOutcome r = spawnAtSpot(view, spots_, nSpots_, shadowMax_);
     if (r.tooClose) spawn_ = SPAWN_RETRY;
 }
 
@@ -212,7 +227,7 @@ StageStep NightMachine::update(SceneView& view, ScreenFx& fx) {
 // and none of that belongs to the retry.  This is the clearest case for
 // arbitrating effects in one place: the reset is three assignments here instead
 // of three register writes scattered across a restart path.
-StageStep NightMachine::restart(bool onFragment, ScreenFx& fx) {
+StageStep NightMachine::restart(Rng& rng, bool onFragment, ScreenFx& fx) {
     fx.mosaic = 0;
     fx.shakeX = 0;
     fx.whiteout = 0;            // ShadowMath: back to translucent shadows
@@ -222,10 +237,13 @@ StageStep NightMachine::restart(bool onFragment, ScreenFx& fx) {
 
     flash_ = 0;
     timer_ = 0;
-    spawn_ = SHADOW_GAP;        // NightRestart sets it explicitly
-    // ArmLightning: a fresh wait, drawn from the same LFSR, so a retry does not
-    // reproduce the run that killed him.
-    wait_ = FLASH_GAP_MIN;
+    spawn_ = shadowGap_;        // NightRestart sets it explicitly
+    // ArmLightning: a fresh wait, DRAWN from the same LFSR, so a retry does not
+    // reproduce the run that killed him.  This line used to set the floor and
+    // draw nothing, under this same comment; the draw is the load-bearing half,
+    // because skipping it leaves the LFSR one step behind the oracle's for the
+    // whole of the rest of the night.
+    armLightning(rng);
 
     // LoadScene sets keyGot to 1 unconditionally on the way in -- it is one of
     // its scene-independent side effects -- so the Keyblade is BACK before the
