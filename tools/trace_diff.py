@@ -248,6 +248,23 @@ def main(argv: list[str] | None = None) -> int:
             if d.id in excused:
                 print(f"  {d.id}  {excused[d.id]:6} difference(s)  {d.title}")
 
+    # ...and the other half of the same idea.  The docstring says a divergence
+    # that has quietly become a blanket should be visible; so should one that
+    # CANNOT FIRE, because a field list naming state the format does not carry
+    # is a suppression rule that will never suppress anything.  Divergence 001
+    # was in that state for as long as the trace existed -- it named camY and
+    # bgVOfs when neither was a column -- and nothing said so.
+    reachable = set(a.columns) | {"actor" + p.capitalize() for p in ACTOR_PARTS}
+    for names in FIELD_ALIASES.values():
+        reachable |= names
+    dead = [(d, sorted(f for f in d.fields if f not in reachable)) for d in divs]
+    dead = [(d, f) for d, f in dead if f and len(f) == len(d.fields)]
+    if dead:
+        print("\ncannot fire against this format -- every field they name is "
+              "state the trace does not carry:")
+        for d, fields in dead:
+            print(f"  {d.id}  {', '.join(fields)}  ({d.title})")
+
     if not unexplained:
         print("\nno unexplained divergence.")
         return 0

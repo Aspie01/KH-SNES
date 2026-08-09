@@ -73,12 +73,13 @@ size_t traceHeader(char* out, size_t cap, const char* platform, const char* rev)
     // the only cross-language check available and is worth more than a comment.
     o.str("\n#fields\tframe\tpx\tpy\tpz\tpdir\tpstate\tptimer\tphp"
           "\tdiveStage\tquestState\tnightStage\ttownStage\tsceneId\tbossHP"
+          "\tcamX\tcamY\tbgHOfs\tbgVOfs"
           "\tnactors\tactor=idx/type/x/y/state/timer/hp...\n");
     return o.done();
 }
 
 size_t traceLine(char* out, size_t cap, uint32_t frame, const Actors& a,
-                 int player, const TraceStage& stage) {
+                 int player, const TraceStage& stage, const Camera& cam) {
     Out o(out, cap);
     o.num(frame);
 
@@ -100,6 +101,16 @@ size_t traceLine(char* out, size_t cap, uint32_t frame, const Actors& a,
     o.ch('\t'); o.num(stage.townStage);
     o.ch('\t'); o.num(stage.sceneId);
     o.ch('\t'); o.num(stage.bossHP);
+
+    // The camera, in whole pixels.  Emitted as sixteen-bit words for the same
+    // reason the positions are: the oracle reads two WRAM bytes and prints them
+    // unsigned, and the SNES's bgVOfs is (camY - 1) & 0x3FF, which is 1023 on
+    // any frame camY clamps to zero.  A DS that biased by one would match that;
+    // it must not, so the difference has to be visible rather than encoded away.
+    o.ch('\t'); o.num(uint32_t(cam.x) & 0xFFFFu);
+    o.ch('\t'); o.num(uint32_t(cam.y) & 0xFFFFu);
+    o.ch('\t'); o.num(uint32_t(cam.bgHOfs) & 0xFFFFu);
+    o.ch('\t'); o.num(uint32_t(cam.bgVOfs) & 0xFFFFu);
 
     int n = 0;
     for (int i = 0; i < MAX_ACTORS; ++i)

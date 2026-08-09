@@ -18,10 +18,14 @@
 //
 //     ReadPad -> TextUpdate -> SceneUpdate -> UpdateWorld
 //
-// UpdateCamera and BuildOam follow on the real machine and write nothing the
-// trace reads, so they are not here.  Where the sample is taken is not a free
+//     ReadPad -> TextUpdate -> SceneUpdate -> UpdateWorld -> UpdateCamera
+//
+// BuildOam follows on the real machine and writes nothing the trace reads, so it
+// is not here.  UpdateCamera IS, since v2 of the format: it was left out for as
+// long as the camera had no column, which is why §M3's camera had never been
+// compared against anything at all.  Where the sample is taken is not a free
 // choice either: the oracle samples immediately BEFORE the NMI fires, which is
-// the end of that frame's work, so this samples after UpdateWorld returns.
+// the end of that frame's work, so this samples after the camera has moved.
 //
 // TWO FAMILIES OF SCENARIO, and the difference between them is the whole reason
 // there is more than one:
@@ -189,6 +193,13 @@ struct Sim {
     IslandMachine island;
     NightMachine night;
     TownMachine town;
+
+    // THE CAMERA WAS NOT HERE, and that is why §M3's camera had never been
+    // compared against anything: the trace format carried no column for it, so
+    // the emitter had no reason to run it and did not.  MainLoop runs
+    // UpdateCamera between UpdateWorld and BuildOam, and so does the loop below.
+    Camera cam;
+    CameraBounds bounds;
 
     Machine machine = Machine::None;
     SceneId scene = SceneId::Dive;
@@ -464,6 +475,9 @@ bool setupStation() {
     g_sim.dive.begin();
     g_sim.machine = Machine::Dive;
     g_sim.scene = SceneId::Dive;
+    // A station is a disc in a void: the camera does not scroll at all, and
+    // DIVE_CAM_Y is 32 on the DS against the SNES's 16 -- divergence 001.
+    g_sim.bounds = pinnedBounds(DIVE_CAM_X, DIVE_CAM_Y);
     // No box.  The oracle's counterpart pokes txtState to zero, which is the
     // same statement made to the other machine: the intro has been read.
     return true;
@@ -491,6 +505,7 @@ bool setupDive() {
     g_sim.machine = Machine::Dive;
     g_sim.scene = SceneId::Dive;
     g_sim.dialogue.open(scriptFor(ScriptId::DiveIntro), TextMode::Message);
+    g_sim.bounds = pinnedBounds(DIVE_CAM_X, DIVE_CAM_Y);
     return true;
 }
 
@@ -516,6 +531,7 @@ bool setupDarkside() {
     g_sim.dive.setStage(DiveStage::Boss);
     g_sim.machine = Machine::Dive;
     g_sim.scene = SceneId::Dive3;
+    g_sim.bounds = pinnedBounds(DIVE_CAM_X, DIVE_CAM_Y);
     return true;
 }
 
@@ -559,6 +575,7 @@ bool setupArmor() {
     g_sim.town.restart(g_sim.fx);
     g_sim.machine = Machine::Town;
     g_sim.scene = SceneId::Town1;
+    g_sim.bounds = scrollingBounds(ORACLE_MAP_W, ORACLE_MAP_H);
     return true;
 }
 
@@ -608,6 +625,7 @@ bool setupTown() {
     g_sim.town.restart(g_sim.fx);
     g_sim.machine = Machine::Town;
     g_sim.scene = SceneId::Town2;
+    g_sim.bounds = scrollingBounds(ORACLE_MAP_W, ORACLE_MAP_H);
     return true;
 }
 
@@ -654,6 +672,7 @@ bool setupRace() {
     g_sim.island.setRikuWaypoint(0);
     g_sim.machine = Machine::Island;
     g_sim.scene = SceneId::Island;
+    g_sim.bounds = scrollingBounds(ORACLE_MAP_W, ORACLE_MAP_H);
     // questState and rikuWp are globals on the SNES that both UpdateRiku and
     // RaceRun reach; here the machine owns them and WorldState carries the copy
     // the actor layer advances.  The device tier synchronises the two once a
@@ -738,6 +757,7 @@ bool setupNight() {
     g_sim.world.keyGot = g_sim.night.keyGot();      // a wooden sword, for now
     g_sim.machine = Machine::Night;
     g_sim.scene = SceneId::Night;
+    g_sim.bounds = scrollingBounds(ORACLE_MAP_W, ORACLE_MAP_H);
     return true;
 }
 
@@ -849,6 +869,12 @@ int main(int argc, char** argv) {
 
     g_sim.actors.clear();
     if (!sc->setup()) return 1;
+    // The reset path runs UpdateCamera once before MainLoop (main.s:120), so
+    // the camera is already on the player by the frame the oracle first samples.
+    // Leaving it at the origin put the DS's frame 0 at (0,0) against the SNES's
+    // (128,16) -- which the camera columns showed the moment they existed.
+    updateCamera(g_sim.cam, g_sim.actors, g_sim.player, g_sim.bounds,
+                 g_sim.fx.shakeX);
 
     std::FILE* out = outPath ? std::fopen(outPath, "w") : stdout;
     if (!out) {
@@ -893,10 +919,12 @@ int main(int argc, char** argv) {
             }
             SceneView v = g_sim.view();
             updateWorld(g_sim.world, v, g_sim.fx);
+            updateCamera(g_sim.cam, g_sim.actors, g_sim.player, g_sim.bounds,
+                         g_sim.fx.shakeX);
         }
         const TraceStage st = g_sim.stage();
         if (!traceLine(buf, sizeof buf, uint32_t(label), g_sim.actors,
-                       g_sim.player, st)) {
+                       g_sim.player, st, g_sim.cam)) {
             std::fprintf(stderr, "frame %d: the line did not fit; raise "
                                  "TRACE_LINE_MAX\n", label);
             status = 1;

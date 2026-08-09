@@ -159,16 +159,29 @@ def read_input_script(path: Path | None, frames: int) -> list[int]:
 # Positions are raw Q12.4 and are NOT converted to pixels.  Converting would
 # hide exactly the sub-pixel divergence the oracle exists to catch.
 # ---------------------------------------------------------------------------
-TRACE_VERSION = 1
+TRACE_VERSION = 2       # v2 added the four camera columns
 
 STAGE_BYTES = ("diveStage", "questState", "nightStage", "townStage", "sceneId")
+
+# The camera, added in v2.  It was outside the format for as long as the format
+# existed, which meant §M3's camera -- the one part of it with no hand-independent
+# check -- had never been compared against anything, and divergence 001 listed
+# `camY` and `bgVOfs` as the fields it excused when neither was a column at all.
+# So it excused nothing and its suppression count was always zero.
+#
+# bgHOfs and bgVOfs are carried as well as camX/camY because they are not the
+# same numbers: bgHOfs is camX plus shakeX, and the SNES's bgVOfs is
+# (camY - 1) & 0x3FF for a PPU quirk the DS does not have.  Both of those are
+# things a port gets wrong invisibly.
+CAMERA = ("camX", "camY", "bgHOfs", "bgVOfs")
 
 
 def header(platform: str, note: str = "") -> str:
     return (f"#kh-trace\tv{TRACE_VERSION}\tplatform={platform}\t"
             f"rev={git_revision()}{note}\n"
             f"#fields\tframe\tpx\tpy\tpz\tpdir\tpstate\tptimer\tphp\t"
-            + "\t".join(STAGE_BYTES) + "\tbossHP\tnactors\t"
+            + "\t".join(STAGE_BYTES) + "\tbossHP\t"
+            + "\t".join(CAMERA) + "\tnactors\t"
             "actor=idx/type/x/y/state/timer/hp...\n")
 
 
@@ -194,6 +207,7 @@ class Sampler:
                 str(self._b("actHP", p))]
         cols += [str(self._b(k)) for k in STAGE_BYTES]
         cols.append(str(self._b("bossHP")))
+        cols += [str(self._w(k)) for k in CAMERA]
         live = []
         for i in range(self.n):
             t = self._b("actType", i)

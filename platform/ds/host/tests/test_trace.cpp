@@ -27,9 +27,15 @@ namespace {
 const char FIELDS[] =
     "#fields\tframe\tpx\tpy\tpz\tpdir\tpstate\tptimer\tphp"
     "\tdiveStage\tquestState\tnightStage\ttownStage\tsceneId\tbossHP"
+    "\tcamX\tcamY\tbgHOfs\tbgVOfs"
     "\tnactors\tactor=idx/type/x/y/state/timer/hp...\n";
 
 char buf[TRACE_LINE_MAX];
+
+// The format tests are about COLUMNS, so a still camera is the right stand-in;
+// what the camera itself does is checked against the oracle by
+// tools/trace_check.py, which compares it with the SNES's frame by frame.
+Camera cam;
 
 // The nth tab-separated field of a formatted line.  Returns "" past the end, so
 // a test that asks for a column the line does not have fails on the comparison
@@ -55,14 +61,14 @@ const char* field(const char* line, int n) {
 KH_TEST(trace_the_header_names_the_run_and_pins_the_columns) {
     const size_t n = traceHeader(buf, sizeof buf, "ds", "deadbee-dirty");
     CHECK(n != 0);
-    CHECK_EQ(std::strncmp(buf, "#kh-trace\tv1\tplatform=ds\trev=deadbee-dirty\n",
+    CHECK_EQ(std::strncmp(buf, "#kh-trace\tv2\tplatform=ds\trev=deadbee-dirty\n",
                           43), 0);
     const char* fields = std::strchr(buf, '\n');
     CHECK(fields != nullptr);
     if (fields) CHECK_EQ(std::strcmp(fields + 1, FIELDS), 0);
     // The version is emitted, not assumed: a reader that cannot tell v1 from v2
     // would compare two formats and report the difference as a divergence.
-    CHECK_EQ(TRACE_VERSION, 1);
+    CHECK_EQ(TRACE_VERSION, 2);   // v2 added the camera
 }
 
 KH_TEST(trace_a_header_that_would_not_fit_fails_rather_than_truncating) {
@@ -89,7 +95,7 @@ KH_TEST(trace_the_fixed_columns_are_in_the_oracles_order) {
     st.sceneId = 2;
     st.bossHP = 36;
 
-    const size_t n = traceLine(buf, sizeof buf, 137, a, sora, st);
+    const size_t n = traceLine(buf, sizeof buf, 137, a, sora, st, cam);
     CHECK(n != 0);
     CHECK_EQ(std::strcmp(field(buf, 0), "137"), 0);
     CHECK_EQ(std::strcmp(field(buf, 1), "4224"), 0);
@@ -105,10 +111,15 @@ KH_TEST(trace_the_fixed_columns_are_in_the_oracles_order) {
     CHECK_EQ(std::strcmp(field(buf, 11), "5"), 0);
     CHECK_EQ(std::strcmp(field(buf, 12), "2"), 0);
     CHECK_EQ(std::strcmp(field(buf, 13), "36"), 0);
-    CHECK_EQ(std::strcmp(field(buf, 14), "1"), 0);         // nactors
+    // v2: the four camera columns sit between bossHP and nactors.
+    CHECK_EQ(std::strcmp(field(buf, 14), "0"), 0);         // camX
+    CHECK_EQ(std::strcmp(field(buf, 15), "0"), 0);         // camY
+    CHECK_EQ(std::strcmp(field(buf, 16), "0"), 0);         // bgHOfs
+    CHECK_EQ(std::strcmp(field(buf, 17), "0"), 0);         // bgVOfs
+    CHECK_EQ(std::strcmp(field(buf, 18), "1"), 0);         // nactors
     // ...and the player appears AGAIN as an ordinary actor, which is how a diff
     // gets somewhere to show playerIdx changing.
-    CHECK_EQ(std::strcmp(field(buf, 15), "0/1/4224/2944/2/7/19"), 0);
+    CHECK_EQ(std::strcmp(field(buf, 19), "0/1/4224/2944/2/7/19"), 0);
 }
 
 KH_TEST(trace_a_position_is_encoded_the_way_the_oracle_reads_one) {
@@ -121,7 +132,7 @@ KH_TEST(trace_a_position_is_encoded_the_way_the_oracle_reads_one) {
     a.clear();
     const int m = a.spawn(ActType::Mote, World::fromRaw(-16), World::fromRaw(-1));
     TraceStage st{};
-    CHECK(traceLine(buf, sizeof buf, 0, a, m, st) != 0);
+    CHECK(traceLine(buf, sizeof buf, 0, a, m, st, cam) != 0);
     CHECK_EQ(std::strcmp(field(buf, 1), "65520"), 0);
     CHECK_EQ(std::strcmp(field(buf, 2), "65535"), 0);
 }
@@ -137,14 +148,14 @@ KH_TEST(trace_live_actors_come_out_in_slot_order_with_the_holes_skipped) {
     CHECK_EQ(two, 2);
 
     TraceStage st{};
-    CHECK(traceLine(buf, sizeof buf, 1, a, sora, st) != 0);
-    CHECK_EQ(std::strcmp(field(buf, 14), "2"), 0);
+    CHECK(traceLine(buf, sizeof buf, 1, a, sora, st, cam) != 0);
+    CHECK_EQ(std::strcmp(field(buf, 18), "2"), 0);
     // Slot order, and the surviving Shadow keeps slot 2 rather than being
     // renumbered -- the SNES updated in slot order and allocated by first-free
     // scan, so a slot IS state and the trace has to show it.
-    CHECK_EQ(std::strncmp(field(buf, 15), "0/", 2), 0);
-    CHECK_EQ(std::strncmp(field(buf, 16), "2/2/", 4), 0);
-    CHECK_EQ(std::strcmp(field(buf, 17), ""), 0);
+    CHECK_EQ(std::strncmp(field(buf, 19), "0/", 2), 0);
+    CHECK_EQ(std::strncmp(field(buf, 20), "2/2/", 4), 0);
+    CHECK_EQ(std::strcmp(field(buf, 21), ""), 0);
 }
 
 KH_TEST(trace_a_full_pool_still_fits_the_advertised_buffer) {
@@ -162,10 +173,10 @@ KH_TEST(trace_a_full_pool_still_fits_the_advertised_buffer) {
         a.state[i] = ActState::Fall;
     }
     TraceStage st{};
-    const size_t n = traceLine(buf, sizeof buf, 4294967295u, a, 0, st);
+    const size_t n = traceLine(buf, sizeof buf, 4294967295u, a, 0, st, cam);
     CHECK(n != 0);
     CHECK(n < TRACE_LINE_MAX);
-    CHECK_EQ(std::strcmp(field(buf, 14), "128"), 0);
+    CHECK_EQ(std::strcmp(field(buf, 18), "128"), 0);
 }
 
 KH_TEST(trace_a_line_that_would_not_fit_fails_rather_than_truncating) {
@@ -176,10 +187,10 @@ KH_TEST(trace_a_line_that_would_not_fit_fails_rather_than_truncating) {
     a.spawn(ActType::Sora, tileCentre(4), tileCentre(4));
     TraceStage st{};
     char small[20];
-    CHECK_EQ(traceLine(small, sizeof small, 1, a, 0, st), size_t(0));
+    CHECK_EQ(traceLine(small, sizeof small, 1, a, 0, st, cam), size_t(0));
     // ...and one byte short of enough is still a failure, not a silent trim.
-    const size_t need = traceLine(buf, sizeof buf, 1, a, 0, st);
+    const size_t need = traceLine(buf, sizeof buf, 1, a, 0, st, cam);
     CHECK(need != 0);
-    CHECK_EQ(traceLine(buf, need, 1, a, 0, st), size_t(0));
-    CHECK_EQ(traceLine(buf, need + 1, 1, a, 0, st), need);
+    CHECK_EQ(traceLine(buf, need, 1, a, 0, st, cam), size_t(0));
+    CHECK_EQ(traceLine(buf, need + 1, 1, a, 0, st, cam), need);
 }

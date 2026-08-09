@@ -17,6 +17,15 @@ TWO FAMILIES OF SCENARIO, and the expectation differs because the question does:
     IDENTICAL over their common frames, byte for byte, with nothing suppressed.
     A divergence file cannot rescue these.
 
+    THE FOUR CAMERA COLUMNS ARE THE ONE EXCEPTION, and they are not exempt --
+    they are checked HARDER.  §M3 mandates two divergences that make camY and
+    bgVOfs differ by construction: the DS centres on playerY - 96 where the SNES
+    centres on -112, and it does not reproduce the (camY - 1) & 0x3FF the SNES
+    wrote for a PPU quirk.  So those two columns are lifted out of the byte
+    comparison and checked against the ARITHMETIC instead, which is a statement
+    about the divergence rather than a hole in the check.  camX and bgHOfs are
+    not divergent and stay in the byte comparison, where they belong.
+
   * AS THE DS SHIPS IT -- the DS's smaller disc, its own cast.  Differences are
     the point, and what is checked is that the FIRST UNEXPLAINED one is still
     the one recorded below.  Pinning the first rather than the count is
@@ -42,7 +51,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class Case:
     def __init__(self, name, frames, script, poke=(), poke16=(), strict=True,
-                 first=0, identical=True, first_divergence=None, note=""):
+                 first=0, identical=True, first_divergence=None, note="",
+                 snes_cam=(0, 32), ds_cam=(0, 64)):
         self.name = name
         self.frames = frames            # frames the ORACLE runs
         self.script = script
@@ -53,12 +63,19 @@ class Case:
         self.identical = identical
         self.first_divergence = first_divergence
         self.note = note
+        # The vertical camera bounds LoadScene set, on each machine.  A station
+        # is pinned; everything else scrolls to the edges of a 32x16 map, and
+        # the DS's floor is 32 lines lower because its screen is 32 shorter.
+        self.snes_cam = snes_cam
+        self.ds_cam = ds_cam
 
 
 CASES = [
     Case("station", 130, "traces/station.txt", poke=["txtState=0"],
+         snes_cam=(16, 16), ds_cam=(32, 32),
          note="the disc, the opening line already dismissed"),
     Case("darkside", 300, "traces/idle.txt",
+         snes_cam=(16, 16), ds_cam=(32, 32),
          poke=["sceneId=2", "deadFlag=2"], strict=False, first=15,
          note="the fist, the orbs, and the Shadow the slam leaves behind"),
     Case("armor", 400, "traces/idle.txt",
@@ -81,6 +98,7 @@ CASES = [
          note="Riku's whole waypoint walk, every frame of it"),
     # ...and the port as it actually ships, where the differences are the point.
     Case("dive", 150, "traces/dive.txt", identical=False,
+         snes_cam=(16, 16), ds_cam=(32, 32),
          first_divergence=(21, "diveStage"),
          note="divergence 005 reaches the stage bytes: SC_PAGE pages on the DS, "
               "so the intro takes six presses and not two, and every beat that "
@@ -96,19 +114,109 @@ def run(cmd: list[str], what: str) -> str:
     return r.stdout
 
 
-def body(path: Path, first: int) -> list[str]:
-    """The data lines from `first` on, headers dropped.
+# The two columns §M3 mandates a divergence in, by name.  Lifted out of the byte
+# comparison and checked as a relation instead -- see the module docstring.
+DIVERGENT_CAMERA = ("camY", "bgVOfs")
+
+
+def columns(path: Path) -> list[str]:
+    for line in path.read_text().splitlines():
+        if line.startswith("#fields"):
+            return line.split("\t")[1:]
+    raise SystemExit(f"{path}: no #fields header")
+
+
+def body(path: Path, first: int, drop: tuple[str, ...] = ()) -> list[str]:
+    """The data lines from `first` on, headers dropped, `drop` columns removed.
 
     The headers carry the platform and the revision and are meant to differ; the
     columns are checked by ds_trace.py --check-format and again by trace_diff.py.
     """
+    cols = columns(path)
+    idx = [i for i, c in enumerate(cols) if c in drop]
     out = []
     for line in path.read_text().splitlines():
         if line.startswith("#") or not line.strip():
             continue
-        if int(line.split("\t", 1)[0]) >= first:
-            out.append(line)
+        cells = line.split("\t")
+        if int(cells[0]) < first:
+            continue
+        out.append("\t".join(c for i, c in enumerate(cells) if i not in idx))
     return out
+
+
+def camera(path: Path, first: int) -> dict[int, dict[str, int]]:
+    cols = columns(path)
+    want = {c: i for i, c in enumerate(cols)
+            if c in ("camX", "camY", "bgHOfs", "bgVOfs")}
+    out: dict[int, dict[str, int]] = {}
+    for line in path.read_text().splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        cells = line.split("\t")
+        f = int(cells[0])
+        if f >= first:
+            out[f] = {c: int(cells[i]) for c, i in want.items()}
+    return out
+
+
+def player_y(path: Path, first: int) -> dict[int, int]:
+    cols = columns(path)
+    i = cols.index("py")
+    out = {}
+    for line in path.read_text().splitlines():
+        if line.startswith("#") or not line.strip():
+            continue
+        cells = line.split("\t")
+        f = int(cells[0])
+        if f >= first:
+            out[f] = int(cells[i])
+    return out
+
+
+def clamp(v: int, lo: int, hi: int) -> int:
+    return lo if v < lo else (hi if v > hi else v)
+
+
+def check_camera(case, snes: Path, ds: Path) -> list[str]:
+    """camY and bgVOfs, against their DEFINITIONS rather than against each other.
+
+    A range check would have passed a DS that centred on -112 like the SNES,
+    because on an unclamped frame that produces the same number and a difference
+    of zero is inside any tolerance.  So both sides are computed FROM py -- which
+    is a column -- and compared exactly:
+
+        camY   = clamp(playerY_px - SCREEN_H/2, loY, hiY)
+        bgVOfs = camY on the DS, and (camY - 1) & 0x3FF on the SNES
+
+    SCREEN_H/2 is 112 there and 96 here, and hiY is 32 lines larger here.  Both
+    of those are divergence 001, and this is the first thing in the project to
+    check either of them rather than assert them.
+    """
+    a, b = camera(snes, case.first), camera(ds, case.first)
+    py = player_y(snes, case.first)
+    bad = []
+    for f in sorted(set(a) & set(b) & set(py)):
+        yp = py[f] >> 4                             # Q12.4 to whole pixels
+        want_s = clamp(yp - 112, case.snes_cam[0], case.snes_cam[1])
+        want_d = clamp(yp - 96, case.ds_cam[0], case.ds_cam[1])
+        if a[f]["camY"] != want_s:
+            bad.append(f"frame {f}: the SNES's camY is {a[f]['camY']} and "
+                       f"clamp(py/16 - 112, {case.snes_cam[0]}, "
+                       f"{case.snes_cam[1]}) is {want_s} -- the oracle is not "
+                       f"what this check assumes it is")
+        if b[f]["camY"] != want_d:
+            bad.append(f"frame {f}: the DS's camY is {b[f]['camY']} and "
+                       f"clamp(py/16 - 96, {case.ds_cam[0]}, {case.ds_cam[1]}) "
+                       f"is {want_d}")
+        if b[f]["bgVOfs"] != b[f]["camY"]:
+            bad.append(f"frame {f}: the DS's bgVOfs is {b[f]['bgVOfs']} and its "
+                       f"camY is {b[f]['camY']}; the DS has no PPU bias to add")
+        if a[f]["bgVOfs"] != (a[f]["camY"] - 1) & 0x3FF:
+            bad.append(f"frame {f}: the SNES's bgVOfs is not (camY - 1) & 0x3FF")
+        if bad:
+            break
+    return bad
 
 
 def check(case: Case, outdir: Path, verbose: bool) -> bool:
@@ -130,25 +238,39 @@ def check(case: Case, outdir: Path, verbose: bool) -> bool:
          "-o", str(ds)], f"the DS emitter for {case.name}")
 
     diff = subprocess.run(
-        [sys.executable, "tools/trace_diff.py", str(snes), str(ds)]
-        + (["--strict"] if case.identical else []),
+        [sys.executable, "tools/trace_diff.py", str(snes), str(ds)],
         cwd=ROOT, capture_output=True, text=True)
     if verbose:
         print(diff.stdout)
 
     if case.identical:
-        a, b = body(snes, case.first), body(ds, case.first)
+        cam = check_camera(case, snes, ds)
+        if cam:
+            print(f"  {case.name}: FAILED -- the camera does not hold the "
+                  f"relation divergence 001 describes")
+            for c in cam:
+                print(f"    {c}")
+            return False
+        a, b = (body(snes, case.first, DIVERGENT_CAMERA),
+                body(ds, case.first, DIVERGENT_CAMERA))
         if a != b:
             print(f"  {case.name}: FAILED -- the two traces are not identical")
             print(diff.stdout.strip())
             return False
-        if diff.returncode != 0:
-            print(f"  {case.name}: FAILED -- trace_diff disagrees with a byte "
-                  f"comparison, which means the differ is wrong")
-            print(diff.stdout.strip())
+        # --strict would now report the two mandated camera divergences, so the
+        # differ is run WITHOUT it and required to excuse everything -- which is
+        # divergence 001 doing the job it was written for and never once did,
+        # because until v2 of the format neither of its fields was a column.
+        soft = subprocess.run(
+            [sys.executable, "tools/trace_diff.py", str(snes), str(ds)],
+            cwd=ROOT, capture_output=True, text=True)
+        if soft.returncode != 0:
+            print(f"  {case.name}: FAILED -- something outside the camera is "
+                  f"unexplained")
+            print(soft.stdout.strip())
             return False
         print(f"  {case.name}: {len(a)} frames, identical from frame "
-              f"{case.first} -- {case.note}")
+              f"{case.first} (camera per divergence 001) -- {case.note}")
         return True
 
     m = re.search(r"FIRST UNEXPLAINED DIVERGENCE: frame (\d+), field (\w+)",

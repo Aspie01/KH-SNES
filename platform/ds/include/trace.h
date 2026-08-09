@@ -23,14 +23,21 @@
 #include <cstdint>
 
 #include "actor.h"
+#include "grid.h"
 
 namespace kh {
 
 // Bumped when a column is added, removed or reinterpreted.  tools/snes_trace.py
 // carries the same number and trace_diff.py refuses a pair that disagrees about
 // what the columns mean.
-constexpr int TRACE_VERSION = 1;
+constexpr int TRACE_VERSION = 2;
 
+// v2 added the four camera columns.  They were outside the format for as long as
+// the format existed, which meant §M3's camera had never been compared against
+// anything -- and divergence 001 named `camY` and `bgVOfs` as the fields it
+// excused when neither was a column, so it excused nothing and its suppression
+// count was always zero.
+//
 // The five scene bytes the oracle samples out of WRAM, plus the boss gauge.
 // They are one struct rather than six arguments because the ORDER is the
 // column order, and a caller that swapped two of them would produce a trace
@@ -61,7 +68,7 @@ size_t traceHeader(char* out, size_t cap, const char* platform, const char* rev)
 // Returns the length written, or 0 if it did not fit.  0 is fatal for the same
 // reason: half a line is a line that diffs against something.
 size_t traceLine(char* out, size_t cap, uint32_t frame, const Actors& a,
-                 int player, const TraceStage& stage);
+                 int player, const TraceStage& stage, const Camera& cam);
 
 // How big a line can get: the fixed columns, then every actor in the pool.  A
 // caller that sizes its buffer from this cannot be truncated by a full pool.

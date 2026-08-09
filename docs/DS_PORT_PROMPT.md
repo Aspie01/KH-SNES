@@ -133,7 +133,7 @@ python3 tools/check_constants.py            # game.inc vs the DS, BY VALUE
 ```
 
 **And when the simulation changes**, `python3 tools/trace_check.py` — about a
-minute, both machines, seven scenarios. Not in Gate 0 because it needs the ROM
+minute, both machines, seven scenarios, camera included since format v2. Not in Gate 0 because it needs the ROM
 and the 65816 interpreter, but it is the check that notices a change in
 behaviour rather than a change in output.
 
@@ -439,6 +439,56 @@ Two things worth knowing before building on it:
   "moved".** A blocked cardinal move takes the vertical-slide branch and writes Y
   back unchanged, because step 3's candidate Y *is* the current Y. See audit
   finding 43. Do not write a stage machine that treats `YOnly` as movement.
+
+## The audit: the camera had never been compared against anything
+
+Every routine in `grid.s` has a counterpart — `TileIndex`, `TileWalkable`,
+`TileHeight`, `StepOk`, `StoreZ`, `TryMoveActor`, `TileToWorld`, `UpdateCamera`
+— and movement and collision are checked against the oracle on every frame of
+every scenario. **The camera was not**, and the reason was structural rather
+than an oversight: `camX` and `camY` were not columns in the trace format, so
+the emitter had no reason to run `updateCamera` and did not.
+
+Two consequences, and the second is worse than the first:
+
+- The one part of §M3 with two **mandated divergences** — centring on
+  `playerY - 96` instead of `-112`, and not reproducing the SNES's
+  `(camY - 1) & 0x3FF` — was verified only by host tests written against the
+  same reading that wrote the code.
+- **Divergence 001 could never fire.** Its `trace_fields` are `[camY, bgVOfs]`,
+  and neither was a column, so it excused nothing and its suppression count was
+  always zero. A suppression rule that cannot suppress looks exactly like one
+  that has nothing to suppress.
+
+**Trace format v2** adds `camX`, `camY`, `bgHOfs` and `bgVOfs`, and the emitter
+runs `updateCamera` where `MainLoop` does — between `UpdateWorld` and
+`BuildOam`. `camX` and `bgHOfs` are **byte-identical to the SNES** across all
+2925 compared frames. `camY` and `bgVOfs` differ by construction, so
+`trace_check.py` lifts those two out of the byte comparison and checks them
+against their **definitions on both sides** instead:
+
+```
+camY   = clamp(playerY_px - SCREEN_H/2, loY, hiY)     112 there, 96 here
+bgVOfs = camY here, and (camY - 1) & 0x3FF there
+```
+
+A tolerance would not have been enough. A DS that centred on `-112` like the
+SNES produces the *same* `camY` on any unclamped frame, so a range check passes
+it; computing both sides from `py` — which is a column — catches it at frame 43
+of the town. That was checked by making the change and watching it fail.
+
+**Two smaller things the columns found the moment they existed.** The reset path
+runs `UpdateCamera` once before `MainLoop` (main.s:120), so the oracle's frame 0
+already has the camera on the player and the DS's had it at the origin. And
+`bgVOfs` reaching **1023** whenever `camY` clamps to zero — which the Second
+District does — is the PPU quirk in the one place it is most visible.
+
+**And the generalisation, now reported rather than discovered.** `trace_diff.py`
+prints which divergences *cannot fire against this format*, because every field
+they name is state the trace does not carry. Today that is 005 (`txtState`,
+`txtPtr`, `txtRow`) and 006 (`mosaicAmt`) — both legitimately describing things
+the format has no column for, and both now saying so out loud instead of
+reporting a suppression count of zero that reads like agreement.
 
 The rest of this section is the original brief, kept for the reasoning.
 
