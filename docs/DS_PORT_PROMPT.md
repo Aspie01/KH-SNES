@@ -1812,14 +1812,75 @@ Five deliberate breakages, all fired: a VRAMCNT loop walking over WRAMCNT, the
 addresses made consecutive, that `sub = 4` simplification, the enable bit
 dropped, and bank F moved to palette slot 1 without its offset following.
 
+## Step one is written, and it is tested — against a recording MMIO stub
+
+`platform/ds/device/` exists now: `init.cpp`'s `initScreens()` is the whole
+two-screen initialisation, and the host suite checks it on every run.
+
+**There is no libnds stub, deliberately.** The obvious way to write device code
+without a toolchain is to declare `videoSetMode()`, `vramSetBankA()` and the
+rest and compile against them. That is a trap: a stub is a *claim about somebody
+else's header*, unverifiable while the real one is absent, and code that
+compiles against my declaration and not theirs is a green light with nothing
+behind it — green in exactly the situation where nobody can tell.
+
+So the initialisation writes **hardware registers**, which are not an API: an
+address and a bit layout, quoted from GBATEK, with the addresses already
+transcribed and asserted in `vram_map.h`. The only thing that differs between
+device and host is what a store to `0x04000240` *does*, and that is one class
+with two definitions chosen at **link** time — `device/mmio_device.cpp` (three
+volatile stores, nothing else) and `host/mmio_host.cpp` (records the write).
+
+**What the recorder buys**, and each item is something a careful person gets
+wrong silently:
+
+| | |
+| --- | --- |
+| the **values** | the nine VRAMCNT bytes are compared against `vramcnt(Bank)`, not against a copy |
+| the **widths** | VRAMCNT is 8-bit; a 16-bit store to `0x04000240` configures bank B too, so `mmioTouches()` answers by **overlap** and sees a write that lands on an address without being addressed to it |
+| the **omissions** | `WRAMCNT` is asserted *never written*. `vram_map.h` could only assert that about the address **table**; a log asserts it about the **code**, and a loop over `0x04000240 + i` passes every `static_assert` in the tree and fails here |
+| the **order** | forced blank first on both engines, power, banks, layers, and only then the real `DISPCNT`s — so no frame is ever composited from a half-configured set of layers |
+
+**Six deliberate breakages, all fired.** The natural `0x04000240 + i` loop (walks
+over WRAMCNT), a 16-bit store to an 8-bit register, forced blank dropped, engine
+A's held-back BG2 switched on, `DISPCNT`'s engine-wide char base made non-zero
+(the consumer of the 62 KiB rule), and the box pointed at the overlay's map —
+that last one fails at *compile* time, because the BGxCNT values are `constexpr`
+and pinned.
+
+**And the file nothing links is compiled anyway.** `mmio_device.cpp` is filtered
+out of the host build — it would fault here — which means nothing touched it and
+it would rot until the day somebody with a toolchain found that the one half of
+the seam they could not test is also the half that no longer builds. It is now
+in `typecheck` as the mirror image of the `nocompile/` files: required to
+**succeed**, syntax-only. Proven by breaking it.
+
+**What a green run here does NOT mean.** Nothing in this container has executed
+an ARM instruction. These cases prove `initScreens()` writes what `vram_map.h`
+says it should. They are no evidence that GBATEK is right, that the values are
+the ones the hardware wants, or that a picture appears.
+
 ## What §M7 still has to do, when a toolchain exists
 
-Unchanged, and in order: two-screen init consuming `vram_map.h` → 2D tilemap
-ground renderer implementing `GroundRenderer` → sprites and the Y-sort → the
-bottom screen (HUD, command menu, minimap) → touch input → the 3D quad backend
-as a second `GroundRenderer`. The `GroundRenderer` seam and its
-`NullGroundRenderer` are already in `include/grid.h`, and the init's nine bytes
-are now data it reads rather than nine bytes it types.
+~~two-screen init consuming `vram_map.h`~~ **done — see the section above** →
+2D tilemap ground renderer implementing `GroundRenderer` → sprites and the
+Y-sort → the bottom screen (HUD, command menu, minimap) → touch input → the 3D
+quad backend as a second `GroundRenderer`. The `GroundRenderer` seam and its
+`NullGroundRenderer` are already in `include/grid.h`.
+
+**The five that remain are where the stub stops paying**, and that is the honest
+reason they are not written rather than a shortage of effort. Each needs
+decisions a screen would inform — how the streamer schedules its column and row
+rewrites, what the Y-sort does with a tie, what the bottom screen's furniture
+looks like, where a touch counts as a press — and a recording MMIO log can check
+that a renderer wrote *something coherent* but never that it wrote the right
+picture. Guessing at them here would be inventing work rather than doing it.
+
+The exception is arithmetic, which is testable now and always was:
+`bgEntryIndex()` in `gen/assets.h` already does the block layout a 64×64
+streaming window needs, and `vram_map.h`'s `address()` composes the destination.
+A streamer's *decision* about which entries to rewrite is host-testable in full;
+only the DMA that carries them out is not.
 
 On the 3D backend: the limits are **2048 polygons and 6144 vertices per frame**.
 A quad is one polygon, so a whole 64×64 ground is 4096 quads — 2× over. But the

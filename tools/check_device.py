@@ -180,6 +180,27 @@ def probe_apt_repo(timeout: float = 8.0) -> Probe:
     return p.missing(f"HTTP {code}{via}")
 
 
+def probe_tier() -> Probe:
+    """What of the device tier exists, independent of whether it can be built.
+
+    Reported because "blocked" and "unwritten" are different states and the
+    prose used to conflate them.  The two-screen initialisation is written and
+    is checked every host run against vram_map.h -- what is missing is a
+    toolchain, not the code.  A future agent arriving with devkitPro should know
+    that step one is done rather than starting it again.
+    """
+    p = Probe("the device tier", "written here, buildable only there")
+    d = ROOT / "platform" / "ds" / "device"
+    if not d.is_dir():
+        return p.missing("platform/ds/device/ does not exist; nothing written")
+    srcs = sorted(f.name for f in d.glob("*.cpp"))
+    if not srcs:
+        return p.missing("platform/ds/device/ is empty")
+    return p.found(f"{len(srcs)} source(s): {', '.join(srcs)} -- "
+                   f"initScreens() is tested against a recording MMIO stub on "
+                   f"every host run; see host/tests/test_device_init.cpp")
+
+
 REQUIRED = ("devkitPro", "devkitARM", "libnds", "ndstool")
 
 
@@ -194,7 +215,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     probes = [probe_devkitpro(), probe_compiler(), probe_libnds(),
-              probe_ndstool(), probe_emulator(), probe_docker()]
+              probe_ndstool(), probe_emulator(), probe_docker(),
+              probe_tier()]
     if not args.no_network:
         probes.append(probe_apt_repo())
 

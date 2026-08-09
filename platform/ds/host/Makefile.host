@@ -28,7 +28,7 @@ CXXFLAGS := -std=c++17 -O2 -g \
             -Wall -Wextra -Werror \
             -Wshadow -Wconversion -Wsign-conversion -Wold-style-cast \
             -fno-exceptions -fno-rtti \
-            -I$(DS)/include -I$(HERE) \
+            -I$(DS)/include -I$(DS)/device -I$(HERE) \
             -DKH_ASSET_DIR='"$(ASSETS)"'
 
 # -MMD -MP so a header change rebuilds what included it.  Without this, editing
@@ -40,7 +40,26 @@ DEPFLAGS := -MMD -MP
 # Globbed, never listed.  Adding a source or a test must not require editing
 # this file: eight tasks share it and four of them run concurrently.
 SIM  := $(wildcard $(DS)/source/*.cpp) $(wildcard $(DS)/source/*/*.cpp)
-SRCS := $(HERE)/check.cpp $(SIM) $(wildcard $(HERE)/tests/*.cpp)
+
+# §M7's device tier, MINUS the half that only builds on a DS.
+#
+# device/ is not under source/ and so is not in SIM, which is deliberate: the
+# trace emitter links SIM and must not acquire a dependency on hardware
+# registers.  What the host suite CAN build is everything in device/ except
+# mmio_device.cpp -- that one is three volatile stores to fixed addresses and
+# would segfault here -- with host/mmio_host.cpp linked in its place, recording
+# writes instead of performing them.  That substitution is the whole reason the
+# initialisation is testable with no toolchain, and it is a LINK seam rather
+# than an #ifdef so that neither definition can drift out of sight of the other.
+#
+# Filtered by name rather than by a list, so device/ can grow without this file
+# changing -- and the one file that must never be in a host link is named here
+# once, where the reason is written down.
+DEVICE := $(filter-out %/mmio_device.cpp,$(wildcard $(DS)/device/*.cpp))
+DEVICE_HOST := $(HERE)/mmio_host.cpp
+
+SRCS := $(HERE)/check.cpp $(SIM) $(DEVICE) $(DEVICE_HOST) \
+        $(wildcard $(HERE)/tests/*.cpp)
 OBJS := $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(SRCS)))
 TARGET := $(BUILD)/hosttests
 
@@ -52,7 +71,8 @@ TARGET := $(BUILD)/hosttests
 TRACE_OBJS := $(BUILD)/trace_main.o $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(SIM)))
 TRACE := $(BUILD)/dstrace
 
-VPATH := $(HERE) $(HERE)/tests $(DS)/source $(wildcard $(DS)/source/*)
+VPATH := $(HERE) $(HERE)/tests $(DS)/source $(wildcard $(DS)/source/*) \
+         $(DS)/device
 
 # Things that MUST NOT COMPILE.  §M0 asked for "a compile-fail check, documented
 # not automated" -- `World w = 3;` and `World + Render`.  Documented is where it
@@ -69,8 +89,8 @@ NOCOMPILE := $(wildcard $(HERE)/nocompile/*.cpp)
 # suite goes on reporting a count that includes tests whose source is gone.
 # Proven by deleting one: 188 cases, from 187 files.
 $(shell mkdir -p $(BUILD))
-$(shell echo '$(SRCS) $(SIM)' | cmp -s - $(BUILD)/.sources \
-        || echo '$(SRCS) $(SIM)' > $(BUILD)/.sources)
+$(shell echo '$(SRCS) $(SIM) $(DEVICE)' | cmp -s - $(BUILD)/.sources \
+        || echo '$(SRCS) $(SIM) $(DEVICE)' > $(BUILD)/.sources)
 LISTSTAMP := $(BUILD)/.sources
 
 .PHONY: all run trace typecheck clean
@@ -103,6 +123,20 @@ run: $(TARGET) typecheck
 	    echo "  a case is depending on what an earlier one left behind"; \
 	    exit 1; }
 
+# ...and the mirror image of NOCOMPILE: files that MUST compile and that nothing
+# else in this build would notice if they stopped.
+#
+# device/mmio_device.cpp is filtered out of DEVICE above because it stores to
+# fixed hardware addresses and would fault here.  Which means nothing compiles
+# it -- and a source file no build touches is a source file that rots, silently,
+# until the day somebody finally has a toolchain and discovers the one half of
+# the MMIO seam they could not test is also the half that no longer builds.
+# That is this project's recurring defect wearing a new hat, so: syntax-only,
+# host compiler, required to SUCCEED.  It contains no libnds and no ARM, so
+# there is nothing in it g++ cannot parse; only the volatile stores are
+# device-specific, and those are valid C++ anywhere.
+MUSTCOMPILE := $(wildcard $(DS)/device/mmio_device.cpp)
+
 typecheck:
 	@fail=0; n=0; \
 	for f in $(NOCOMPILE); do \
@@ -111,8 +145,18 @@ typecheck:
 	        echo "  COMPILED AND MUST NOT: $$f"; fail=1; \
 	    fi; \
 	done; \
+	m=0; \
+	for f in $(MUSTCOMPILE); do \
+	    m=$$((m + 1)); \
+	    if ! $(CXX) $(CXXFLAGS) -fsyntax-only $$f; then \
+	        echo "  DEVICE-ONLY AND NO LONGER COMPILES: $$f"; \
+	        echo "  Nothing links this file here, so nothing else would tell you."; \
+	        fail=1; \
+	    fi; \
+	done; \
 	if [ $$fail -ne 0 ]; then exit 1; fi; \
-	echo "$$n rejections, all correctly refused by the compiler"
+	echo "$$n rejections, all correctly refused by the compiler; \
+$$m device-only file(s) still compile"
 
 clean:
 	rm -rf $(BUILD)

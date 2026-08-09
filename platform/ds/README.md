@@ -5,8 +5,20 @@ This is the port, and the reason for it is fidelity: the DS can render the sourc
 which the SNES could not, and that is why the SNES version had to abandon an
 isometric view for a locked three-quarter one.
 
-Nothing here is written yet. What follows is the set of decisions already made,
-so that they are not relitigated, plus the constraints that will actually bite.
+**Most of it is written.** §M0–§M6 have all landed and been re-audited — the
+fixed-point type, the actor simulation, movement and the camera, the VRAM map,
+the four scene machines and the dialogue interpreter, and the oracle diff that
+holds eight scenarios against the frozen ROM. §M7 is blocked on a toolchain and
+its first step is written anyway; see the note below. `docs/DS_PORT_PROMPT.md`
+carries the state of each milestone and what its audit found.
+
+(This paragraph said "nothing here is written yet" for far longer than it was
+true, which is the failure this project keeps catching in its own documents. It
+is why `tools/check_worldsizes.py` exists and why every count quoted in
+`docs/WORLD_SIZES.md` is now recomputed from the tree on every Gate 0 run.)
+
+What follows is the set of decisions already made, so that they are not
+relitigated, plus the constraints that will actually bite.
 
 **`../../docs/DS_PORT_PROMPT.md` is the agent brief** — the standing constraints
 plus one prompt per milestone, with mechanically checkable exit criteria.
@@ -30,6 +42,14 @@ That last pair of sentences is why this is a program now. Two of the six claims
 this paragraph used to make had gone stale — the Docker one and the emulator one
 — without changing the answer, which is the most dangerous way for a stated
 block to be wrong: right for the wrong reasons, until the day it is not.
+
+**The device tier is no longer empty.** `device/init.cpp` is the two-screen
+initialisation, and it is checked on every host run against a *recording* MMIO
+stub — there is no libnds stub, because a stub is a claim about somebody else's
+header and code that compiles against mine and not theirs is a green light with
+nothing behind it. Registers are not an API; the seam is one class with two
+link-time definitions. See §M7 in the brief for what that buys and what it
+emphatically does not.
 
 The port is therefore split into a **host tier** — the whole simulation, built
 with the system `g++` and tested against the oracle — and a **device tier** that
