@@ -255,6 +255,41 @@ bool loadGround(bool snesSide, const char* collName, const char* heightName,
 // transition would put the trace on a different timeline from the oracle's and
 // the diff would name a frame hundreds later with no hint of why.
 // ---------------------------------------------------------------------------
+// RaiseArmor, town.s:866.  It comes down in the middle of the square, with its
+// hands -- and it MOVES SORA FIRST, to tile (16,10), which is the staging: the
+// armour lands two tiles above him, between him and the door he came in by.
+// PlaceSora also clears his velocity, faces him south and resets his state and
+// timer, so a player caught mid-swing by the retry is put down standing.
+bool raiseArmor() {
+    const int p = g_sim.player;
+    if (p < 0 || p >= MAX_ACTORS) return false;
+    g_sim.actors.x[p] = tileCentre(16);
+    g_sim.actors.y[p] = tileCentre(10);
+    g_sim.actors.vx[p] = World::fromRaw(0);
+    g_sim.actors.vy[p] = World::fromRaw(0);
+    g_sim.actors.dir[p] = Dir::S;
+    g_sim.actors.state[p] = ActState::Idle;
+    g_sim.actors.timer[p] = 0;
+    g_sim.actors.z[p] = g_sim.ground.heightAt(16, 10);
+
+    const int armor = g_sim.actors.spawn(ActType::Armor, tileCentre(16),
+                                         tileCentre(7));
+    if (armor < 0) return false;
+    g_sim.actors.z[armor] = uint8_t(GA_DROP_Z);
+    g_sim.actors.timer[armor] = uint8_t(GA_DROP);   // Drop, by the state being 0
+    g_sim.world.bossHP = uint8_t(GA_MAX_HP);
+    // SpawnHands: both start ON the torso, numbered 0 then 1.  The Drop branch
+    // is the one branch that does not call PlaceHands, so they arrive with the
+    // body rather than reaching out ahead of it.
+    for (int hand = 0; hand < 2; ++hand) {
+        const int h = g_sim.actors.spawn(ActType::Gauntlet, tileCentre(16),
+                                         tileCentre(7));
+        if (h < 0) return false;
+        g_sim.actors.anim[h] = uint8_t(hand);
+    }
+    return true;
+}
+
 const char* actionName(SceneAction a) {
     switch (a) {
         case SceneAction::None: return "None";
@@ -283,6 +318,7 @@ const char* actionName(SceneAction a) {
         case SceneAction::EnterTown: return "EnterTown";
         case SceneAction::RespawnNightCast: return "RespawnNightCast";
         case SceneAction::RespawnFragment: return "RespawnFragment";
+        case SceneAction::RespawnDistrict: return "RespawnDistrict";
     }
     return "?";
 }
@@ -297,6 +333,25 @@ bool perform(const StageStep& step) {
         case SceneAction::HudChanged:
             // The HUD is not in the trace and redrawing it changes no state the
             // simulation can see.  This is the one action it is correct to drop.
+            return true;
+        case SceneAction::RespawnDistrict:
+            // SpawnDistrict, and the scenario's own setup IS it: the rows it
+            // spawned are the district's table.  Saying so here rather than
+            // silently ignoring the action is the difference between a
+            // scenario that has performed it and one that has forgotten to.
+            return true;
+        case SceneAction::RaiseArmor:
+            return raiseArmor();
+        case SceneAction::SweepGauntlets:
+            // Its hands go with it, and ONLY its hands.  town.s:826-834 scans
+            // for ACT_GAUNTLET alone.
+            for (int i = 0; i < MAX_ACTORS; ++i)
+                if (g_sim.actors.type[i] == ActType::Gauntlet)
+                    g_sim.actors.type[i] = ActType::None;
+            g_sim.world.bossHP = 0;
+            g_sim.fx.shakeX = 0;
+            if (step.script != ScriptId::None)
+                g_sim.dialogue.open(scriptFor(step.script), TextMode::Message);
             return true;
         default:
             std::fprintf(stderr,
@@ -470,7 +525,11 @@ bool setupDarkside() {
 // so unlike Darkside's soraOnlySpawns there are eight bystanders to reproduce,
 // and they are not decoration: they occupy slots, and a slot is a trace column.
 constexpr CastRow ORACLE_TOWN1[] = {
-    {ActType::Sora, 16, 10},
+    // town1Spawns, town.s:1404.  Sora is at (14,12) -- "face down in the middle
+    // of the square" -- and NOT at (16,10): (16,10) is where RaiseArmor moves
+    // him on the next frame, and transcribing the position after the move
+    // instead of the one before it was how this scenario hid a whole action.
+    {ActType::Sora, 14, 12},
     {ActType::Cid, 23, 6},
     {ActType::TownMan, 8, 9},
     {ActType::TownWoman, 18, 13},
@@ -486,27 +545,68 @@ bool setupArmor() {
                    int(sizeof ORACLE_TOWN1 / sizeof *ORACLE_TOWN1)))
         return false;
 
-    const int armor = g_sim.actors.spawn(ActType::Armor, World::fromRaw(4224),
-                                         World::fromRaw(1920));
-    if (armor < 0) return false;
-    g_sim.actors.hp[armor] = uint8_t(GA_MAX_HP);
-    g_sim.actors.z[armor] = uint8_t(GA_DROP_Z);
-    g_sim.actors.timer[armor] = uint8_t(GA_DROP);   // Drop, by the state being 0
-    // SpawnHands numbers them 0 then 1, and both start ON the torso rather than
-    // at their stations: the Drop branch is the one branch that does not call
-    // PlaceHands, so they arrive with the body.
-    for (int hand = 0; hand < 2; ++hand) {
-        const int h = g_sim.actors.spawn(ActType::Gauntlet, World::fromRaw(4224),
-                                         World::fromRaw(1920));
-        if (h < 0) return false;
-        g_sim.actors.anim[h] = uint8_t(hand);
-    }
-    g_sim.world.bossHP = uint8_t(GA_MAX_HP);
-
+    // THE ARMOUR IS NOT SPAWNED HERE, and an earlier version of this scenario
+    // spawning it is why frame 15 was mislabelled as frame 16.  TownRestart
+    // arms `townTimer` to ONE, and it is WatchArmor on the NEXT frame that turns
+    // that into RaiseArmor -- so the retry re-enters the fight through the same
+    // door the fight came in by, and the trace's first frame has six actors and
+    // not nine.  Setting up the outcome instead of the route made the two agree
+    // for the wrong reason.
     g_sim.town.begin(g_sim.rng);
+    g_sim.town.setDistrict(SceneId::Town1);
     g_sim.town.setStage(TownStage::Boss);
+    g_sim.town.restart(g_sim.fx);
     g_sim.machine = Machine::Town;
     g_sim.scene = SceneId::Town1;
+    return true;
+}
+
+// --- town: the Second District's wave, and the second seed ------------------
+//
+// The other half of §M6's determinism hazard.  The night proved the $ACE1
+// sequence; this proves the $1D57 one, and a different consumer of it:
+// TownShadows has a wave counter and an alive cap where SpawnShadows has only a
+// cap, and it increments the counter ONLY on a spawn that succeeded -- so a spot
+// refused for being on top of the player costs a draw and no progress.
+//
+// WHY THE SEED IS POKED RATHER THAN REACHED.  Only TownBegin writes $1D57
+// (town.s:73), and TownBegin runs when the night hands over -- which is an
+// entire night away.  TownRestart deliberately does not re-seed.  But nothing
+// between TownBegin and the Second District draws from the LFSR: the First
+// District spawns nothing.  So $1D57 with no draws IS the state the player
+// arrives in the square with, and --poke16 says so exactly.
+constexpr CastRow ORACLE_TOWN2[] = {
+    {ActType::Sora, 26, 5},
+    {ActType::Lamp, 3, 7},
+    {ActType::Lamp, 28, 7},
+};
+
+// townSpots, town.s:1447.  Eight, and eight divides 256 -- so unlike the
+// night's ten, repeated subtraction and a modulo agree here and the reduction
+// cannot be what a divergence is about.
+constexpr Tile ORACLE_TOWN_SPOTS[] = {
+    {6, 6}, {20, 6}, {9, 9}, {22, 9}, {6, 12}, {24, 12}, {16, 13}, {11, 11},
+};
+
+bool setupTown() {
+    if (!loadGround(true, "town2coll.bin", "town2height.bin", ORACLE_MAP_W,
+                    ORACLE_MAP_H))
+        return false;
+    if (!spawnRows(ORACLE_TOWN2,
+                   int(sizeof ORACLE_TOWN2 / sizeof *ORACLE_TOWN2)))
+        return false;
+
+    g_sim.rng.seed(Rng::TOWN_SEED);
+    g_sim.town.setSpots(ORACLE_TOWN_SPOTS,
+                        int(sizeof ORACLE_TOWN_SPOTS
+                            / sizeof *ORACLE_TOWN_SPOTS));
+    g_sim.town.setDistrict(SceneId::Town2);
+    g_sim.town.setStage(TownStage::Second);
+    // NOT begin(): that is TownBegin, which re-seeds and rewinds to T_ARRIVE.
+    // The ROM ran TownRestart here, which keeps the stage and the seed.
+    g_sim.town.restart(g_sim.fx);
+    g_sim.machine = Machine::Town;
+    g_sim.scene = SceneId::Town2;
     return true;
 }
 
@@ -662,7 +762,13 @@ constexpr Scenario SCENARIOS[] = {
      "and cast",
      "tools/snes_trace.py --frames 400 --input traces/idle.txt --poke sceneId=6 "
      "--poke townStage=5 --poke deadFlag=2 --no-strict",
-     16, FirstFrame::Retry, setupArmor},
+     15, FirstFrame::Retry, setupArmor},
+    {"town",
+     "the Second District's wave: eight spots, five alive at once, and the "
+     "$1D57 seed the night's does not reach",
+     "tools/snes_trace.py --frames 900 --input traces/town.txt --poke sceneId=7 "
+     "--poke townStage=2 --poke deadFlag=2 --poke16 rngState=0x1D57 --no-strict",
+     15, FirstFrame::Retry, setupTown},
     {"night",
      "the storm, the search, and the LFSR the flash wait and the spawn spots "
      "both come out of -- the one scenario that tests the RNG",

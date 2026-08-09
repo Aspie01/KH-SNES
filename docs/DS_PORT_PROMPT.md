@@ -132,7 +132,7 @@ python3 tools/check_modes.py                # must say modes ok
 ```
 
 **And when the simulation changes**, `python3 tools/trace_check.py` — about a
-minute, both machines, six scenarios. Not in Gate 0 because it needs the ROM
+minute, both machines, seven scenarios. Not in Gate 0 because it needs the ROM
 and the 65816 interpreter, but it is the check that notices a change in
 behaviour rather than a change in output.
 
@@ -746,20 +746,21 @@ per-divergence suppression counts the differ prints rather than trusting them.
 §M6 built the oracle and left the other half unbuilt: the format existed, the
 differ existed, nothing on the DS side emitted a line. This is that half.
 
-**The exit criterion is met, and by more than it asked for.** Four scenarios are
-**byte-identical to the SNES over 1469 frames**, under `--strict`, with nothing
+**The exit criterion is met, and by more than it asked for.** Six scenarios are
+**byte-identical to the SNES over 3125 frames**, under `--strict`, with nothing
 suppressed and no divergence file involved:
 
 | scenario | frames | what it exercises |
 | --- | --- | --- |
 | `station` | 130 | the walk, the rim of the disc, one swing |
 | `darkside` | 285 | rest → fist → orbs, the Shadow the slam leaves, an orb expiring |
-| `armor` | 384 | the drop, the landing freeze, the walk, the fist that connects |
-| `night` | 770 | the storm, six Shadows arriving off the LFSR, the ceiling where the draws stop |
+| `armor` | 385 | `TownRestart` re-raising the armour, the drop, the landing freeze, the walk, the fist that connects |
+| `town` | 885 | the Second District's wave off the `$1D57` seed, one refusal, the cap at five |
+| `night` | 770 | the storm, six Shadows arriving off the `$ACE1` LFSR, the ceiling where the draws stop |
 | `race` | 670 | Riku's whole waypoint course, every frame of it |
 
-`tools/trace_check.py` runs all of them plus the sixth against both machines in
-about a minute. It is not in Gate 0 because it needs the ROM and the
+`tools/trace_check.py` runs all of them plus the seventh against both machines
+in about a minute. It is not in Gate 0 because it needs the ROM and the
 interpreter; run it whenever the simulation changes.
 
 **Why a scenario and not a game.** The oracle boots the ROM and the ROM does the
@@ -868,6 +869,53 @@ their machines do nothing on a frame with a live boss; the night has a running
 timer, and one extra update at the start put every Shadow of the next four
 hundred frames one frame early. `Scenario::first` is now an enum with that case
 in it.
+
+## Traverse Town, and the second seed
+
+The night proved the `$ACE1` sequence. The Second District proves `$1D57`, and
+a **different consumer** of it: `TownShadows` has a wave counter *and* an alive
+cap where `SpawnShadows` has only a cap, and it increments the counter only on a
+spawn that succeeded — so a spot refused for being on top of the player costs a
+draw and buys no progress. 885 frames, five arrivals, one refusal, and 467
+frames sitting at the cap where the draws stop.
+
+The input script is not the idle one: `traces/town.txt` walks Sora around the
+square, because the refusal rule tests the spot against *where he is standing*,
+so a player who moves is what turns the LFSR sequence into a different set of
+arrivals. It deliberately never presses **up** — every district door is in row 4
+and Sora arrives on row 5, and a door is a scene load, which is the one thing a
+trace scenario cannot follow.
+
+- **`TownMachine::restart()` did not exist.** The Dive and the night both had
+  one; the town did not, though `TownRestart` (town.s:94) is a real routine
+  doing five things. The one nobody guesses is that **the wave counter goes back
+  to zero** — the assembly says why: *"half a wave of survivors left standing
+  while the counter says the district is nearly clear would be a retry that is
+  easier than the attempt."* It also re-arms the spawn timer, clears the door,
+  puts the screen-wide effects back, and arms `townTimer` to **1** if the
+  district is on its boss. `SceneAction::RespawnDistrict` is the action it
+  returns.
+
+- **The `armor` scenario had been agreeing for the wrong reason.** It spawned
+  the Guard Armor and its two hands in setup and called its first frame 16. The
+  retry frame is 15, and on 16 the ROM ran `WatchArmor` → `RaiseArmor`, which
+  spawns all three *and moves Sora* to tile (16,10) — the staging that puts the
+  armour between him and the door he came in by. Setting up the outcome instead
+  of the route produced the same state one frame later and hid a whole action.
+  The scenario now starts at 15 with six actors and lets the machine raise it;
+  `perform()` implements `RaiseArmor` and `SweepGauntlets` for real.
+
+- **Sora's town1 spawn tile was transcribed from after the move.**
+  `town1Spawns` puts him at (14,12), "face down in the middle of the square";
+  (16,10) is where `RaiseArmor` puts him a frame later. Four differences at one
+  frame, which is what a trace is for.
+
+- **`--poke16`.** `rngState` is two bytes and `--poke` writes one. Only
+  `TownBegin` writes `$1D57` and it runs an entire night earlier, while
+  `TownRestart` deliberately does not re-seed — but nothing between the two
+  draws, so `$1D57` with no draws *is* the state the player reaches the square
+  in. The new flag lets a fixture say that exactly, and its help text says why
+  getting it wrong is quiet rather than loud.
 
 ---
 

@@ -15,6 +15,30 @@ void TownMachine::begin(Rng& rng) {
     rng.seed(Rng::TOWN_SEED);
 }
 
+StageStep TownMachine::restart(ScreenFx& fx) {
+    // The screen-wide effects go back first, as they do in the night: a death
+    // can land under a shake or a fade and none of it belongs to the retry.
+    fx.mosaic = 0;
+    fx.shakeX = 0;
+    fx.whiteout = 0;            // ShadowMath: back to translucent shadows
+    fx.brightness = 15;
+    fx.forcedBlank = false;
+    fx.bgVisible = true;
+
+    door_ = 0;
+    doorTo_ = 0;
+    // The Second District's wave starts over.  See the header for why.
+    spawned_ = 0;
+    spawn_ = TOWN_GAP;
+    timer_ = 0;
+    // The Guard Armor comes down again, from the top -- and it is armed as a
+    // ONE, not as a spawn: WatchArmor turns a non-zero timer into RaiseArmor on
+    // the next frame, so the retry re-enters the fight through the same door
+    // the fight came in by.
+    if (stage_ == TownStage::Boss) timer_ = 1;
+    return StageStep{SceneAction::RespawnDistrict};
+}
+
 void TownMachine::arriveAtThird() {
     // Walking into the Third District for the first time starts the wait.  The
     // guard is on the STAGE and not on a visited flag: at Third it fires, and

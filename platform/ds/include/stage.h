@@ -126,6 +126,7 @@ enum class SceneAction : uint8_t {
     // Death and retry
     RespawnNightCast,   // re-run the night's whole table, on the island
     RespawnFragment,    // ...or the fragment's, and raise Darkside again
+    RespawnDistrict,    // ...or whichever of the three districts is loaded
 };
 
 struct StageStep {
@@ -243,6 +244,20 @@ public:
     // A door has been stepped onto; run the fade, swap at the midpoint.
     void openDoor(int toDistrict) { door_ = DOOR_FADE * 2; doorTo_ = uint8_t(toDistrict); }
     void arriveAtThird();
+
+    // A death, and what the district owes the retry.  TownRestart (town.s:94)
+    // is the one restart the port did not have -- the Dive and the night both
+    // did -- and it does five things, of which the third is the one nobody
+    // guesses: THE WAVE COUNTER GOES BACK TO ZERO.  Its comment says why in the
+    // assembly: "half a wave of survivors left standing while the counter says
+    // the district is nearly clear would be a retry that is easier than the
+    // attempt."  It also re-arms the spawn timer, clears the door, puts the
+    // screen-wide effects back, and asks for the armour again if the district
+    // is on its boss.
+    //
+    // It does NOT re-seed the LFSR.  Only TownBegin does that, and it is the
+    // one place in the game that does it deliberately -- see Rng::TOWN_SEED.
+    StageStep restart(ScreenFx& fx);
 
 private:
     StageStep doorStep(ScreenFx& fx);

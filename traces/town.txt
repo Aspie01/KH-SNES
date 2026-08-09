@@ -1,0 +1,28 @@
+# The Second District: the wave, and a player who does not stand still.
+#
+# Two presses to dismiss the retry card, then a walk around the square with a
+# swing at the end of each leg.  Moving is the point: the "not on top of the
+# player" rule refuses a spot within 64 px of him on BOTH axes, so where he
+# stands decides which of the eight spots are usable and therefore how the LFSR
+# sequence turns into arrivals.  Standing still would test one path through that.
+#
+# NO `up`.  Every district door is in row 4 and Sora arrives on row 5, so a
+# single step north is a door -- and a door is a scene load, which is the one
+# thing a trace scenario has no way to follow.
+none:4
+a:3
+none:8
+a:3
+none:20
+down:110
+b:3
+none:14
+left:150
+b:3
+none:14
+down:60
+b:3
+none:14
+right:170
+b:3
+none:600

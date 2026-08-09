@@ -382,6 +382,17 @@ def main(argv: list[str] | None = None) -> int:
                          "A later frame lets a poke land AFTER that setup has "
                          "run, which is how the race is reached: restart onto "
                          "the island first, then start the race.")
+    ap.add_argument("--poke16", action="append", default=[],
+                    metavar="[FRAME:]SYM=VAL",
+                    help="the same, but writing a 16-bit word little-endian. "
+                         "There is exactly one thing this is for and it is "
+                         "rngState: the LFSR is two bytes, it is seeded by "
+                         "InitWorld and by TownBegin, and a scene reached by "
+                         "--poke has run neither -- so a fixture that needs the "
+                         "sequence the player would have had must say which "
+                         "seed it is standing in for.  A Galois register whose "
+                         "state is zero stays zero, which is what makes getting "
+                         "this wrong quiet rather than loud.")
     ap.add_argument("--no-strict", action="store_true",
                     help="do not stop when the CPU is still working at VBlank")
     args = ap.parse_args(argv)
@@ -408,6 +419,19 @@ def main(argv: list[str] | None = None) -> int:
                 m.bus.wram[syms[name]] = int(val, 0) & 0xFF
                 print(f"frame {n}: poked {name} (${syms[name]:04X}) = "
                       f"{int(val, 0)}", file=sys.stderr)
+            for spec in args.poke16:
+                head, _, val = spec.partition("=")
+                frame, _, name = head.rpartition(":")
+                when = int(frame) if frame else 1
+                if when != n:
+                    continue
+                if name not in syms:
+                    raise SystemExit(f"--poke16 {name}: not a symbol in kh.map")
+                v = int(val, 0) & 0xFFFF
+                m.bus.wram[syms[name]] = v & 0xFF
+                m.bus.wram[syms[name] + 1] = v >> 8
+                print(f"frame {n}: poked {name} (${syms[name]:04X}) = "
+                      f"${v:04X}", file=sys.stderr)
             try:
                 m.run_frame(pads[n], sampler, out)
             except Unmapped as e:

@@ -41,12 +41,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class Case:
-    def __init__(self, name, frames, script, poke=(), strict=True, first=0,
-                 identical=True, first_divergence=None, note=""):
+    def __init__(self, name, frames, script, poke=(), poke16=(), strict=True,
+                 first=0, identical=True, first_divergence=None, note=""):
         self.name = name
         self.frames = frames            # frames the ORACLE runs
         self.script = script
         self.poke = list(poke)
+        self.poke16 = list(poke16)
         self.strict = strict
         self.first = first              # the frame the DS scenario starts at
         self.identical = identical
@@ -61,8 +62,14 @@ CASES = [
          poke=["sceneId=2", "deadFlag=2"], strict=False, first=15,
          note="the fist, the orbs, and the Shadow the slam leaves behind"),
     Case("armor", 400, "traces/idle.txt",
-         poke=["sceneId=6", "townStage=5", "deadFlag=2"], strict=False, first=16,
-         note="the drop, the landing freeze, the walk and the fist that connects"),
+         poke=["sceneId=6", "townStage=5", "deadFlag=2"], strict=False, first=15,
+         note="TownRestart re-raising the armour, then the drop, the landing "
+              "freeze, the walk and the fist that connects"),
+    Case("town", 900, "traces/town.txt",
+         poke=["sceneId=7", "townStage=2", "deadFlag=2"],
+         poke16=["rngState=0x1D57"], strict=False, first=15,
+         note="the Second District's wave off the $1D57 seed: eight spots, one "
+              "refusal, and the cap at five where the draws stop"),
     Case("night", 800, "traces/idle.txt",
          poke=["sceneId=3", "deadFlag=2", "30:sceneId=4", "30:deadFlag=2"],
          strict=False, first=30,
@@ -112,6 +119,8 @@ def check(case: Case, outdir: Path, verbose: bool) -> bool:
            "--input", case.script, "-o", str(snes)]
     for p in case.poke:
         cmd += ["--poke", p]
+    for p in case.poke16:
+        cmd += ["--poke16", p]
     if not case.strict:
         cmd.append("--no-strict")
     run(cmd, f"the oracle for {case.name}")

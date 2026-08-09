@@ -666,6 +666,87 @@ KH_TEST(stage_town_the_armour_is_raised_once_then_watched) {
     CHECK_EQ(fx.shakeX, 0);
 }
 
+KH_TEST(stage_town_a_retry_winds_the_whole_wave_back) {
+    // TownRestart, town.s:94 -- the one restart the port did not have.  Five
+    // things, and the third is the one nobody guesses: THE WAVE COUNTER GOES
+    // BACK TO ZERO.  The assembly says why: "half a wave of survivors left
+    // standing while the counter says the district is nearly clear would be a
+    // retry that is easier than the attempt."
+    Stub w;
+    ScreenFx fx;
+    TownMachine m;
+    m.begin(w.rng);
+    m.setDistrict(SceneId::Town2);
+    m.setStage(TownStage::Second);
+    m.setSpots(TOWN2_SPOTS, int(sizeof TOWN2_SPOTS / sizeof *TOWN2_SPOTS));
+
+    // Get part of a wave out, then take the district apart the way a death does.
+    for (int i = 0; i < (TOWN_GAP + 1) * 4; ++i) step(m, w, fx);
+    CHECK(m.waveSpawned() > 0);
+    CHECK(m.waveSpawned() < TOWN_WAVE);
+    m.openDoor(int(SceneId::Town3));
+    CHECK(m.doorTimer() != 0);
+    fx.mosaic = 9;
+    fx.shakeX = 3;
+    fx.brightness = 4;
+    fx.whiteout = 20;
+    fx.forcedBlank = true;
+    fx.bgVisible = false;
+
+    const uint16_t seedBefore = w.rng.state();
+    const StageStep s = m.restart(fx);
+    CHECK(s.action == SceneAction::RespawnDistrict);
+    CHECK_EQ(m.waveSpawned(), 0);               // the wave starts over
+    CHECK_EQ(m.spawnTimer(), TOWN_GAP);         // ...and is armed, not immediate
+    CHECK_EQ(m.doorTimer(), 0);
+    CHECK_EQ(m.townTimer(), 0);
+    CHECK(m.stage() == TownStage::Second);      // the STAGE is progress and stays
+    // The screen-wide effects go back first, as they do in the night.
+    CHECK_EQ(fx.mosaic, 0);
+    CHECK_EQ(fx.shakeX, 0);
+    CHECK_EQ(fx.whiteout, 0);
+    CHECK_EQ(fx.brightness, 15);
+    CHECK(!fx.forcedBlank);
+    CHECK(fx.bgVisible);
+    // And it does NOT re-seed.  Only TownBegin does that, on purpose: a retry
+    // that reproduced the arrivals that killed him would be a different game.
+    CHECK_EQ(w.rng.state(), seedBefore);
+}
+
+KH_TEST(stage_town_a_retry_on_the_boss_asks_for_the_armour_again) {
+    // TownRestart arms townTimer to ONE at T_BOSS, and WatchArmor turns that
+    // into RaiseArmor on the NEXT frame -- so the retry re-enters the fight
+    // through the same door the fight came in by, rather than the caller
+    // standing the armour back up itself.  The armor trace scenario got this
+    // wrong first and agreed with the oracle anyway, because setting up the
+    // outcome instead of the route produces the same state one frame later.
+    Stub w;
+    ScreenFx fx;
+    TownMachine m;
+    m.begin(w.rng);
+    m.setDistrict(SceneId::Town1);
+    m.setStage(TownStage::Boss);
+    m.restart(fx);
+    CHECK_EQ(m.townTimer(), 1);
+
+    const StageStep s = step(m, w, fx);
+    CHECK(s.action == SceneAction::RaiseArmor);
+    CHECK_EQ(m.townTimer(), 0);                 // a one-shot flag, not a countdown
+    // ...and only once, however many frames pass with it standing there.
+    w.actors.spawn(ActType::Armor, World::fromInt(0), World::fromInt(0));
+    int raises = 0;
+    for (int i = 0; i < 120; ++i)
+        if (step(m, w, fx).action == SceneAction::RaiseArmor) ++raises;
+    CHECK_EQ(raises, 0);
+
+    // A district that is NOT on its boss asks for nothing.
+    TownMachine n;
+    n.begin(w.rng);
+    n.setStage(TownStage::Second);
+    n.restart(fx);
+    CHECK_EQ(n.townTimer(), 0);
+}
+
 KH_TEST(stage_town_won_shows_the_card_and_over_is_terminal) {
     Stub w;
     ScreenFx fx;
