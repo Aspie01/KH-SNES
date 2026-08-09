@@ -2138,6 +2138,72 @@ compared before the box sees them and `busy()` compared after — because the
 claim is that nothing in `text.cpp` can tell the two apart on *any* frame, not
 that both eventually close the box.
 
+## Step six: the 3D quad ground — and the measurement corrected the brief
+
+The brief was unusually specific here, and it named the deliverable: *"Build the
+visible-set walk, **measure**, and only merge if the measurement asks for it."*
+A measurement is arithmetic over map files, so it is the part of this backend
+that most deserved doing before anybody could see it.
+
+**It was done, and it says the brief's conclusion was wrong.**
+
+| scene | tiles | walkable | vertices if drawn whole | peak quads, culled |
+| --- | --- | --- | --- | --- |
+| island | 2048 | 670 | 2680 | 405 |
+| town1 | 1536 | **891** | **3564** | 510 |
+| town2 | 1536 | 822 | 3288 | 450 |
+| town3 | 1536 | 877 | 3508 | 507 |
+| station1 | 512 | 76 | 304 | 76 |
+| fragment | 512 | 96 | 384 | 96 |
+| *budget* | | | **6144** | **1536 quads** |
+
+The reasoning was: *"a whole 64×64 ground is 4096 quads — 2× over … frustum
+culling is therefore the load-bearing piece."* The premise is arithmetic and it
+is right. **The "therefore" does not follow**, because a quad is a tile *with
+ground on it* and most tiles have none — the island is 670 walkable of 2048, the
+rest being sea.
+
+**Every shipped map fits the budget whole, with no frustum culling at all.** The
+worst is Traverse Town's First District at 891 quads / 3564 vertices, 58% of the
+limit. So the walk is a ~1.7× saving on the geometry engine's time, worth having
+and kept — but it is not what keeps this backend inside the hardware. What keeps
+it inside is the shape of the content.
+
+Which settles the question the brief left open: **coplanar merging is not needed,
+and will not be until a map is 1.7× more walkable than the Second District.** A
+renderer built around the 4096 figure would have started with a merge pass it
+never needed.
+
+Two other things the numbers settle. **Vertices bind, not polygons** — a quad is
+one polygon and four vertices, so the limit is 1536 quads and never the 2048 the
+brief quotes; reasoning about the wrong one gives a renderer a third more
+headroom than it has. And the brief's *peak* estimate — "~400 with tilt and zoom
+margin" — was accurate: measured 405 to 510.
+
+**Divergence 006 is answerable now rather than merely recorded.** GBATEK:
+*"mosaic cannot be used on the 3D layer"*, and the 3D image **is** BG0 of the
+main engine, so there is nowhere else to put it. Under this backend the Dive's
+Shatter and the night's Tear do not merely look different — they **do not
+happen**, nothing faults, and the effect's timer runs to completion over a
+ground that never changed. `mosaicWouldBeLost()` makes that a question the code
+can answer, and the case asserts the refusal stays *narrow*: brightness, whiteout
+and the shake are unaffected, so a renderer bailing on every effect would be a
+much larger divergence wearing this one's justification.
+
+**Seven breakages, and two of them did not fire.** Both were my tests, not the
+code, and both are worth recording:
+
+- **The negative-camera floor is unobservable.** `visibleTiles()` floors rather
+  than truncating, and the clamp to the map produces 0 either way — so the
+  branch cannot be seen through the function's output. The case now asserts what
+  *is* checkable (no camera bound the game can produce is negative) and says
+  plainly that the floor is defensive and unreached.
+- **The vertex and polygon caps were indistinguishable**, twice over: first
+  because no shipped map gets near 1536, and then because I passed
+  `cap = QUAD_BUDGET` so the *cap* stopped the walk before the budget could. It
+  takes a fully-walkable 64×32 ground **and** an array bigger than the budget to
+  tell them apart — which is now a case, and the probe fires.
+
 ## What §M7 still has to do, when a toolchain exists
 
 ~~two-screen init~~ → ~~2D tilemap ground renderer~~ → ~~sprites and the
@@ -2163,7 +2229,19 @@ Touch's hardware half is genuinely blocked, and cleanly so: reading the pen is
 `down` flag and a calibrated position and asks no questions about where they
 came from, so the device half is one call.
 
-**The rest is where the stub stops paying**, and that is the honest
+**All six steps now have their logic written and tested.** What remains is
+uniformly the same thing: the calls that hand the results to hardware. The
+frame glue and OAM DMA, the GL emission for the quad list, `touchRead()` and the
+ARM7's SPI, and the palette and character uploads through LCDC. Each is a thin
+layer over a decision that is already made and already checked, and each needs
+libnds.
+
+The honest summary of this milestone is that **the decisions are done and none
+of them has been seen**. That is a real and useful state — the numbers are the
+numbers, and a measurement that corrects a brief is worth as much off hardware
+as on — but it is not the same as a port that runs.
+
+**Everything below is where the stub stopped paying**, and that is the honest
 reason they are not written rather than a shortage of effort. Each needs
 decisions a screen would inform — how the streamer schedules its column and row
 rewrites, what the Y-sort does with a tie, what the bottom screen's furniture
