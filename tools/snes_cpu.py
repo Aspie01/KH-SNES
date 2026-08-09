@@ -550,6 +550,30 @@ class Cpu:
             self._write(bank, addr, r, self.m8)
         self._nz(r, self.m8)
 
+    def _op_ror(self, mode: str) -> None:
+        """Rotate right through carry -- and in this ROM, always an ASR.
+
+        `ror` appears only inside the ASR1 macro (macros.inc:49-52), which is
+        `cmp #$8000 / ror a`: the compare puts the sign bit into carry and the
+        rotate brings it back into bit 15, so the pair is an arithmetic shift
+        right.  That is why grid.h's asr1() floors, why a Shadow's westward step
+        is 9 against an eastward 8, and why -1 is a fixed point of it.
+        """
+        top = 0x80 if self.m8 else 0x8000
+        carry_in = top if self.p & FLAG_C else 0
+        if mode == "acc":
+            v = self.c & (0xFF if self.m8 else 0xFFFF)
+            self.p = (self.p | FLAG_C) if v & 1 else (self.p & ~FLAG_C)
+            r = (v >> 1) | carry_in
+            self.set_a(r)
+        else:
+            bank, addr = self._ea(mode)
+            v = self._read(bank, addr, self.m8)
+            self.p = (self.p | FLAG_C) if v & 1 else (self.p & ~FLAG_C)
+            r = (v >> 1) | carry_in
+            self._write(bank, addr, r, self.m8)
+        self._nz(r, self.m8)
+
     def _op_lsr(self, mode: str) -> None:
         if mode == "acc":
             v = self.c & (0xFF if self.m8 else 0xFFFF)

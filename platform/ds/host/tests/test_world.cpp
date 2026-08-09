@@ -493,3 +493,170 @@ KH_TEST(world_the_fist_can_never_actually_hit_anyone) {
     for (int f = 0; f < DS_SWEEP_WIND + 1; ++f) updateWorld(w, view, fx);
     CHECK(actors.hp[sora] < uint8_t(SORA_MAX_HP));
 }
+
+// ---------------------------------------------------------------------------
+// The Guard Armor, against the oracle.  Reached the same way as Darkside:
+//
+//     tools/snes_trace.py --frames 400 --input <two A presses>
+//         --poke sceneId=6 --poke townStage=5 --poke deadFlag=2 --no-strict
+//
+// TownRestart sets townTimer to 1 when townStage is T_BOSS, and the ROM brings
+// the armour down from the top by itself.
+// ---------------------------------------------------------------------------
+KH_TEST(world_the_guard_armor_runs_its_whole_cycle_as_the_snes_did) {
+    Actors actors;
+    actors.clear();
+    // Exactly the oracle's geometry: Sora at tile (16,10), the armour at (16,7),
+    // so dx is zero and it never walks -- and the fist lands on him every time.
+    const int sora = actors.spawn(ActType::Sora, tileCentre(16), tileCentre(10));
+    const int armor = actors.spawn(ActType::Armor, World::fromRaw(4224),
+                                   World::fromRaw(1920));
+    const int left = actors.spawn(ActType::Gauntlet, World::fromRaw(4224),
+                                  World::fromRaw(1920));
+    const int right = actors.spawn(ActType::Gauntlet, World::fromRaw(4224),
+                                   World::fromRaw(1920));
+    actors.anim[left] = 0;              // SpawnHands numbers them 0 then 1
+    actors.anim[right] = 1;
+    actors.hp[armor] = uint8_t(GA_MAX_HP);
+    actors.z[armor] = uint8_t(GA_DROP_Z);
+    actors.timer[armor] = uint8_t(GA_DROP);     // state is Drop by being zero
+
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{actors, dlg, pad, ground, rng};
+    view.player = sora;
+
+    CHECK_EQ(actors.x[sora].raw(), 4224);
+    CHECK_EQ(actors.y[sora].raw(), 2688);
+
+    // The oracle's state changes, as durations.  Every one is its constant plus
+    // one, EXCEPT where a hit-stop lands inside it -- and the hit-stops are the
+    // interesting part, because they are the boss reaching out of its own state
+    // machine and freezing the world:
+    //   Walk  = 97 + 8   the landing freeze, the heaviest in the game
+    //   Slam  = 21 + 3   the fist connecting, which Darkside's never does
+    struct Leg { int state; int frames; };
+    const Leg LEGS[] = {
+        {int(ArmorState::Drop), GA_DROP + 1},
+        {int(ArmorState::Walk), GA_WALK_LEN + 1 + 8},
+        {int(ArmorState::Wind), GA_SLAM_WIND + 1},
+        {int(ArmorState::Slam), GA_SLAM_HOLD + 1 + 3},
+        {int(ArmorState::Rest), GA_REST + 1},
+        {int(ArmorState::Walk), GA_WALK_LEN + 1},       // no landing this time
+    };
+
+    int leg = 0, spent = 0;
+    bool hitDuringSlam = false;
+    for (int f = 0; f < 500 && leg < int(sizeof LEGS / sizeof *LEGS); ++f) {
+        CHECK_EQ(int(actors.state[armor]), LEGS[leg].state);
+        if (LEGS[leg].state == int(ArmorState::Wind) && spent == 0) {
+            // The mark is taken on ENTRY to the wind-up, 40 frames early, and it
+            // is where Sora is standing NOW.  The right hand goes there, and the
+            // left keeps station -- which is the whole tell.
+            CHECK_EQ(actors.vx[armor].raw(), 4224);
+            CHECK_EQ(actors.vy[armor].raw(), 2688);
+            CHECK_EQ(actors.x[right].raw(), 4224);
+            CHECK_EQ(actors.y[right].raw(), 2688);
+            CHECK_EQ(actors.x[left].raw(), 4224 - GA_HAND_R.raw());
+            CHECK_EQ(actors.y[left].raw(), 1920 - GA_HAND_UP.raw());
+            CHECK_EQ(int(actors.z[right]), GA_HAND_HIGH);   // wound up, clear
+        }
+        updateWorld(w, view, fx);
+        if (LEGS[leg].state == int(ArmorState::Slam) && actors.hp[sora] < 20)
+            hitDuringSlam = true;
+        if (++spent == LEGS[leg].frames) { ++leg; spent = 0; }
+    }
+    CHECK_EQ(leg, int(sizeof LEGS / sizeof *LEGS));
+    // The fist CONNECTS, where Darkside's cannot: ArmorSlam spawns nothing, so
+    // the scratch it reads back is still the mark.  Audit finding 59.
+    CHECK(hitDuringSlam);
+    CHECK_EQ(actors.hp[sora], uint8_t(SORA_MAX_HP - 1));
+}
+
+KH_TEST(world_the_hands_are_not_placed_until_the_armour_lands) {
+    // At the first frame of the oracle's trace both gauntlets are still at the
+    // armour's spawn point, not at their stations -- because the Drop branch
+    // returns without calling PlaceHands.  Every other branch calls it, so this
+    // is the one frame the hands are anywhere else, and it is deliberate: they
+    // arrive with the body rather than reaching out ahead of it.
+    Actors actors;
+    actors.clear();
+    const int sora = actors.spawn(ActType::Sora, tileCentre(16), tileCentre(10));
+    const int armor = actors.spawn(ActType::Armor, World::fromRaw(4224),
+                                   World::fromRaw(1920));
+    const int left = actors.spawn(ActType::Gauntlet, World::fromRaw(4224),
+                                  World::fromRaw(1920));
+    actors.anim[left] = 0;
+    actors.hp[armor] = uint8_t(GA_MAX_HP);
+    actors.timer[armor] = uint8_t(GA_DROP);
+
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{actors, dlg, pad, ground, rng};
+    view.player = sora;
+
+    for (int f = 0; f < GA_DROP; ++f) {
+        updateWorld(w, view, fx);
+        CHECK_EQ(actors.x[left].raw(), 4224);        // still where it spawned
+        CHECK_EQ(actors.y[left].raw(), 1920);
+        // ...and the screen is shaking on a four-frame period the whole way.
+        CHECK(fx.shakeX == 3 || fx.shakeX == -3);
+        view.frame = uint32_t(f + 1);
+    }
+    // The landing places them, stops the shake and freezes the world hardest.
+    updateWorld(w, view, fx);
+    CHECK_EQ(int(fx.shakeX), 0);
+    CHECK_EQ(int(actors.z[armor]), 0);
+    CHECK_EQ(int(w.hitStop), 8);
+    CHECK_EQ(actors.x[left].raw(), 4224 - GA_HAND_R.raw());
+    CHECK_EQ(actors.y[left].raw(), 1920 - GA_HAND_UP.raw());
+}
+
+KH_TEST(world_the_armour_closes_horizontally_and_stops_two_tiles_short) {
+    // StepArmor is the only walking AI in the game and it is one axis: it never
+    // moves vertically at all, which is what makes the Second District's fight a
+    // left-right dance rather than a chase.
+    Actors actors;
+    actors.clear();
+    const int sora = actors.spawn(ActType::Sora, tileCentre(4), tileCentre(10));
+    // Twelve tiles apart, which GA_WALK closes with frames to spare: at 20 a
+    // frame it needs 77 of its 96 to get inside GA_STOP.  Starting it further
+    // out would only prove the walk is slower than the timer, which it is.
+    const int armor = actors.spawn(ActType::Armor, tileCentre(12), tileCentre(7));
+    actors.hp[armor] = uint8_t(GA_MAX_HP);
+    actors.state[armor] = static_cast<ActState>(uint8_t(ArmorState::Walk));
+    actors.timer[armor] = uint8_t(GA_WALK_LEN);
+
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    // A wide open floor, so the walk is not what stops it.
+    unsigned char coll[64 * 32], hgt[64 * 32];
+    for (unsigned i = 0; i < sizeof coll; ++i) { coll[i] = 1; hgt[i] = 0; }
+    SceneGround ground;
+    ground.set(Blob{coll, sizeof coll}, Blob{hgt, sizeof hgt}, 64, 32);
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{actors, dlg, pad, ground, rng};
+    view.player = sora;
+
+    const World y0 = actors.y[armor];
+    for (int f = 0; f < GA_WALK_LEN; ++f) {
+        updateWorld(w, view, fx);
+        CHECK_EQ(actors.y[armor].raw(), y0.raw());      // never vertically
+    }
+    // It closed westward and stopped short rather than standing on him.
+    CHECK(actors.x[armor].raw() < tileCentre(12).raw());
+    const World gap = actors.x[armor] - actors.x[sora];
+    CHECK(gap.raw() > 0);
+    CHECK(gap.raw() <= GA_STOP.raw());
+    CHECK_EQ(actors.vx[armor].raw(), 0);                // and is not jittering
+}

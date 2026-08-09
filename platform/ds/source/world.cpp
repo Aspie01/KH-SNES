@@ -595,6 +595,146 @@ void updateOrb(WorldState& w, SceneView& view, int slot) {
     a.type[slot] = ActType::None;   // ...and it bursts
 }
 
+
+// ---------------------------------------------------------------------------
+// The Guard Armor
+//
+// It differs from Darkside in three ways that all matter to a port: it WALKS, it
+// carries its two hands as separate actors, and it arrives by falling.  The
+// hands are why placeHands() is called from every single branch below, including
+// the ones that do nothing else -- a branch that forgot it would leave a fist
+// hanging in the air for a frame, which reads as a glitch rather than as a boss.
+//
+// Like Darkside it reuses actVX/actVY as the slam MARK rather than as a
+// velocity, and like Darkside it takes that mark on ENTRY to the wind-up, 40
+// frames early.  Unlike Darkside its fist actually connects: ArmorSlam spawns
+// nothing, so the scratch it reads back is still the mark -- which is exactly
+// what makes audit finding 59 specific to the Shadow that crawls out of the
+// other boss's fist.
+// ---------------------------------------------------------------------------
+namespace {
+
+// StepArmor: close on the player HORIZONTALLY ONLY, and stop two tiles short so
+// it does not jitter on the spot.  It never moves vertically at all, which is
+// why the Second District's fight is a left-right dance.
+void stepArmor(Actors& a, int slot, int player, const SceneGround& g) {
+    const World dx = a.x[player] - a.x[slot];
+    World vx = dx.raw() < 0 ? World::fromRaw(int16_t(-GA_WALK.raw())) : GA_WALK;
+    if (absW(dx).raw() < GA_STOP.raw()) vx = World::fromRaw(0);
+    a.vx[slot] = vx;
+    a.vy[slot] = World::fromRaw(0);
+    tryMoveActor(a, slot, g);
+}
+
+// ArmorSlam.  No spawn, so the mark survives to be tested -- see the note above.
+void armorSlam(WorldState& w, SceneView& view, int slot) {
+    Actors& a = view.actors;
+    w.hitStop = 6;              // heavier than a connect: the whole arm lands
+    const World mx = a.vx[slot], my = a.vy[slot];
+    if (absW(a.x[view.player] - mx).raw() < GA_HAND_X.raw()
+        && absW(a.y[view.player] - my).raw() < GA_HAND_Y.raw()) {
+        damageSora(w, view, slot);
+    }
+}
+
+}  // namespace
+
+void placeHands(Actors& a, int armor) {
+    const World bx = a.x[armor], by = a.y[armor];
+    const World mx = a.vx[armor], my = a.vy[armor];     // the mark, if striking
+    const ArmorState st = static_cast<ArmorState>(static_cast<uint8_t>(a.state[armor]));
+    const uint8_t bz = a.z[armor];
+    const bool striking = st == ArmorState::Wind || st == ArmorState::Slam;
+
+    for (int i = 0; i < MAX_ACTORS; ++i) {
+        if (a.type[i] != ActType::Gauntlet) continue;
+        // actAnim picks which hand this is: 0 left, 1 right.  Only the RIGHT one
+        // ever strikes; the left keeps station whatever the torso is doing,
+        // which is what makes the wind-up readable.
+        const bool right = a.anim[i] != 0;
+        if (striking && right) {
+            a.x[i] = mx;
+            a.y[i] = my;
+            // Wound up it rides well clear of the ground; landed it is on it.
+            a.z[i] = st == ArmorState::Slam ? uint8_t(0) : uint8_t(GA_HAND_HIGH);
+            a.tile[i] = uint8_t(sprite::Gauntlet + 4);      // the closed fist
+        } else {
+            a.x[i] = right ? bx + GA_HAND_R : bx - GA_HAND_R;
+            a.y[i] = by - GA_HAND_UP;
+            a.z[i] = bz;
+            a.tile[i] = sprite::Gauntlet;                   // the open hand
+        }
+    }
+}
+
+void updateArmor(WorldState& w, SceneView& view, ScreenFx& fx, int slot) {
+    Actors& a = view.actors;
+    if (a.hitT[slot] != 0) --a.hitT[slot];
+
+    switch (static_cast<ArmorState>(static_cast<uint8_t>(a.state[slot]))) {
+        case ArmorState::Walk:
+            if (a.timer[slot] != 0) {
+                --a.timer[slot];
+                stepArmor(a, slot, view.player, view.ground);
+                placeHands(a, slot);
+                return;
+            }
+            // The mark is taken HERE, 40 frames before the fist lands.
+            a.vx[slot] = a.x[view.player];
+            a.vy[slot] = a.y[view.player];
+            a.state[slot] = static_cast<ActState>(uint8_t(ArmorState::Wind));
+            a.timer[slot] = uint8_t(GA_SLAM_WIND);
+            placeHands(a, slot);
+            return;
+
+        case ArmorState::Wind:
+            if (a.timer[slot] != 0) { --a.timer[slot]; placeHands(a, slot); return; }
+            a.state[slot] = static_cast<ActState>(uint8_t(ArmorState::Slam));
+            a.timer[slot] = uint8_t(GA_SLAM_HOLD);
+            placeHands(a, slot);        // BEFORE the slam, so the fist is down
+            armorSlam(w, view, slot);
+            return;
+
+        case ArmorState::Slam:
+            if (a.timer[slot] != 0) { --a.timer[slot]; placeHands(a, slot); return; }
+            a.state[slot] = static_cast<ActState>(uint8_t(ArmorState::Rest));
+            a.timer[slot] = uint8_t(GA_REST);
+            placeHands(a, slot);
+            return;
+
+        case ArmorState::Rest:
+            if (a.timer[slot] != 0) { --a.timer[slot]; placeHands(a, slot); return; }
+            a.state[slot] = static_cast<ActState>(uint8_t(ArmorState::Walk));
+            a.timer[slot] = uint8_t(GA_WALK_LEN);
+            // The mark is spent, and these two are a velocity again from here.
+            clearVelocity(a, slot);
+            placeHands(a, slot);
+            return;
+
+        case ArmorState::Drop:
+        default:
+            break;
+    }
+
+    // Still coming down.  The descent IS the timer shifted twice -- there is no
+    // separate height, which is why GA_DROP_Z is defined as GA_DROP / 4.
+    if (a.timer[slot] != 0) {
+        --a.timer[slot];
+        a.z[slot] = uint8_t(a.timer[slot] >> 2);
+        // Four-frame shake period, from frameCount's bit 1 -- the same shape all
+        // four of this game's shakes use, and the reason the trace carries the
+        // frame number at all.
+        fx.shakeX = (view.frame & 0x02) ? int8_t(-3) : int8_t(3);
+        return;
+    }
+    fx.shakeX = 0;
+    a.z[slot] = 0;
+    w.hitStop = 8;              // the heaviest freeze in the game: it has landed
+    a.state[slot] = static_cast<ActState>(uint8_t(ArmorState::Walk));
+    a.timer[slot] = uint8_t(GA_WALK_LEN);
+    placeHands(a, slot);
+}
+
 // ---------------------------------------------------------------------------
 // The dispatcher
 // ---------------------------------------------------------------------------
@@ -617,6 +757,7 @@ void updateWorld(WorldState& w, SceneView& view, ScreenFx& fx) {
             case ActType::Slash:   updateSlash(a, i);              break;
             case ActType::Darkside: updateDarkside(w, view, i);     break;
             case ActType::Orb:     updateOrb(w, view, i);           break;
+            case ActType::Armor:   updateArmor(w, view, fx, i);     break;
             // Darkside, Armor, Orb, Mote, Fish and Riku have behaviour in
             // world.s and island.s and are NOT here yet -- see the note below.
             // Everything else is inert by having no case, which is the same
@@ -628,10 +769,10 @@ void updateWorld(WorldState& w, SceneView& view, ScreenFx& fx) {
 
 // WHAT IS NOT HERE, AND WHY IT IS SAFE TO SAY SO.
 //
-// UpdateArmor and its four helpers -- StepArmor, PlaceHands, ArmorSlam, OneHand
-// -- are still on the SNES side only, and so are UpdateFish, UpdateMote and
-// UpdateRiku.  The Guard Armor lives in town.s rather than world.s because it
-// walks and carries two separate hand actors, and it belongs with the town.
+// UpdateFish, UpdateMote and UpdateRiku are still on the SNES side only.  All
+// three are small and none of them fights: a fish drifts in the shallows, a mote
+// rises past Sora during a fall, and Riku only moves during the race, along a
+// waypoint list, ignoring terrain entirely (audit finding 9).
 //
 // The dispatcher above is written so their absence is INERT rather than wrong:
 // an actor of a type with no case is simply not updated, which is exactly what

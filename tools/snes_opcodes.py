@@ -73,6 +73,15 @@ OPCODES: dict[int, tuple[str, str]] = {
     0xE9: ("sbc", "imm"),   0xEB: ("xba", "imp"),   0xF0: ("beq", "rel"),
     0xF6: ("inc", "dp_x"),  0xFA: ("plx", "imp"),   0xFB: ("xce", "imp"),
     0xFD: ("sbc", "abs_x"), 0xFE: ("inc", "abs_x"),
+    # ROR IS IN THE ROM AND NO SOURCE LINE SAYS SO.  It comes from the ASR1
+    # macro (macros.inc:49-52), `cmp #$8000 / ror a` -- the standard 65816
+    # arithmetic shift right, which is why grid.h's asr1() floors.  A macro
+    # invocation assembles to several instructions on ONE listing line whose text
+    # is the macro's name, so scan_listings() cannot attribute it and skips the
+    # line whole.  check() now decodes every byte run to catch exactly this, and
+    # this entry is what it was missing.  Found the hard way: the interpreter
+    # read `cmp #$8000` as a 16-bit immediate, which it is, and then hit $6A.
+    0x6A: ("ror", "acc"),
 }
 
 # How many bytes follow the opcode.  `imm` is None because it depends on the m
@@ -160,6 +169,82 @@ def scan_listings() -> dict[int, set[tuple[str, str]]]:
     return found
 
 
+def decodes(raw: list[str]) -> bool:
+    """Can this byte run be read as a whole number of instructions?
+
+    An immediate's width is not in its opcode, so the walk BACKTRACKS over both
+    possibilities rather than guessing -- a guess produces a bogus "missing
+    opcode" for every macro that mixes `lda #<x` with `lda #.loword(x)`, which
+    is most of the DMA ones.  A relocatable byte (`rr`) ends the run: the
+    assembler does not know its value yet and neither can this.
+    """
+    def walk(i: int) -> bool:
+        if i >= len(raw):
+            return True
+        try:
+            b = int(raw[i], 16)
+        except ValueError:
+            return True                 # `rr`: nothing further is knowable
+        ent = OPCODES.get(b)
+        if ent is None:
+            return False
+        mnem, mode = ent
+        if mode == "imm":
+            return walk(i + 2) or walk(i + 3)
+        return walk(i + 1 + FIXED_LEN[mode])
+    return walk(0)
+
+
+def audit_runs() -> int:
+    """Decode every byte the assembler emitted, and report what will not decode.
+
+    scan_listings() can only attribute lines whose text IS an instruction.  A
+    macro puts several instructions on one line under the macro's name, so those
+    lines are skipped -- and an opcode that appears ONLY inside a macro is then
+    absent from the table with nothing to notice.  That is how `ror` went
+    missing.
+
+    This walks the raw byte runs instead and consumes them with the table.  A
+    leftover byte is an opcode the ROM contains and the table does not, whatever
+    the source text around it looked like.
+    """
+    missing: dict[str, int] = {}
+    # ONLY the lines scan_listings() cannot attribute, which is exactly where the
+    # gap can hide: a MACRO INVOCATION.  Its listing text is the macro's name --
+    # an upper-case identifier, never a directive and never a lower-case
+    # mnemonic -- and its byte run is however many instructions the macro
+    # expanded to.  Auditing every line instead would try to decode `.byte`
+    # tables as code, which is meaningless.
+    macro = re.compile(r"^[A-Z][A-Z0-9_]*\b")
+    with tempfile.TemporaryDirectory() as tmp:
+        for src in sorted((SNES / "src").glob("*.s")):
+            lst = Path(tmp) / (src.stem + ".lst")
+            subprocess.run(
+                ["ca65", "--cpu", "65816", "-I", "src", "--bin-include-dir",
+                 str(ROOT), "-g", "-l", str(lst), "-o", "/dev/null", str(src)],
+                cwd=SNES, capture_output=True, text=True, check=True)
+            for line in lst.read_text().splitlines():
+                m = _LINE.match(line)
+                if not m:
+                    continue
+                text = m.group(2).strip()
+                if not macro.match(text):
+                    continue
+                # A macro with a quoted argument emits DATA, not instructions --
+                # TXTSTR lays out a HUD string.  Decoding it as code is
+                # meaningless, and it is the one honest way to tell the two
+                # kinds of macro apart from a listing alone.
+                if '"' in text:
+                    continue
+                raw = m.group(1).split()
+                if not decodes(raw):
+                    missing[line] = missing.get(line, 0) + 1
+    for line, n in sorted(missing.items()):
+        print(f"  a macro expanded to bytes the table cannot decode "
+              f"({n} time(s)):\n      {line.strip()}")
+    return 1 if missing else 0
+
+
 def check() -> int:
     """Does the table above still match what the assembler emits?"""
     found = scan_listings()
@@ -178,13 +263,18 @@ def check() -> int:
             print(f"  {b:02X} table says {want}, the assembler emits {got}")
             bad += 1
     for b in sorted(set(OPCODES) - set(found)):
+        if b == 0x6A:
+            continue        # macro-only; audit_runs() is what covers it
         print(f"  {b:02X} {OPCODES[b]} is in the table and NOT in the ROM")
         bad += 1
+    # ...and the same again from the other direction, over the raw bytes, so an
+    # opcode hidden inside a macro cannot slip past the way `ror` did.
+    bad += audit_runs()
     if bad:
         print(f"opcodes: {bad} disagreement(s) with the assembler")
         return 1
-    print(f"opcodes ok: {len(OPCODES)} bytes, exactly what ca65 emits for the "
-          f"frozen sources")
+    print(f"opcodes ok: {len(OPCODES)} bytes, and every byte the assembler "
+          f"emitted decodes with them")
     return 0
 
 

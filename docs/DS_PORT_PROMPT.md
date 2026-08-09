@@ -700,7 +700,7 @@ per-divergence suppression counts the differ prints rather than trusting them.
 
 ---
 
-# §M3b — The actor simulation — **Sora, the Shadows and Darkside LANDED**
+# §M3b — The actor simulation — **both bosses LANDED**
 
 This milestone did not exist. §M6 found the hole: §M3 delivered the movement
 *primitive* and §M5 the scene-level machines, and nothing delivered the code in
@@ -761,12 +761,41 @@ hand-written expectation would have caught it, because the same misreading that
 wrote the port would have written the test. Audit finding 59; the port
 reproduces it, because a silent fix would make every trace diff meaningless.
 
+## The Guard Armor, and a hole in the opcode table
+
+`updateArmor`, `placeHands`, `stepArmor` and `armorSlam`. Reached the same way —
+`--poke sceneId=6 --poke townStage=5 --poke deadFlag=2`, and `TownRestart` brings
+the armour down from the top by itself. Every leg of its cycle matches the
+oracle: Drop 41, Walk 105, Wind 41, Slam 24, Rest 51, Walk 97.
+
+Two of those carry a hit-stop and the numbers are how you can tell: Walk's first
+pass is 97 + **8** for the landing freeze, the heaviest in the game, and Slam is
+21 + **3** for the fist connecting. **The Armor's fist does connect**, where
+Darkside's cannot — `ArmorSlam` spawns nothing, so the scratch it reads back is
+still the mark. That contrast is what makes finding 59 specific to the Shadow
+crawling out of the other boss's fist rather than a general flaw.
+
+The hands are traced too, and the oracle settled two things reading would have
+left ambiguous: only the **right** hand strikes, and `placeHands` is **not**
+called during the drop, so both gauntlets arrive with the body instead of
+reaching out ahead of it.
+
+**The first Armor run desynced the interpreter**, at the same address the
+Darkside run had — and it was a real gap. `ror` is in the ROM and no source line
+says so: it comes from the `ASR1` macro, `cmp #$8000 / ror a`, and a macro puts
+several instructions on one listing line under the macro's own name, so the
+extractor skipped the line whole. `snes_opcodes.py` now also **decodes every byte
+run a macro emitted** and reports what will not decode, which closes the class
+rather than the instance. 90 opcodes, and `ror` is implemented — an arithmetic
+shift right, which is why `grid.h`'s `asr1()` floors.
+
+That longer run also re-measured the scene-load overrun at **113.5%** of a frame.
+
 ## What is still on the SNES side only
 
-`UpdateArmor` and its helpers — `StepArmor`, `PlaceHands`, `ArmorSlam`,
-`OneHand` — plus `UpdateFish`, `UpdateMote` and `UpdateRiku`. The Guard Armor
-lives in `town.s` rather than `world.s` because it walks and carries two separate
-hand actors, and it belongs with the town.
+`UpdateFish`, `UpdateMote` and `UpdateRiku`. None of the three fights: a fish
+drifts in the shallows, a mote rises past Sora during a fall, and Riku moves only
+during the race, along a waypoint list, ignoring terrain entirely (finding 9).
 
 The dispatcher is written so their absence is **inert rather than wrong**: an
 actor whose type has no case is simply not updated, which is exactly what the

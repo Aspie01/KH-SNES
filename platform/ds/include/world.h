@@ -90,6 +90,17 @@ void updateDarkside(WorldState& w, SceneView& view, int slot);
 // bursts on contact or when its life runs out.
 void updateOrb(WorldState& w, SceneView& view, int slot);
 
+// The Guard Armor.  Unlike Darkside it WALKS -- horizontally only, closing on
+// the player and stopping two tiles short -- and it carries its two hands as
+// separate actors that it repositions every frame.  `fx` is written because its
+// arrival shakes the screen.
+void updateArmor(WorldState& w, SceneView& view, ScreenFx& fx, int slot);
+
+// Put both gauntlets where the torso says they should be.  Called from every
+// branch of the Armor's machine, including the ones that do nothing else, so a
+// hand is never left behind by a frame.
+void placeHands(Actors& a, int armor);
+
 // Is the player inside the boss's sweep box?  Exposed because the resting
 // state tests it before choosing an attack, and because it is the one boss
 // range a test can check without driving the whole machine.
