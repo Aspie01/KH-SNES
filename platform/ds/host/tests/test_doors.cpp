@@ -532,3 +532,149 @@ KH_TEST(doors_the_ladder_runs_end_to_end) {
     CHECK_EQ(m4.doorLanding().i, 0);
     CHECK_EQ(m4.doorLanding().j, 0);
 }
+
+// ===========================================================================
+// The line riding on the redraw
+// ===========================================================================
+//
+// WHY THIS CASE IS IN THE DOORS FILE.  Because Cid's step is the door table's
+// power supply and this is the one property of it the ladder above cannot see.
+// The ladder asserts that talking to Cid returns HudChanged carrying TownCid
+// and that the door then opens; what it cannot assert is that Cid's is the ONLY
+// HudChanged in the tree shaped that way -- and that sentence is load-bearing
+// somewhere else entirely.
+//
+// perform() (platform/ds/host/trace_main.cpp) is the tree's only performer of a
+// StageStep, and for a long time its HudChanged arm was a bare `return true`
+// under a comment saying the redraw "changes no state the simulation can see".
+// That was true of the redraw and false of the step, because the step can carry
+// a ScriptId and the arm threw it away with everything else.  The arm now opens
+// it, and auditPassengerSurvivesPerform() beside perform() proves it still does
+// on every dstrace run -- but that check can only ever speak for the consumer.
+// It cannot know whether some NEW step has started carrying a line on an arm
+// that is implemented and silent (None, RespawnDistrict, RaiseArmor, BeginFall
+// and SpawnMote would all drop one without a word today).
+//
+// So this is the producer half of the same contract, and the two together are
+// what make it enforced rather than merely intended.  It drives all seven of
+// the HudChanged steps the shipped tree can emit and pins which of them carries
+// a passenger.  Add a line to one of the six bare ones and this fails and says
+// to go and look at perform(); the alternative is that it works on the day it
+// is written and is silently lost the first time anybody performs it.
+//
+// The six are driven through the machines' real entry points rather than being
+// read off a table, because a table of "what the machines return" is a copy of
+// the thing under test.
+
+KH_TEST(doors_only_cids_hud_step_carries_a_line) {
+    Stub w;
+    SceneView v = w.view();
+    ScreenFx fx;
+
+    // Counted so that a site which quietly STOPS emitting HudChanged is a
+    // failure too.  A case that silently exercises five of six sites still
+    // passes every assertion it makes, which is the way this kind of test rots.
+    int sites = 0;
+
+    // ---- 1.  The town, waking up.  stage_town.cpp:159 ---------------------
+    // Woke: the opening line has been dismissed, so the objective becomes FIND
+    // SOMEBODY AWAKE.  Bare -- the SNES's TownUpdate calls HudUpdate here and
+    // does not follow it with a Say.
+    TownMachine mt;
+    mt.begin(w.rng);
+    mt.setStage(TownStage::Arrive);
+    StageStep s = mt.update(v, fx);
+    CHECK(s.action == SceneAction::HudChanged);
+    CHECK_EQ(int(s.script), int(ScriptId::None));
+    CHECK(mt.stage() == TownStage::Look);
+    ++sites;
+
+    // ---- 2.  The night, starting the search.  stage_night.cpp:173 ---------
+    NightMachine mn;
+    mn.begin(w.rng);
+    mn.setStage(NightStage::Intro);
+    s = mn.update(v, fx);
+    CHECK(s.action == SceneAction::HudChanged);
+    CHECK_EQ(int(s.script), int(ScriptId::None));
+    CHECK(mn.stage() == NightStage::Seek);
+    ++sites;
+
+    // ---- 3.  Kairi hands over the list.  stage_island.cpp:158 -------------
+    // THIS IS THE ONE CID IS MOST OFTEN CONFUSED WITH, and the confusion is the
+    // reason interact.cpp's Cid arm carries its comment about not being the
+    // island's shape: talkTo() bails out above the line lookup for a bare
+    // HudChanged, so on the island "advance the state and redraw" says nothing
+    // at all.  It must stay bare for that to keep being true.
+    IslandMachine mi;
+    mi.begin();
+    mi.setState(QuestState::Idle);
+    s = mi.talkToKairi(false);
+    CHECK(s.action == SceneAction::HudChanged);
+    CHECK_EQ(int(s.script), int(ScriptId::None));
+    CHECK(mi.state() == QuestState::Active);
+    ++sites;
+
+    // ---- 4.  Day two's list handed in: Riku wants his race.  :145 ---------
+    mi.setState(QuestState::Done);
+    mi.setDay(2);
+    s = mi.talkToKairi(false);
+    CHECK(s.action == SceneAction::HudChanged);
+    CHECK_EQ(int(s.script), int(ScriptId::None));
+    CHECK(mi.state() == QuestState::RaceSet);
+    ++sites;
+
+    // ---- 5 and 6.  The countdown, ticking and then handing over -----------
+    // stage_island.cpp:83 asks for a redraw on EVERY frame of the countdown --
+    // the number on the race row is derived from the timer, so "the timer
+    // moved" is the whole message -- and stage_island.cpp:78 asks once more on
+    // the frame it starts the race.  Walking the whole countdown rather than
+    // poking dayTimer_ means a passenger appearing on either is caught, and it
+    // is COUNT_LEN + 1 frames because the terminal frame is the one that finds
+    // the timer already at zero.
+    IslandMachine mi2;
+    mi2.begin();
+    mi2.beginRace();
+    CHECK(mi2.state() == QuestState::RaceSet);
+    int ticks = 0;
+    bool ticking = false;
+    bool handedOver = false;
+    for (int f = 0; f < COUNT_LEN + 4 && !handedOver; ++f) {
+        s = mi2.update(v, fx);
+        CHECK(s.action == SceneAction::HudChanged);
+        CHECK_EQ(int(s.script), int(ScriptId::None));
+        ++ticks;
+        if (mi2.state() == QuestState::RaceRun) handedOver = true;
+        else ticking = true;
+    }
+    CHECK(handedOver);
+    CHECK(ticking);
+    CHECK_EQ(ticks, COUNT_LEN + 1);
+    sites += 2;
+
+    // ---- 7.  Cid, and the reason all of this is here ----------------------
+    // The SNES writes the stage, redraws the HUD and THEN speaks, all in one
+    // eight-bit stretch of TalkTown's fall-through arm: `sta townStage` at
+    // town.s:541, `jsr HudUpdate` at town.s:542, `jmp Say` at town.s:546.  One
+    // StageStep, so the redraw is the action and the line is the passenger.
+    Interact st;
+    TownMachine mc;
+    mc.begin(w.rng);
+    mc.setDistrict(SceneId::Town1);
+    mc.setStage(TownStage::Look);
+    const TownDoors one = townDoorsFor(SceneId::Town1);
+    w.putPlayer(17, 6);
+    w.actors.spawn(ActType::Cid, tileCentre(17), tileCentre(6));
+    w.press(Button::A);
+    s = townInteract(mc, st, v, one.rows, one.count);
+    w.release();
+    CHECK(s.action == SceneAction::HudChanged);
+    CHECK(s.script == ScriptId::TownCid);
+    CHECK(mc.stage() == TownStage::Second);
+    ++sites;
+
+    // Seven sites, six bare and one carrying, and the count is asserted so that
+    // deleting a site is as loud as changing one.  If this number has to move,
+    // the thing to check before moving it is perform()'s arm for whatever the
+    // new step's action is.
+    CHECK_EQ(sites, 7);
+}

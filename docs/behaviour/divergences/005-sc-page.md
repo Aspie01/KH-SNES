@@ -136,3 +136,12 @@ Two things this settles that reading could not:
 The four scenarios that avoid dialogue — `station`, `darkside`, `armor`, `race`
 — are byte-identical to the oracle over 1469 frames, which is option (1) working
 exactly as this section predicted it would.
+
+**Amended when `fall` was added.** There is now a fifth scenario that avoids
+dialogue, and it avoids it the same way `station` does: `fall` pokes
+`txtState=0` so the opening line is already dismissed before the first emitted
+frame. It is byte-identical from frame 2 over 198 frames, and `traces/idle.txt`
+presses A twice *inside* the fall with no box open, so "no dialogue here" is
+measured on that scenario rather than assumed. The count above is left at four
+and 1469 because that is the run this section was written against; the reading
+does not change, and a fifth silent scenario only strengthens it.

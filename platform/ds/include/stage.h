@@ -95,6 +95,44 @@ struct ScreenFx {
 // the brightness and opens a message -- is ONE action, because those five are
 // not independently orderable and a caller that could interleave them would be
 // able to get it wrong.
+//
+// THE SCRIPT IS A PASSENGER, AND IT IS NEVER OPTIONAL FOR THE PERFORMER.  Say
+// and Ask are the two actions that ARE a line; every other action that sets
+// StageStep::script is one where the SNES did something and THEN spoke, in the
+// same routine and on the same frame, and "one action per step" is exactly why
+// the line has to ride along rather than follow as a second step.  Six actions
+// other than Say and Ask carry one in the tree today:
+//
+//     SpawnBoss      DiveBoss        stage_dive.cpp:196
+//     SweepGauntlets TownWon         stage_town.cpp:145
+//     HudChanged     TownCid         interact.cpp:386   (Cid's first line)
+//     EnterFragment  NightFragment   stage_night.cpp:113
+//     OpenTheDoor    NightKairi      stage_night.cpp:153
+//     ClearColumns   NightKey        stage_night.cpp:190
+//
+// So the rule for anybody performing a StageStep is: DO THE ACTION, THEN OPEN
+// `script` IF IT IS SET.  Not "if the action is one of the talking ones" -- the
+// action says what to do, `script` says what to say, and the two are
+// independent.  Dropping a passenger costs the line, which is bad, and the BOX,
+// which is worse: no box means Dialogue::busy() stays false, and every machine
+// in this file gates its own update on that flag, so the player keeps control
+// through the frames the SNES spent reading and every input after that lands a
+// conversation early.
+//
+// perform() in platform/ds/host/trace_main.cpp is the tree's only performer
+// (the device tier that would be the other one is §M7).  It implements eight of
+// the actions above and sends the rest to a `default:` arm that STOPS THE RUN
+// and names the action -- which is the safe way to not handle something, and is
+// why the four passengers it has no arm for are not a live hazard.  HudChanged
+// was the one arm that was both implemented and silent.  It no longer is;
+// auditPassengerSurvivesPerform(), beside perform(), is the standing check that
+// it stays that way, and doors_only_cids_hud_step_carries_a_line in
+// platform/ds/host/tests/test_doors.cpp pins which HudChanged steps carry one
+// so that a new passenger on a silently-implemented arm cannot arrive unnoticed.
+//
+// The guard is on ScriptId::None and not on emptiness: Dialogue::open sets
+// state_ = Reveal for an empty Script too (text.cpp:31-43), so a performer that
+// opened unconditionally would put an empty box in front of every bare action.
 // ---------------------------------------------------------------------------
 enum class SceneAction : uint8_t {
     None = 0,
@@ -111,7 +149,13 @@ enum class SceneAction : uint8_t {
     LowerPair,          // one frame of their descent
     RaiseArmor,         // the Guard Armor comes down
     SweepGauntlets,     // its hands go with it
-    HudChanged,         // the objective line or the gauge needs redrawing
+    // The objective line or the gauge needs redrawing -- AND, when `script` is
+    // set, a line to say once it has been.  The redraw alone is what six of the
+    // seven in the tree mean; the seventh is Cid, where the SNES does
+    // `jsr HudUpdate` and then `jmp Say` in one branch (town.s:542-546) and the
+    // step has to carry both halves.  A performer that handles the redraw and
+    // ignores the passenger is the failure the block comment above describes.
+    HudChanged,
     // Destiny Islands
     RebuildForDayTwo,   // clear, re-init the world, spawn day two's table
     BeginNight,         // the light goes, and what comes up is not the morning
@@ -132,6 +176,12 @@ enum class SceneAction : uint8_t {
 
 struct StageStep {
     SceneAction action = SceneAction::None;
+    // The line to open, or None.  For Say and Ask it IS the action; for
+    // everything else it is a passenger the performer owes the same treatment
+    // regardless of what the action was -- see "THE SCRIPT IS A PASSENGER"
+    // above.  Defaulted to None because most steps are bare and a performer
+    // must be able to tell "nothing to say" from "something to say" without
+    // consulting the action.
     ScriptId script = ScriptId::None;
     uint8_t arg = 0;            // a scene id, or whatever the action needs
 };

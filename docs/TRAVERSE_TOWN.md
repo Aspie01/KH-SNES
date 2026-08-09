@@ -31,6 +31,16 @@ door they have already opened and the town remembers where it had got to.
 | `T_WON` | The three of them are still standing |
 | `T_OVER` | The card |
 
+`T_LOOK` → `T_SECOND` is the one transition in this table that a *conversation*
+performs rather than a fight or a timer, and `town.s:541` is the only write of
+`T_SECOND` in the game — so Cid's first line is what makes every door table on
+this page mean anything. The stage write, the HUD rebuild and the line all land
+on one frame, and his second line is reachable at `T_SECOND` and `T_THIRD` only,
+because `TownUpdate` calls `TalkTown` on those three walkable stages and jumps
+away on all the others (`town.s:217-240`). It is specified in
+`docs/BEHAVIOUR.md` §6, "What advances `LOOK` → `SECOND`", which is the
+authority; this page is content notes.
+
 ## Doors
 
 A door is a walkable `d` tile in row 4 — the bottom row of a building block,

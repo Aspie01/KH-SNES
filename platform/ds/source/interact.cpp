@@ -330,14 +330,15 @@ StageStep townInteract(TownMachine& m, Interact& st, SceneView& view,
             // ever said.
             //
             // THE HUD ACTION WITH THE LINE RIDING ALONG.  The SNES does both
-            // and in this order -- `jsr HudUpdate` then `jmp Say`,
-            // town.s:542-545 -- and a StageStep carries one action, so the
+            // and in this order -- `jsr HudUpdate` at town.s:542 then `jmp Say`
+            // at town.s:546 -- and a StageStep carries one action, so the
             // redraw is the action and the script is the passenger.  The
             // precedent for a passenger is NightMachine::talkToKairi
             // (stage_night.cpp:146-153), which returns OpenTheDoor carrying
-            // ScriptId::NightKairi; the consumer's half of that bargain is
-            // trace_main.cpp:429-430, where the SweepGauntlets arm opens
-            // `step.script` when it is set.
+            // ScriptId::NightKairi; the consumer's half of the bargain is
+            // trace_main.cpp:455-456, the HudChanged arm of perform(), which
+            // opens `step.script` when it is set exactly as the SweepGauntlets
+            // arm at trace_main.cpp:478-479 does.
             //
             // IT IS NOT THE ISLAND'S SHAPE, WHICH IS THE OPPOSITE ONE.
             // IslandMachine::talkToKairi's Idle arm (stage_island.cpp:154-158)
@@ -348,18 +349,37 @@ StageStep townInteract(TownMachine& m, Interact& st, SceneView& view,
             // at all.  Cid cannot work that way: his line is the one that tells
             // the player the door is open.
             //
-            // STANDING HAZARD, recorded because it is not yet checkable here.
-            // HudChanged is the one action perform() deliberately drops
-            // (trace_main.cpp:405-408, "redrawing it changes no state the
-            // simulation can see"), and it drops the script with it.  Nothing
-            // in the non-test tree calls townInteract yet, so nothing performs
-            // this step today; the frame the scene layer does, whoever writes
-            // it must open `step.script` here the way the SweepGauntlets arm
-            // does, or Cid's line is lost AND the box never opens -- and an
-            // unopened box means dialogue.busy() stays false, so the player
-            // acts on the frame the SNES spent reading.  The host tests below
-            // assert the script is on the step; they cannot assert that
-            // somebody said it.
+            // THE PASSENGER IS NOW HONOURED, AND CHECKED AT BOTH ENDS.  It was
+            // not, and this comment used to record that as a standing hazard:
+            // HudChanged was the one action perform() deliberately dropped, and
+            // it dropped the script with it, so the day a scene layer performed
+            // this step Cid's line would be lost AND the box would never open.
+            // The box is the worse half -- an unopened box leaves
+            // dialogue.busy() false, and every machine here gates its update on
+            // that flag, so the player would act on the frames the SNES spent
+            // reading and every input after that would land a conversation
+            // early.  It was latent only because nothing outside the tests
+            // calls townInteract yet, which is the kind of luck that expires.
+            //
+            // Both halves of it are now enforced:
+            //
+            //   * THE CONSUMER.  perform()'s HudChanged arm opens `step.script`
+            //     when it is set, exactly as the SweepGauntlets arm does, and
+            //     auditPassengerSurvivesPerform() beside it runs on every
+            //     dstrace invocation -- so all eight of tools/trace_check.py's
+            //     scenarios refuse to emit a trace from a build that drops it.
+            //     Reverting the arm makes every one of them fail by name.
+            //
+            //   * THE PRODUCER.  test_doors.cpp's
+            //     doors_only_cids_hud_step_carries_a_line drives all seven
+            //     HudChanged steps the tree can emit and pins six of them bare
+            //     and this one carrying TownCid, so a passenger appearing on an
+            //     action whose arm is implemented and silent gets caught while
+            //     it is still being written.
+            //
+            // What remains for the scene layer is only what it always was:
+            // townInteract has no non-test caller, so call it.  The step it
+            // returns is now safe to perform.
             if (a.type[who] == ActType::Cid) {
                 if (m.stage() == TownStage::Look) {
                     m.setStage(TownStage::Second);

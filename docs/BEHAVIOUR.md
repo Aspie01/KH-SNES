@@ -334,6 +334,104 @@ a remembered previous tile.
 Spawn placement refuses a spot within 64 px of the player and retries in 12
 frames — one arriving in your face reads as a bug rather than as a Heartless.
 
+#### What advances `LOOK` → `SECOND`: talking to Cid, once
+
+*Added after the fact, under §0.6 of the porting brief. The opening line of §6
+above — "each is a single byte advanced by one script" — was true, and did not
+say advanced by **what**. Neither this section nor `BEHAVIOUR-AUDIT.md` named
+Cid anywhere, and his branch turned out to be the town's most load-bearing
+transition. Derived from `platform/snes/src/town.s`, cited line by line below.*
+
+`TalkTown` scans the actor table for a slot that is occupied, carries `AF_TALK`
+and passes `NearPlayer` (`town.s:506-518`), then dispatches on actor **type**.
+Townsman, townswoman, Donald and Goofy are branch targets; **Cid is the
+fall-through** (`town.s:522-546`), and his is the only arm that does anything
+besides speak — the other four are each `rep #$20` / `lda #.loword(script…)` /
+`jmp Say` and nothing more (`town.s:552-571`). With the two `rep #$20` / `.a16`
+width switches elided, Cid's arm is:
+
+```
+    lda townStage
+    cmp #T_LOOK
+    bne @cidAgain
+    lda #T_SECOND
+    sta townStage
+    jsr HudUpdate
+    lda #.loword(scriptCid)
+    jmp Say
+@cidAgain:
+    lda #.loword(scriptCid2)
+    jmp Say
+```
+
+(`town.s:537-551`.) Three things happen on **one frame, in this order**, and all
+three are part of the transition rather than decoration around it:
+
+1. `townStage` becomes `T_SECOND` (`town.s:540-541`).
+2. `HudUpdate` runs (`town.s:542`). This is visible, not bookkeeping: `HudUpdate`
+   reaches `DrawTown` for a town scene with no boss up (`hud.s:187`, `:214-217`),
+   `DrawTown` calls `TownStageLabel` (`hud.s:415`), and `TownStageLabel` is a
+   pure function of `townStage` (`town.s:1356-1374`) indexing `townLines`
+   (`hud.s:582-589`). So the objective row changes from `FIND SOMEBODY AWAKE` to
+   `THE SECOND DISTRICT` on the same frame the stage does. Separate the two and
+   the HUD spends a frame describing a town that has already moved on.
+3. `Say` opens a box on `scriptCid` (`town.s:545-546`). `Say` stores `txtPtr`
+   — including its bank byte, since every line in the file shares one — and calls
+   `TextOpen` in `TM_MESSAGE` mode, and does nothing else at all
+   (`town.s:1339-1350`). **The box is opened here or not at all.**
+
+The test is `cmp #T_LOOK` and not "later than `T_LOOK`", so inside the branch
+`@cidAgain` is the arm for every stage that is not `T_LOOK`. **What that does not
+mean is that a player can reach it at every stage**, and the difference is worth
+spelling out, because the branch read on its own says the wrong thing about the
+game and an earlier draft of this section said it. `TalkTown` has exactly one
+caller and that caller gates it. `TownUpdate` returns while a box is up
+(`town.s:212-214`), then sends `T_ARRIVE` to `Woke`, `T_MEET` to `Meet`, `T_BOSS`
+to `WatchArmor`, `T_WON` to `AfterArmor` and `T_OVER` to an immediate `rts`
+(`town.s:217-232`), and only falls through to `jsr TalkTown` on the three stages
+its own comment calls walkable — "T_LOOK, T_SECOND, T_THIRD: the town is walkable
+and the doors are live" (`town.s:234-240`). So **`@cidAgain` is reachable at
+`T_SECOND` and `T_THIRD` and nowhere else.**
+
+`T_ARRIVE` is out of reach twice over. `TownBegin` writes it and opens
+`scriptWake` in the same routine (`town.s:60`, `:86-87`), so the stage never
+exists without a box in front of it; and the first frame on which the box is gone
+is the frame `TownUpdate` jumps to `Woke`, which writes `T_LOOK` before anything
+else in the scene runs (`town.s:217-220`, `:254-255`).
+
+That is what makes the equality safe rather than sloppy, and it is the part to
+carry into a port. `scriptCid2` is "THE DOOR AT THE END OF THE ROW. IT'S OPEN
+NOW." (`town.s:1479-1481`), and the door at the end of the row is `doorTable`
+row 0, gated on `T_SECOND` (`town.s:1391`). At both stages where the line can be
+said the gate has already been passed, so the frozen game never says it while the
+door is still bolted. A port that keeps the equality test but drops the caller's
+stage dispatch has therefore not reproduced the SNES — it has invented a Cid who
+announces an open door on `T_ARRIVE`, the one stage the original never lets him
+speak on, and the invented line is the more convincing kind of wrong because it
+is a real string from the real ROM.
+
+**Why this is the town's load-bearing transition.** `town.s:541` is the **only**
+write of `T_SECOND` to `townStage` in the whole SNES source. The other seven
+writes are `stz` for `T_ARRIVE` (`town.s:60`), `T_LOOK` from `Woke`
+(`town.s:254-255`), `T_MEET` (`town.s:429-430`), `T_THIRD` (`town.s:680-681`),
+`T_BOSS` (`town.s:725-726`), `T_WON` (`town.s:836-837`) and `T_OVER`
+(`town.s:853-854`). The First District's only exit is `doorTable` row 0, gated on
+`T_SECOND` (`town.s:1391`), and a door opens when the stage it wants is less than
+or equal to `townStage` — `cmp townStage` / `beq @open` / `bcs @shut`, so a
+requirement *greater* than the current stage is the only shut case
+(`town.s:325-328`). Remove this one branch and the town stops at `T_LOOK` for
+ever: `Woke` reaches `T_LOOK` and stops (`town.s:251-258`), the exit says its
+bolted line, and the Second and Third Districts are unreachable in a town whose
+own rule is that every district already opened stays reachable.
+
+**For a port.** The stage write, the HUD rebuild and the line are one atomic
+beat, and a protocol that carries one action per step has to carry all three
+anyway. Whichever of the three the protocol makes the "action", the other two
+ride along and the consumer must honour them. Dropping the line loses more than
+the line: with no box opened, whatever flag the port uses for "a conversation is
+on screen" stays false, so the player acts on the frames the original spent
+reading and every input after that lands early.
+
 ---
 
 ## 7. Camera

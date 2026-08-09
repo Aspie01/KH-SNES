@@ -403,8 +403,57 @@ bool perform(const StageStep& step) {
             g_sim.dialogue.open(scriptFor(step.script), TextMode::Message);
             return true;
         case SceneAction::HudChanged:
+            // THE REDRAW IS DROPPED.  THE PASSENGER IS NOT.
+            //
             // The HUD is not in the trace and redrawing it changes no state the
-            // simulation can see.  This is the one action it is correct to drop.
+            // simulation can see, so the redraw half of this action is still
+            // correctly ignored -- that much was always right and has not
+            // changed.  What was wrong was the `return true` that followed it,
+            // because it threw away `step.script` on the way past.
+            //
+            // A StageStep carries ONE action, so an SNES sequence that redraws
+            // the HUD and then speaks cannot be two steps: it has to travel as a
+            // HudChanged with a ScriptId riding along.  Cid's first conversation
+            // is exactly that sequence.  town.s:537-546, the fall-through arm of
+            // TalkTown's dispatch, reads
+            //
+            //     lda townStage        / cmp #T_LOOK   / bne @cidAgain
+            //     lda #T_SECOND        / sta townStage
+            //     jsr HudUpdate                        ; town.s:542
+            //     rep #$20
+            //     lda #.loword(scriptCid)
+            //     jmp Say                              ; town.s:546
+            //
+            // -- the stage write, then the redraw, then the line, in that order
+            // and all three on the same frame.  interact.cpp's Cid arm is the
+            // only step in the tree that carries a passenger on this action
+            // today, and the host test in tests/test_doors.cpp named
+            // `doors_only_cids_hud_step_carries_a_line` is what keeps that
+            // sentence true by pinning the other six bare.
+            //
+            // DROPPING IT LOSES THE LINE, WHICH IS BAD, AND THE BOX, WHICH IS
+            // WORSE.  Say is TextOpen (town.s:1339-1350) and nothing else; an
+            // unopened box leaves dialogue.busy() false, and every machine in
+            // this tree gates its own update on that flag -- TownMachine::update
+            // does it at stage_town.cpp:153, NightMachine::update at
+            // stage_night.cpp:168.  So a dropped script does not merely lose a
+            // sentence, it hands the player back control on the frames the SNES
+            // spent reading, and every input from there on lands one
+            // conversation early.  That is a whole-run desync whose first
+            // reported divergence would be wherever the player next moved,
+            // nowhere near the frame that caused it.
+            //
+            // GUARDED ON None BECAUSE SIX OF THE SEVEN ARE BARE.  Dialogue::open
+            // does not check what it was handed: text.cpp:31-43 sets
+            // state_ = TextState::Reveal unconditionally, empty Script included,
+            // so an unguarded call here would park an empty message box in front
+            // of every objective-line redraw the island, the night and the town
+            // ask for -- and busy() would then hold each of those machines still
+            // for as long as it took the player to dismiss a box with nothing in
+            // it.  Same guard and same reason as the SweepGauntlets arm below;
+            // this arm is deliberately its twin.
+            if (step.script != ScriptId::None)
+                g_sim.dialogue.open(scriptFor(step.script), TextMode::Message);
             return true;
         case SceneAction::RespawnDistrict:
             // SpawnDistrict, and the scenario's own setup IS it: the rows it
@@ -439,6 +488,85 @@ bool perform(const StageStep& step) {
                          g_sim.frame, actionName(step.action));
             return false;
     }
+}
+
+// ---------------------------------------------------------------------------
+// The standing check on the arm above
+//
+// WHY THIS IS HERE AND NOT IN tests/.  perform() is the ONLY thing in the tree
+// that performs a StageStep -- the device tier that would be the other one is
+// §M7 and blocked on a toolchain this container does not have -- and it lives in
+// this file, which has its own main() and is deliberately not linked into
+// hosttests (Makefile.host:43 globs tests/ and check.cpp and the simulation; it
+// does not glob this).  A host test therefore cannot call perform(), and a host
+// test that re-implemented its switch would be pinning a copy rather than the
+// original.  tests/test_doors.cpp pins the PRODUCER half -- which steps carry a
+// passenger -- and this pins the CONSUMER half, which is whether the passenger
+// survives being performed.  Between them nothing can go quiet.
+//
+// It runs once per dstrace invocation, before the scenario is set up, so
+// tools/trace_check.py exercises it eight times over and no trace can be
+// produced by a build that drops a line.  Cost is two calls and a compare.
+//
+// It touches g_sim.dialogue and nothing else, because the HudChanged arm
+// touches g_sim.dialogue and nothing else, and it puts a default-constructed
+// Dialogue back afterwards -- which is exactly the state the box is in at this
+// point in main(), before any scenario setup runs.  Getting that restore wrong
+// would move every trace, so it is done by assignment from a fresh object
+// rather than by close(), which needs a Pad and eats a button press.
+bool auditPassengerSurvivesPerform() {
+    // 1. A BARE HudChanged MUST NOT OPEN A BOX.  Six of the tree's seven
+    //    HudChanged steps are bare and every one of them is a machine saying
+    //    "the objective line moved"; if this arm opened unconditionally they
+    //    would each park an empty box on screen and busy() would freeze the
+    //    machine that asked behind it.
+    if (!perform(StageStep{SceneAction::HudChanged})) return false;
+    if (g_sim.dialogue.busy()) {
+        std::fprintf(stderr,
+                     "perform() opened a box for a HudChanged that carries no "
+                     "script.\n"
+                     "  Six of the seven HudChanged steps in the tree are bare "
+                     "redraw requests (stage_island.cpp, stage_night.cpp, "
+                     "stage_town.cpp).  Dialogue::open sets state_ = Reveal even "
+                     "for an empty Script (text.cpp:31-43), so an unguarded open "
+                     "here leaves an empty message box in front of the player and "
+                     "dialogue.busy() true -- which holds the machine that asked "
+                     "for the redraw still until somebody dismisses a box with "
+                     "nothing in it.  Restore the `step.script != ScriptId::None` "
+                     "guard.\n");
+        return false;
+    }
+
+    // 2. A HudChanged CARRYING A SCRIPT MUST OPEN THAT SCRIPT.  This is the
+    //    shape of interact.cpp's Cid arm, and the SNES sequence it stands for is
+    //    `jsr HudUpdate` then `jmp Say`, town.s:542 and town.s:546.
+    if (!perform(StageStep{SceneAction::HudChanged, ScriptId::TownCid}))
+        return false;
+    const bool opened = g_sim.dialogue.busy();
+    g_sim.dialogue = Dialogue{};
+    if (!opened) {
+        std::fprintf(stderr,
+                     "perform() DROPPED the script a HudChanged was carrying.\n"
+                     "  A StageStep carries one action, so the SNES sequence "
+                     "'redraw the HUD, then speak' has to travel as a HudChanged "
+                     "with a ScriptId riding along -- `jsr HudUpdate` at "
+                     "town.s:542 then `jmp Say` at town.s:546, the arm Cid's "
+                     "first conversation takes (town.s:537-546).  "
+                     "interact.cpp's Cid arm sends exactly that step.\n"
+                     "  Dropping it loses the line, and worse, loses the BOX: Say "
+                     "is TextOpen and nothing else (town.s:1339-1350), so an "
+                     "unopened box leaves dialogue.busy() false and every machine "
+                     "here gates its update on that flag (stage_town.cpp:153, "
+                     "stage_night.cpp:168).  The player would then act on the "
+                     "frames the SNES spent reading, and the trace would report "
+                     "its first divergence wherever he next moved rather than "
+                     "here.\n"
+                     "  Fix: the HudChanged arm of perform() must open "
+                     "step.script when it is set, as the SweepGauntlets arm "
+                     "does.\n");
+        return false;
+    }
+    return true;
 }
 
 bool stepMachine() {
@@ -1000,6 +1128,13 @@ int main(int argc, char** argv) {
         return 2;
     }
     if (!readScript(input, lastLabel)) return 2;
+
+    // Before the scenario, so a build that drops a script passenger cannot get
+    // as far as writing a trace file that would then be diffed and believed.
+    // See the comment on the function: this is the only place perform() can be
+    // reached from, and every one of tools/trace_check.py's eight runs pays for
+    // it.
+    if (!auditPassengerSurvivesPerform()) return 1;
 
     g_sim.actors.clear();
     if (!sc->setup()) return 1;

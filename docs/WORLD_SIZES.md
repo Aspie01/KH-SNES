@@ -347,13 +347,13 @@ Three remain, and the first of them owns most of the other two.
   Two symptoms, both of which can be pointed at rather than asserted:
 
   - **Of the nine cast files, exactly one is read at runtime**, and only by the
-    trace harness: `station1cast.bin`, at `host/trace_main.cpp:619-625`, which
+    trace harness: `station1cast.bin`, at `host/trace_main.cpp:747-752`, which
     is the single `spawnCast` call in the whole non-test tree. Seven of the
     eight trace scenarios build hand-written `CastRow[]` tables instead, and
     deliberately: they have to reproduce the *oracle's* cast, not the DS's.
   - **`SceneAction::EnterDistrict` is returned by nothing that performs it.**
     `TownMachine` emits it at `source/stage_town.cpp:71` and it is consumed only
-    in tests. `perform()` at `host/trace_main.cpp:398-442` handles eight of the
+    in tests. `perform()` at `host/trace_main.cpp:398-491` handles eight of the
     twenty-eight `SceneAction` values — `None`, `Say`, `HudChanged`,
     `RespawnDistrict`, `RaiseArmor`, `BeginFall`, `SpawnMote` and
     `SweepGauntlets` — and its `default:` arm stops the run with "the scenario
@@ -382,10 +382,10 @@ Three remain, and the first of them owns most of the other two.
   `include/scene.h:95-96`) — so "authored and unread" is no longer true at the
   spawn layer. But **the pointer is defaulted to null and only a test ever
   passes one** (`host/tests/test_scene.cpp:92-93`); the one production call
-  (`host/trace_main.cpp:624`) omits it, so no variant survives the spawn. And
+  (`host/trace_main.cpp:752`) omits it, so no variant survives the spawn. And
   the layer the field exists for still dispatches on type exactly as the SNES
   did: `townInteract` indexes a three-entry `LINES[]` by
-  `int(a.type[who]) - int(ActType::Cid)` at `source/interact.cpp:375-378`.
+  `int(a.type[who]) - int(ActType::Cid)` at `source/interact.cpp:395-398`.
   The bounds check §M5 asks for is likewise absent, and correctly so for now —
   nothing indexes anything with a variant, so there is nothing to bound yet.
   Read the item this way: the transport is built, the consumer is not, and the
@@ -428,7 +428,7 @@ closed and a thing that merely looks closed today.
   emits `platform/ds/include/gen/doors.h` in `<scene>doors.bin` order so the
   header and the binary are one table read twice. `townInteract` takes the array
   (`source/interact.cpp:307-308`) and `TownMachine::openDoor` now carries the
-  landing across the swap (`include/stage.h:329-333`), which it did not before:
+  landing across the swap (`include/stage.h:379-383`), which it did not before:
   `TownDoor::landing` was written by the table and read by nothing.
   **Standing checks, and there are three kinds.** `python3 tools/build_doors.py
   --check` fails if the committed header has drifted, on the `build_scripts.py`
@@ -507,6 +507,11 @@ closed and a thing that merely looks closed today.
 
 ## How this section went stale, and what would stop it
 
+*The diagnosis below is kept as written, because it is the reason the tool at the
+end of it exists. Read it in the past tense: **`tools/check_worldsizes.py` now
+points here**, it is in Gate 0, and the closing paragraphs say exactly which of
+these sentences it made false.*
+
 `docs/WORLD_SIZES.md` was last edited twenty-nine commits ago, at "Add the three
 station casts, and redraw the disc so it fits the DS screen". Everything that
 closed four of its seven open items landed after that — §M3's camera, §M4's VRAM
@@ -530,30 +535,45 @@ plainly because it makes the fix obvious:
   item closes in a *different* file, and the closing agent has no reason to
   grep the docs for a bullet that describes the world before its change.
 
-The mechanical answer to both is the same one this project has already applied
-twice, to the scripts and to the doors, and it is worth writing down even though
-it is not built:
+The mechanical answer to both is the same one this project had already applied
+to the scripts and to the doors, and since this section was first written it has
+been applied to this file as well:
 
 1. **Generate the numbers, or check them.** `tools/build_scripts.py --check` and
    `tools/build_doors.py --check` both fail when a committed artefact has
-   drifted from its source. Only the first of the two is in Gate 0: the Gate 0
-   block at `docs/DS_PORT_PROMPT.md:125-140` lists `build_scripts.py --check`
-   and does not list `build_doors.py --check`, which was written after the
-   block and has not been added to it. **That gap is the whole thesis of this
-   section, one level up.** A generator that refuses nine classes of wrong
-   wiring refuses nothing at all on a commit where nobody runs it, and the
-   failure mode is the quiet one: the header in `platform/ds/include/gen/` is
-   committed, so a stale one compiles, links, passes the host suite and ships a
-   door that leads to the wrong district. Whoever owns Gate 0 should add the
-   line; until then, treat "`build_doors.py` checks it" as meaning "checks it
-   when run".
+   drifted from its source. This paragraph used to say that only the first of
+   the two was in Gate 0, and that whoever owned Gate 0 should add the line.
+   **The line has been added.** The Gate 0 block at
+   `docs/DS_PORT_PROMPT.md:125-142` now lists `build_scripts.py --check`,
+   `build_doors.py --check` and a third check that did not exist when this
+   paragraph was written, and it carries the reason for the doors line beside
+   it so that the argument does not have to be rediscovered from here.
+
+   **What the paragraph was arguing is still the right lesson; only its ending
+   has changed.** A generator that refuses nine classes of wrong wiring refuses
+   nothing at all on a commit where nobody runs it, and the failure mode is the
+   quiet one: the header in `platform/ds/include/gen/` is committed, so a stale
+   one compiles, links, passes the host suite and ships a door that leads to the
+   wrong district. The exposure is narrower than "the doors are unchecked" and
+   worse for being narrow, and it is worth carrying forward now that it is
+   closed, because the same shape will recur. The host suite *does* compare the
+   committed header against the emitted `<scene>doors.bin` index for index, so a
+   drifted tile or a lost door has always failed there. What nothing outside
+   `build_doors.py` reads is `assets/ds/town_doors.txt` — the destination, the
+   gate and the shop-front decision, the three columns the binary deliberately
+   does not carry, and the only place a human writes any of them. Editing that
+   file alone moved nothing any other check could see: the authored table and
+   the shipped table would have described different towns with every gate
+   exiting zero. A check that catches half a table is not a smaller version of
+   a check that catches the table; it is a reason to stop looking.
 
    A `--check` that parses the tables out of this file and compares them
    against the pipeline's own report would have caught 717, 912 / 840 / 895 and
    242 on the commit that broke them, because the pipeline had already printed
-   the right answers in the same terminal. Anything a tool prints and a document
-   repeats is a copy waiting to go stale, and the pattern for fixing it exists
-   in two tools already.
+   the right answers in the same terminal. **That is the third check, and it now
+   exists**: `tools/check_worldsizes.py`, in Gate 0 beside the other two.
+   Anything a tool prints and a document repeats is a copy waiting to go stale,
+   and the pattern for fixing it now exists in three tools rather than two.
 2. **Make an open item name the check that will close it.** Every bullet in
    "still open" above cites something falsifiable — `check_device.py` exits 1,
    `perform()`'s `default:` arm rejects `EnterDistrict`, `spawnCast`'s
@@ -564,18 +584,37 @@ it is not built:
    hand-kept halves, the door with no far side, the milestone brief that was
    three steps out of date. This file was one more instance of it.
 
-Neither of those is implemented, and this note is itself unchecked prose, which
-is the honest thing to say about it. **The corrected numbers above are exactly
-as unguarded as the wrong ones were, and that has been measured rather than
-assumed.** Turning one cobble into a crate in `assets/ds/town3.txt` — a
-one-character edit — takes the district from 877 walkable to 876, and
+The first of those is implemented; the second is still a habit and not a
+mechanism, which is the honest thing to say about it. **The corrected numbers
+above were exactly as unguarded as the wrong ones were, and that was measured
+rather than assumed.** Turning one cobble into a crate in `assets/ds/town3.txt`
+— a one-character edit — takes the district from 877 walkable to 876, and
 `build_assets.py`, `check_map.py`, `check_modes.py`, `check_divergences.py`,
 `build_doors.py --check` and the whole host suite (208 cases, 113086 checks) all
-still exit zero with this file claiming 877. Nothing in the tree reads this
-document: the only mentions of `WORLD_SIZES.md` in `tools/` and `platform/` are
-six prose cross-references in comments. So the four numbers in **What is
-expanded** and the one in **the cast** are on their second transcription and
-their first day of being right, with the same nothing watching them as before.
+still exit zero with this file claiming 877. That measurement is what
+`tools/check_worldsizes.py` was written from, and re-running the same edit now is
+what shows the hole closed: the tool fails five times over on it, naming both of
+the figures in **What is expanded** that the count feeds — the district's
+walkable tiles, and the props arithmetic that arrives at them — then both halves
+of the demonstration sentence you have just read, and finally the figure this
+paragraph says the gates did not defend. The demonstration is itself one of the
+figures the tool recomputes, so this paragraph can no longer go on describing a
+district the maps do not have.
+
+**"Nothing in the tree reads this document" is the sentence that stopped being
+true.** It was accurate when it was written: the mentions of `WORLD_SIZES.md` in
+`tools/` and `platform/` were six prose cross-references in comments, and all six
+are still exactly that. What is new is a mention of a different kind.
+`tools/check_worldsizes.py` names this file in order to **open** it, not to point
+at it, and it does not only recompute the figures it was taught. Every digit run
+in this document has to fall inside a span some check consumed or carry a written
+excuse naming the figure, so a number added here with nothing behind it fails at
+its own line — and an excused figure cannot be edited quietly either, because
+every excuse for one spells the figure out rather than matching a digit class. So
+the four numbers in **What is expanded** and the one in **the cast** are still on
+their second transcription — but they are the first figures in this file with a
+consumer, and the honest remaining gap is the prose around them rather than the
+arithmetic inside them.
 
 The immediate, cheap version of (2) is that the next agent to close one of the
 three items above should treat editing this section as part of closing it, in

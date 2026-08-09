@@ -132,10 +132,50 @@ python3 tools/check_modes.py                # must say modes ok
 python3 tools/check_constants.py            # game.inc vs the DS, BY VALUE
 python3 tools/check_divergences.py          # the divergence corpus, against
                                             #   the format and the scenarios
+python3 tools/check_worldsizes.py           # docs/WORLD_SIZES.md's figures,
+                                            #   recomputed from what owns them
 python3 tools/build_scripts.py --check      # gen/scripts.h vs the frozen ROM
+python3 tools/build_doors.py --check        # gen/doors.h vs the authored
+                                            #   assets/ds/town_doors.txt
 python3 tools/snes_opcodes.py               # the table vs what ca65 emitted
 make -f platform/ds/host/Makefile.host run  # the host suite, both orders
 ```
+
+**The doors line closes a hole that the obvious reading hides**, and it is worth
+stating exactly, because "the host suite already checks the doors" is true and
+still leaves it open. `host/tests/test_doors.cpp` compares the committed
+`platform/ds/include/gen/doors.h` against the emitted
+`assets/gen/ds/<scene>doors.bin` index for index, so a header whose door *tiles*
+or *count* have drifted away from the maps fails there, loudly. What that
+comparison cannot see is the half of the table the binary does not carry:
+`<scene>doors.bin` is `(i, j, land_i, land_j)` and says nothing about the
+destination, the gate, or the decision that two of the six district doors are
+shop fronts with nothing behind them. Those three columns exist in exactly one
+place a human writes — `assets/ds/town_doors.txt` — and exactly one tool reads
+it. **So edit that file alone and every other gate exits zero.** Measured, not
+assumed: moving the First District's exit from tile 24 to tile 16 and shuttering
+24 in its place leaves `check_map.py`, `check_modes.py`, `check_constants.py`,
+`check_divergences.py`, `check_worldsizes.py`, `build_scripts.py --check`,
+`snes_opcodes.py` and the whole host suite all passing, while
+`build_doors.py --check` alone says `platform/ds/include/gen/doors.h has drifted
+from assets/ds/town_doors.txt`. Without the line in this block, the authored
+table and the shipped table disagree in silence: the header is committed, so a
+stale one compiles, links, passes every test and ships a door that leads
+somewhere the source of truth says it does not. A generator that refuses nine
+numbered classes of wrong wiring refuses nothing at all on a commit where nobody
+runs it.
+
+**The worldsizes line is the same argument applied to a document.**
+`docs/WORLD_SIZES.md` is mostly arithmetic — walkable counts, unique characters,
+cast sizes, map extents — every figure of it printed by `build_assets.py` or
+`check_map.py` and then transcribed by hand, with nothing comparing the two
+afterwards. `tools/check_worldsizes.py` recomputes them from the things that own
+them, and its second layer is what makes it a check on the *document* rather than
+on the figures somebody happened to think of: every digit run in the file must be
+inside a checked span or named in its `EXCUSED` list with a prose reason, so a
+new figure written into the file with no source fails at its line. It takes about
+two and a half seconds, most of it `check_map`'s window sweep called in-process,
+and needs neither the ROM nor the 65816 interpreter.
 
 **And when the simulation changes**, `python3 tools/trace_check.py` — about a
 minute, both machines, eight scenarios, camera included since format v2. Not in Gate 0 because it needs the ROM
@@ -940,8 +980,14 @@ Two traps that cost time here:
   - `<scene>doors.bin` is `(i, j, land_i, land_j)`. It says where the doors are
     and where Sora stands beside one; it does **not** say what is on the other
     side. `town.s`'s `doorTable` carried a destination scene and a gating stage
-    in three more bytes per row, and reconstructing that wiring for the 48×32
-    districts is this milestone's job.
+    in three more bytes per row. **That reconstruction is done** — the three
+    missing columns are authored in `assets/ds/town_doors.txt` and
+    `tools/build_doors.py` emits `platform/ds/include/gen/doors.h` from them, so
+    do not build a second table. Read `docs/TRAVERSE_TOWN.md`'s "The doors on the
+    DS" before touching either file; the far-side landing is *derived* from the
+    reciprocal door and must never be typed by hand, and it is a different tile
+    from `<scene>doors.bin`'s near-side `land_i/land_j`. `build_doors.py --check`
+    is in Gate 0.
   - `variant`, the fourth byte, selects a line. `TalkTown` dispatched on actor
     *type*, so its three residents could not tell two townsmen apart; the DS
     districts place several of each and distinguish them here. Bounds-check it.
@@ -1019,7 +1065,7 @@ compares against the artefact.
   happening under an open box.
 - **`GameOverUpdate` is two passes and not one**: the card, then the retry.
 
-## What is still open, and why it is a data question
+## What is still open, and why it is no longer a data question
 
 `CheckDoors` needs four things per door — where it is, where it lands, **which
 district it leads to**, and **which stage the town must have reached**. The
@@ -1029,11 +1075,55 @@ decided that "which district it leads to is scene logic and the table
 deliberately does not say".
 
 That decision stands, so `townInteract` takes a `TownDoor[]` — position,
-destination, landing, gate — and the mechanism is complete and tested. **What
-does not exist yet is anything that builds that array for the DS's own maps**,
-which have two doors in the First District where the SNES had one. Filling it in
-is a content decision about maps this milestone did not draw, and it belongs
-with whoever draws them.
+destination, landing, gate — and the mechanism is complete and tested. **This
+section used to end here, saying that nothing built that array for the DS's own
+maps and that filling it in belonged with whoever drew them. It has been
+built.** The three columns the binary does not carry are authored in
+`assets/ds/town_doors.txt`; `tools/build_doors.py` resolves the stage constants
+out of `game.inc`, parses `doorTable` live out of `town.s`, refuses nine
+numbered classes of wrong wiring before it will emit anything, and writes
+`platform/ds/include/gen/doors.h` in `<scene>doors.bin` order so the header and
+the binary are one table read twice. The First District's two door tiles were
+resolved as one SNES join plus one shop front that does nothing at any stage —
+a content decision, recorded in the authored file and in `docs/TRAVERSE_TOWN.md`
+rather than left to be inferred. `build_doors.py --check` is in Gate 0, and
+`host/tests/test_doors.cpp` walks the shipped tables including a per-stage
+reachability fixpoint over the real data. **Do not build a second table.**
+
+**What remains open is the other half of the protocol, and it is a code
+question.** Both halves of the door data now exist and neither has a production
+consumer:
+
+- **`townInteract` has no non-test caller.** Every call to it in the tree is in
+  `host/tests/test_doors.cpp` or `host/tests/test_interact.cpp`; nothing in
+  production hands it `townDoorsFor(scene)`. This is worth more than it sounds,
+  because `townInteract` is also where talking to Cid advances `TownStage::Look`
+  to `TownStage::Second` (`source/interact.cpp:383-394`, from `town.s:537-546`),
+  and `town.s:541` is the only write of that stage in the SNES source. So the
+  missing caller is *also* the reason the gate on the First District's exit is
+  unreachable in production: the table is live only when somebody calls the
+  function that opens it.
+- **`SceneAction::EnterDistrict` is emitted and never performed.**
+  `TownMachine::doorStep` returns it with the destination in `arg`
+  (`source/stage_town.cpp:71`) at the midpoint of the transition `openDoor`
+  started. The only performer in the tree is `perform()` in
+  `host/trace_main.cpp:398-491`, whose switch handles eight of the twenty-eight
+  actions and sends the rest — `EnterDistrict` among them — to a `default:` arm
+  that stops the run and names the action. That is deliberate and loud: a
+  silently skipped transition would put the trace on a different timeline and
+  the diff would blame a frame hundreds later.
+- **There is no `LoadScene`.** No function of that name exists anywhere in
+  `platform/ds/`; every occurrence of the word is a comment about what the
+  SNES's did. There is no scene record naming a map, a palette and a cast, and
+  nothing walks one — which is why exactly one of the nine cast files is read at
+  runtime, and only by the trace harness (`host/trace_main.cpp:747-752`).
+
+So the town's doors are complete, generated, checked and tested, and at runtime
+they still lead nowhere. That is **one** open item and not three, it is the same
+hole §M6 found in §M3 and this milestone one layer up again, and
+`docs/WORLD_SIZES.md` tracks it under "Consequences still open" as *nothing
+loads a scene*. Do not re-open it as a data question: the data has been finished
+twice.
 
 ---
 
@@ -1196,6 +1286,16 @@ traces carry. Eight deliberate breakages, all fired.
 template in §0.6 was missing `platform:` and `scenes:` — it would have been
 rejected by the tool it is a template for. Both corrected.
 
+*And then it happened twice more.* `tools/build_doors.py --check` and
+`tools/check_worldsizes.py` were each written after the block, each written on the
+stated assumption that it would run from Gate 0 — "`--check` belongs in Gate 0"
+(`tools/build_doors.py:39`), "this is run from Gate 0"
+(`tools/check_worldsizes.py:253`) — and neither was added to the block by the
+pass that wrote it. Both went in later, on a review. **The pass that writes a new
+check is the only one that knows the check exists**, so if it does not amend §0.5
+in the same change, nothing will until somebody notices the gap by hand. Add the
+line with the tool, not after it.
+
 ## ...and the interpreter was deciding operand width by hand
 
 `snes_opcodes.py` exists so that instruction decoding comes from the assembler
@@ -1229,8 +1329,9 @@ assertion could only ever have fired early, never late — but the busiest
 ordinary frame of the Dive measures **113520 master cycles, 31.8% of a frame**,
 not the 113970 and 31.9% quoted above. `WIDTH_FLAG` has a third value, `'a'`,
 for an operand the P register does not size, and `eight_bit()` refuses to answer
-for one. Traces before and after are **byte-identical**, verified on the whole
-seven-scenario run.
+for one. Traces before and after are **byte-identical**, verified across the
+whole run as it then stood — seven scenarios; `fall` was added later and brought
+it to eight.
 
 ---
 
@@ -1243,9 +1344,11 @@ seven-scenario run.
 §M6 built the oracle and left the other half unbuilt: the format existed, the
 differ existed, nothing on the DS side emitted a line. This is that half.
 
-**The exit criterion is met, and by more than it asked for.** Six scenarios are
-**byte-identical to the SNES over 3125 frames**, under `--strict`, with nothing
-suppressed and no divergence file involved:
+**The exit criterion is met, and by more than it asked for.** Seven scenarios are
+**byte-identical to the SNES over 3323 frames**, with nothing suppressed and no
+divergence file rescuing them — the two camera columns §M3 mandates a divergence
+in are lifted out of the byte comparison and checked against the *arithmetic*
+instead, which is a harder test and not a hole:
 
 | scenario | frames | what it exercises |
 | --- | --- | --- |
@@ -1255,10 +1358,18 @@ suppressed and no divergence file involved:
 | `town` | 885 | the Second District's wave off the `$1D57` seed, one refusal, the cap at five |
 | `night` | 770 | the storm, six Shadows arriving off the `$ACE1` LFSR, the ceiling where the draws stop |
 | `race` | 670 | Riku's whole waypoint course, every frame of it |
+| `fall` | 198 | the drop between the stations: `DIVE_FALL`, the eight-way mote spread, and the slots the motes recycle through |
 
-`tools/trace_check.py` runs all of them plus the seventh against both machines
-in about a minute. It is not in Gate 0 because it needs the ROM and the
-interpreter; run it whenever the simulation changes.
+Each is identical from the first frame it emits — frame 0 for `station`, 15 for
+the three that poke a scene in, 30 for the two that poke twice, and 2 for
+`fall`, which is where its deferred poke lands. **`fall` was added after this
+section was first written**, which is why the count says seven and not six; it
+found no divergence at all, and adding a scenario nobody expects to fail is the
+argument for it.
+
+`tools/trace_check.py` runs all seven plus the eighth — `dive`, below — against
+both machines in about a minute. It is not in Gate 0 because it needs the ROM
+and the interpreter; run it whenever the simulation changes.
 
 **Why a scenario and not a game.** The oracle boots the ROM and the ROM does the
 rest. There is no equivalent here, because the code that would tie the four
@@ -1452,8 +1563,9 @@ identical, from the content decision, which must not be.
 
 ## The completeness audit, run again once the traces existed
 
-The traces agree over 3125 frames, and that is a statement about the code they
-*execute*. It is not a statement about the code that is missing: a routine with
+The traces agreed over 3125 frames when this audit was run — six scenarios then,
+seven and 3323 frames once `fall` was added, which is the figure §M6b now carries
+— and that is a statement about the code they *execute*. It is not a statement about the code that is missing: a routine with
 no caller and a type that no scenario spawns are both invisible to a diff. So
 every `.proc` in `world.s` was walked against this tier, one at a time.
 
