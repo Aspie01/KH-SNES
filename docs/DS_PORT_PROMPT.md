@@ -2080,6 +2080,64 @@ to 512, with the arithmetic written down. And `check_worldsizes.py` caught a
 `constants.h:477` citation that my own insertion had shifted — the check earning
 its place the first time something moved under it.
 
+## Step five: touch — and the constraint that designs it
+
+**This is the first input the SNES never had**, so unlike everything else in
+this milestone there is no oracle to be right against. That absence is not a
+licence; it is the thing to design around, and the argument is short:
+
+`tools/trace_check.py` is worth more than any feature here. It drives both
+machines with the same recorded **pad** input and requires identical state over
+eight scenarios, and it is the only reason anybody can believe the port behaves
+like the game. Its guarantee is *conditional*: same input, same state. A
+touchscreen is a **second input channel**, and the recorded scripts have no
+touch column — so the moment the simulation can be moved by a pen, "the DS
+matches the oracle given this input" quietly becomes "…with the pen up."
+
+So: **a touch synthesises buttons and does nothing else.** It is a shortcut for
+input the player could already have given, never a new capability. Nothing
+downstream of `applyTouch()` can tell a tap from a press, and every scenario
+goes on proving exactly what it proved before.
+
+**The cost is real and is being paid deliberately.** An interaction that cannot
+be expressed as a button is one this port cannot have — dragging the camera,
+pinch-zooming the 3D ground, drawing a spell. All off the table until somebody
+decides the oracle has finished its job. That is a trade, not an oversight, and
+`device/touch.h` is where it is recorded.
+
+**The layering is now checked, not trusted.** `make layering` (folded into
+`typecheck`, so every `run` pays for it) refuses a simulation source that
+includes a device header. The host build puts `-I$(DS)/device` on the command
+line for everything, so the compiler will not stop it — proven by adding
+`#include "touch.h"` to `world.cpp` and watching it fail by name.
+
+What is wired today is one region: **tap anywhere to advance a message.** It
+needs no new design — the box exists, the state machine exists, the action is
+`Button::A`. It resolves to A and *not* `ADVANCE_BUTTONS`, because two buttons
+for one tap would make `consume(A)` leave B pressed and the next thing to test B
+would see a press nobody made, which is the exact failure `consume()` exists to
+prevent, reintroduced by the convenience.
+
+Seven breakages, all fired. Three are worth naming because each is a DS input
+bug people actually ship:
+
+- **firing while held.** No autorepeat on a touchscreen; a thumb resting on the
+  glass would hold A forever, and inside a dialogue box every message advances
+  on the frame it opens.
+- **sampling the position on the release frame.** With the pen up there is no
+  contact to measure and the reading is noise, so the tap registers somewhere
+  the player never touched — and it reads as a *calibration* fault rather than a
+  timing one, which is why it survives so long.
+- **no first-contact guard.** Zero is a legal coordinate, so a fresh
+  `TouchState` reporting (0, 0) sits inside any region covering the corner — and
+  the advance region is the whole screen, so a scene would dismiss its own first
+  message before a frame had been drawn.
+
+The dialogue case is driven in **lockstep** — sixty frames, two presses, pads
+compared before the box sees them and `busy()` compared after — because the
+claim is that nothing in `text.cpp` can tell the two apart on *any* frame, not
+that both eventually close the box.
+
 ## What §M7 still has to do, when a toolchain exists
 
 ~~two-screen init~~ → ~~2D tilemap ground renderer~~ → ~~sprites and the
@@ -2099,6 +2157,11 @@ remains of the HUD itself is the boss's name and Kairi's checklist, both of
 which are script strings: `PutLabel` walks them out of the same table the
 dialogue does, and putting a second string layout in `hud.cpp` would be the
 beginning of a second text renderer.
+
+Touch's hardware half is genuinely blocked, and cleanly so: reading the pen is
+`touchRead()` and the ARM7's SPI, which is libnds. The logic above takes a
+`down` flag and a calibrated position and asks no questions about where they
+came from, so the device half is one call.
 
 **The rest is where the stub stops paying**, and that is the honest
 reason they are not written rather than a shortage of effort. Each needs

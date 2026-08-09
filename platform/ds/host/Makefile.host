@@ -137,7 +137,34 @@ run: $(TARGET) typecheck
 # device-specific, and those are valid C++ anywhere.
 MUSTCOMPILE := $(wildcard $(DS)/device/mmio_device.cpp)
 
-typecheck:
+# THE LAYERING, checked rather than trusted.
+#
+# The simulation must not include a device header.  This is not tidiness: it is
+# what keeps tools/trace_check.py meaning what it says.  That tool drives both
+# machines with the same recorded PAD input and requires identical state, and
+# its guarantee is conditional on the pad being the only way in.  A simulation
+# source that could read device/touch.h could be moved by something the recorded
+# scripts have no column for -- and then "the DS matches the oracle given this
+# input" quietly becomes "...with the pen up".
+#
+# The host build puts -I$(DS)/device on the command line for everything, so the
+# compiler will not stop it.  This will.  Tests are exempt: a test SHOULD reach
+# into both tiers, that is how the device code is tested at all.
+.PHONY: layering
+layering:
+	@bad=$$(grep -l -E '#include "(mmio|init|ground|oam|oam_pack|hud|touch)\.h"' \
+	        $(DS)/source/*.cpp $(DS)/source/*/*.cpp $(DS)/include/*.h \
+	        $(DS)/include/*/*.h 2>/dev/null); \
+	if [ -n "$$bad" ]; then \
+	    echo "  a simulation source includes a DEVICE header:"; \
+	    for f in $$bad; do echo "    $$f"; done; \
+	    echo "  the simulation may only be moved by the pad -- see"; \
+	    echo "  device/touch.h for why trace_check.py depends on that"; \
+	    exit 1; \
+	fi; \
+	echo "the simulation includes no device header"
+
+typecheck: layering
 	@fail=0; n=0; \
 	for f in $(NOCOMPILE); do \
 	    n=$$((n + 1)); \
