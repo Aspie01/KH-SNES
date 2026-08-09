@@ -328,6 +328,119 @@ KH_TEST(vram_a_character_ceiling_is_a_number_not_an_inference) {
     CHECK(FONT_CHARS * CHAR_BYTES * 2 < int(UI_CHR.bytes + SUB_CHR.bytes));
 }
 
+KH_TEST(vram_a_region_is_an_offset_and_these_are_the_addresses_it_becomes) {
+    // Every Region in the header is an offset from a window base, and until this
+    // pass NOTHING PERFORMED THAT ADDITION -- MAIN_BG_BASE, MAIN_OBJ_BASE,
+    // SUB_BG_BASE and SUB_OBJ_BASE were read by no code, no test and no
+    // assertion anywhere in the tree.  Four transcribed addresses with no
+    // consumer is four chances for a wrong digit to survive to the device tier
+    // and show up as a layer drawing the wrong thing.
+    CHECK_EQ(windowBase(Use::MainBg), 0x06000000u);
+    CHECK_EQ(windowBase(Use::SubBg), 0x06200000u);
+    CHECK_EQ(windowBase(Use::MainObj), 0x06400000u);
+    CHECK_EQ(windowBase(Use::SubObj), 0x06600000u);
+    // A use that is not a window has no base, and gets 0 rather than a
+    // plausible-looking one.
+    CHECK_EQ(windowBase(Use::Lcdc), 0u);
+    CHECK_EQ(windowBase(Use::Texture), 0u);
+
+    CHECK_EQ(address(GROUND_CHR, Use::MainBg), 0x06000000u);
+    CHECK_EQ(address(UI_CHR, Use::MainBg), 0x06008000u);
+    CHECK_EQ(address(GROUND_MAP, Use::MainBg), 0x0600C000u);
+    CHECK_EQ(address(BOX_MAP, Use::MainBg), 0x0600E000u);
+    CHECK_EQ(address(OVERLAY_MAP, Use::MainBg), 0x0600E800u);
+    CHECK_EQ(address(OBJ_RESIDENT, Use::MainObj), 0x06400000u);
+    CHECK_EQ(address(SUB_CHR, Use::SubBg), 0x06200000u);
+    CHECK_EQ(address(HUD_MAP, Use::SubBg), 0x06204000u);
+    CHECK_EQ(address(MENU_MAP, Use::SubBg), 0x06204800u);
+    CHECK_EQ(address(MINIMAP_MAP, Use::SubBg), 0x06205000u);
+    CHECK_EQ(address(SUB_OBJ_CHR, Use::SubObj), 0x06600000u);
+
+    // ...and the composition agrees with the register arithmetic, which is the
+    // property that makes both usable: a base written to BGxCNT and the address
+    // a DMA writes to must name the same bytes.
+    CHECK_EQ(address(GROUND_CHR, Use::MainBg),
+             windowBase(Use::MainBg) + uint32_t(GROUND_CHR.charBase()) * CHAR_BLOCK);
+    CHECK_EQ(address(HUD_MAP, Use::SubBg),
+             windowBase(Use::SubBg) + uint32_t(HUD_MAP.mapBase()) * MAP_BLOCK);
+}
+
+KH_TEST(vram_the_seven_spans_of_the_graphics_address_space_are_disjoint) {
+    // Seven bases, transcribed from GBATEK's memory map, previously checked only
+    // against themselves.  These are everything the two display controllers can
+    // be pointed at, and they are mutually exclusive -- so a wrong digit in any
+    // one of them lands inside another and this fails.
+    CHECK(addressMapDisjoint());
+    for (const AddressSpan& a : ADDRESS_MAP) {
+        CHECK(a.bytes > 0);
+        CHECK(a.what != nullptr && a.what[0] != '\0');
+    }
+    // LCDC is the nine banks end to end, so its span is the whole of VRAM and it
+    // has to reach exactly as far as the last bank does.
+    CHECK_EQ(LCDC_ADDR[0], 0x06800000u);
+    CHECK_EQ(LCDC_ADDR[0] + totalVram(), 0x068A4000u);
+    CHECK_EQ(lcdcAddr(Bank::I) + bankSize(Bank::I), LCDC_ADDR[0] + totalVram());
+    // Palette RAM is four regions of 512 bytes and not part of VRAM at all.
+    CHECK_EQ(PAL_MAIN_BG + 4 * PAL_REGION_BYTES, 0x05000800u);
+}
+
+KH_TEST(vram_the_ofs_field_is_checked_against_the_hardware_not_assumed_zero) {
+    // Nine assignments carry an `ofs` and an `offset`, eighteen numbers, and
+    // nothing in the tree read one of them before this pass.  All eighteen are
+    // zero, so nothing was wrong -- but the recovery paths at the bottom of the
+    // header invite a later task to set one, and there are three separate traps
+    // waiting when it does.
+    CHECK(everyOffsetIsLegal());
+    for (const Assignment& a : ASSIGNMENTS) {
+        CHECK(ofsMax(a.bank, a.use) >= 0);
+        CHECK(int(a.ofs) <= ofsMax(a.bank, a.use));
+    }
+
+    // Trap one: E, H and I have no OFS field at all.  GBATEK, "Offset not used
+    // by VRAM-E,H,I".  A non-zero ofs there is a bit the silicon ignores.
+    CHECK_EQ(ofsMax(Bank::E, Use::MainObj), 0);
+    CHECK_EQ(ofsMax(Bank::E, Use::MainBg), 0);
+    CHECK_EQ(ofsMax(Bank::H, Use::SubBg), 0);
+    CHECK_EQ(ofsMax(Bank::I, Use::SubObj), 0);
+    CHECK_EQ(bankWindowOffset(Bank::E, 3), 0u);     // no field: it cannot move
+
+    // Trap two: the range depends on the USE.  A and B take 0..3 as main BG and
+    // only 0..1 as main OBJ -- "(OFS.1 must be zero)".
+    CHECK_EQ(ofsMax(Bank::A, Use::MainBg), 3);
+    CHECK_EQ(ofsMax(Bank::A, Use::MainObj), 1);
+    CHECK_EQ(ofsMax(Bank::B, Use::MainObj), 1);
+    CHECK_EQ(ofsMax(Bank::C, Use::Arm7), 1);
+    // ...and an illegal pair is -1, so it can never be mistaken for "no field".
+    CHECK_EQ(ofsMax(Bank::C, Use::MainObj), -1);
+    CHECK_EQ(ofsMax(Bank::H, Use::MainBg), -1);
+
+    // Trap three: F and G do not step linearly.  4000h*OFS.0 + 10000h*OFS.1,
+    // so OFS 2 is 64 KiB and not 32, and the slot is OFS.0 + OFS.1*4.
+    CHECK_EQ(bankWindowOffset(Bank::F, 0), 0u);
+    CHECK_EQ(bankWindowOffset(Bank::F, 1), 16u * KiB);
+    CHECK_EQ(bankWindowOffset(Bank::F, 2), 64u * KiB);          // not 32
+    CHECK_EQ(bankWindowOffset(Bank::F, 3), 80u * KiB);
+    CHECK_EQ(bankSlot(Bank::F, Use::TexPalette, 0), 0);
+    CHECK_EQ(bankSlot(Bank::F, Use::TexPalette, 1), 1);
+    CHECK_EQ(bankSlot(Bank::G, Use::TexPalette, 2), 4);         // not 2
+    CHECK_EQ(bankSlot(Bank::G, Use::TexPalette, 3), 5);
+    // Which is why the header says slots 2 and 3 come only from E.
+    for (uint8_t o = 0; o < 4; ++o) {
+        const int s = bankSlot(Bank::F, Use::TexPalette, o);
+        CHECK(s != 2 && s != 3);
+    }
+    // A-D are the linear ones, a whole bank a step, and their texture slot is
+    // just the OFS.
+    CHECK_EQ(bankWindowOffset(Bank::A, 2), 256u * KiB);
+    CHECK_EQ(bankSlot(Bank::C, Use::Texture, 2), 2);
+
+    // And the two places that named a slot now agree by construction rather
+    // than by both happening to say zero.
+    CHECK_EQ(slotAssignedTo(Use::Texture), TEXTURE_SLOT);
+    CHECK_EQ(slotAssignedTo(Use::TexPalette), TEXTURE_PALETTE_SLOT);
+    CHECK_EQ(slotAssignedTo(Use::SubObjExtPal), -1);    // nothing is assigned it
+}
+
 KH_TEST(vram_the_scene_palette_is_reloaded_rather_than_partitioned) {
     // Sixteen sub-palettes, nine OBJ and seven BG, all inside the sixteen a
     // standard region holds -- so nothing overflows.  But the pipeline hard-codes

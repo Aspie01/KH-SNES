@@ -9,10 +9,18 @@
 // blamed on whichever task was written last.  So the allocation is decided once,
 // before any of them exist, and they consume it read-only.
 //
-// Nothing in this file may be edited.  If a later task needs something this
-// allocation does not give it, the answer is in WHAT THIS GIVES UP at the bottom
-// -- every reservation has a named recovery path, and taking one is a decision
-// with consequences that are written down rather than a number that gets nudged.
+// WHAT THE FREEZE ACTUALLY FORBIDS, stated precisely, because the loose version
+// ("nothing in this file may be edited") is a rule this file's own history has
+// broken twice and both times correctly.  No ADDRESS may move, no region may be
+// resized, no bank may change its disposition, and no consumer may edit any of
+// it for any reason.  Adding an assertion, a derived constant or a paragraph is
+// not an edit to the allocation; it is the allocation finally saying what it
+// meant, and both later passes over this file did exactly that and nothing else.
+//
+// If a later task needs something this allocation does not give it, the answer
+// is in WHAT THIS GIVES UP at the bottom -- every reservation has a named
+// recovery path, and taking one is a decision with consequences that are written
+// down rather than a number that gets nudged.
 //
 // EVERY ADDRESS HERE IS QUOTED, NOT REMEMBERED.  The bank table is GBATEK's
 // "DS Memory Control - VRAM", reproduced below verbatim enough to check against,
@@ -152,8 +160,77 @@ constexpr uint32_t PAL_SUB_BG = 0x05000400;
 constexpr uint32_t PAL_SUB_OBJ = 0x05000600;
 constexpr uint32_t PAL_REGION_BYTES = 512;      // 256 entries, 16 sub-palettes
 
+// ---------------------------------------------------------------------------
+// OAM -- the OTHER half of the sprite budget, and the half that binds
+//
+// Object VRAM above is 32 KiB of resident cel data, uploaded once and then
+// unchanging.  OAM is 128 ENTRIES per engine, re-competed for every single frame
+// by whatever is on screen, and it is the one that runs out: the island's cast
+// is 69 props before a person or an item is placed on it.
+//
+// This section exists because the file named two addresses and stopped there.
+// Everything else here is allocated to the byte and asserted; OAM had a base
+// address, no size, no entry count, no partition and no reader anywhere in the
+// tree -- while constants.h, whose own docstring says "nothing SNES-hardware-
+// specific is here: no VRAM addresses, no PPU register values", carried
+// `MAX_OBJECTS = 128`.  That is a DS hardware number, it is this file's to own,
+// and it was asserted against nothing at all.  See the guarded block at the
+// bottom, where the two are tied.
+//
+// GBATEK, "DS Memory Map": 07000000h-070003FFh is engine A's OAM and
+// 07000400h-070007FFh is engine B's, 1 KiB each, 128 entries of 8 bytes.
+// ---------------------------------------------------------------------------
 constexpr uint32_t OAM_MAIN = 0x07000000;
 constexpr uint32_t OAM_SUB = 0x07000400;
+constexpr uint32_t OAM_BYTES = 1024;
+constexpr int OAM_ENTRY_BYTES = 8;
+constexpr int OAM_ENTRIES = int(OAM_BYTES) / OAM_ENTRY_BYTES;   // 128 per engine
+static_assert(OAM_SUB == OAM_MAIN + OAM_BYTES,
+              "the two OAMs are ADJACENT, so a 129th entry written to the main "
+              "engine is the sub engine's entry 0 -- a sprite that appears on "
+              "the other screen, which faults nothing and reads as a renderer "
+              "bug on a screen the renderer never touched");
+
+// AN ENTRY IS 8 BYTES AND ONLY 6 OF THEM ARE YOURS.  attr0, attr1 and attr2 are
+// the sprite; the fourth halfword of every entry belongs to the affine matrix
+// table, which is INTERLEAVED through OAM rather than stored after it.  Matrix n
+// is the spare halfword of entries 4n, 4n+1, 4n+2 and 4n+3 -- one of PA, PB, PC,
+// PD each.
+//
+// Two consequences, both silent:
+//   * clearing OAM clears the matrices, and a matrix of zeroes scales a sprite
+//     to nothing rather than leaving it alone;
+//   * writing 128 PACKED 6-byte records fills 768 bytes, and every sprite after
+//     the first is at the wrong address.
+// The SNES had neither problem: its entry was 4 bytes plus 2 bits in a separate
+// high table, and there were no matrices at all.  So this is a trap with no
+// oracle behind it -- nothing in the frozen build can be diffed against to find
+// it, which is exactly why it is written down here.
+constexpr int OAM_ATTR_BYTES = 6;           // attr0, attr1, attr2
+constexpr int OAM_AFFINE_SLOTS = 32;
+constexpr int OAM_AFFINE_BYTES = 8;         // PA PB PC PD, one halfword each
+static_assert(OAM_AFFINE_SLOTS * OAM_AFFINE_BYTES
+                  == OAM_ENTRIES * (OAM_ENTRY_BYTES - OAM_ATTR_BYTES),
+              "the affine matrices ARE the spare halfword of every entry; if "
+              "these two do not agree then the interleave above is mis-stated "
+              "and every matrix written past the first lands inside a sprite");
+
+constexpr uint32_t oamEntry(uint32_t oam, int n) {
+    return oam + uint32_t(n) * OAM_ENTRY_BYTES;
+}
+// Halfword `part` (0=PA, 1=PB, 2=PC, 3=PD) of affine matrix `slot`.  Derived
+// from the interleave rather than from a second base address, because a second
+// base address is the thing that would go stale.
+constexpr uint32_t oamAffine(uint32_t oam, int slot, int part) {
+    return oamEntry(oam, slot * 4 + part) + OAM_ATTR_BYTES;
+}
+static_assert(oamEntry(OAM_MAIN, OAM_ENTRIES - 1) + OAM_ENTRY_BYTES
+                  == OAM_MAIN + OAM_BYTES,
+              "the last entry ends exactly at the end of OAM");
+static_assert(oamAffine(OAM_MAIN, 0, 0) == OAM_MAIN + OAM_ATTR_BYTES);
+static_assert(oamAffine(OAM_MAIN, 1, 0) == OAM_MAIN + 4 * OAM_ENTRY_BYTES + 6);
+static_assert(oamAffine(OAM_MAIN, OAM_AFFINE_SLOTS - 1, 3) == OAM_MAIN + OAM_BYTES - 2,
+              "the last matrix halfword is the last halfword of OAM");
 
 // ---------------------------------------------------------------------------
 // The base arithmetic.  GBATEK's "BGxCNT" note: "character base extended from
@@ -263,6 +340,80 @@ constexpr int mstFor(Bank b, Use u) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// THE OFS FIELD, which was written nine times and read none
+//
+// `Assignment::ofs` below is the OFS field of a VRAMCNT register, and `offset`
+// is where the bank consequently lands -- or, for texture and texture palette,
+// the SLOT it occupies.  Nine rows carry eighteen of those numbers and nothing
+// in the tree read one: not a test, not an assertion, not code.  All eighteen
+// are zero, so nothing is wrong today; but "all zero and unchecked" is what a
+// table looks like immediately before somebody sets one, and the recovery paths
+// at the bottom of this file invite exactly that.
+//
+// There are three separate traps in that one field, and the quoted table above
+// has all three:
+//
+//   * E, H AND I HAVE NO OFS FIELD.  GBATEK: "Offset not used by VRAM-E,H,I."
+//     A non-zero ofs on one of those is not a bank placed 16 KiB up; it is a bit
+//     the silicon ignores while the code that wrote it believes otherwise.
+//   * THE LEGAL RANGE DEPENDS ON THE USE, not just on the bank.  A and B take
+//     OFS 0..3 as main BG and only 0..1 as main OBJ -- "(OFS.1 must be zero)".
+//   * F AND G ARE NOT LINEAR.  Their offset is 4000h*OFS.0 + 10000h*OFS.1, so
+//     OFS 2 is 64 KiB up and not 32, and their texture-palette slot is
+//     OFS.0 + OFS.1*4 -- which is the whole reason F and G reach slots 0, 1, 4
+//     and 5 and can never reach 2 or 3.
+// ---------------------------------------------------------------------------
+
+// The largest OFS a (bank, use) pair accepts: 0 where the bank has no OFS field
+// at all, and -1 for a pair the silicon does not implement.
+constexpr int ofsMax(Bank b, Use u) {
+    if (!canDo(b, u)) return -1;
+    const bool abcd = unsigned(b) <= unsigned(Bank::D);
+    const bool fg = b == Bank::F || b == Bank::G;
+    switch (u) {
+        case Use::Lcdc: return 0;                   // LCDC mode has no offset
+        case Use::MainBg: return (abcd || fg) ? 3 : 0;          // E: none
+        case Use::MainObj: return fg ? 3 : (abcd ? 1 : 0);      // A,B: OFS.1 = 0
+        case Use::Texture: return 3;                            // A-D, four slots
+        case Use::TexPalette: return fg ? 3 : 0;                // E: none
+        case Use::MainBgExtPal: return fg ? 1 : 0;              // E: none
+        case Use::MainObjExtPal: return 0;                      // F,G: slot 0
+        case Use::SubBg: return 0;                              // C,H,I: none
+        case Use::SubObj: return 0;                             // D,I: none
+        case Use::SubBgExtPal: return 0;                        // H
+        case Use::SubObjExtPal: return 0;                       // I
+        case Use::Arm7: return 1;                               // C,D: OFS.1 = 0
+        default: return -1;
+    }
+}
+
+// Where a bank LANDS in its window for a given OFS.  A, B, C and D step a whole
+// 128 KiB bank; F and G do not step linearly at all; E, H and I cannot step.
+constexpr uint32_t bankWindowOffset(Bank b, uint8_t ofs) {
+    if (b == Bank::F || b == Bank::G)
+        return uint32_t(ofs & 1u) * 16u * KiB + uint32_t((ofs >> 1) & 1u) * 64u * KiB;
+    if (unsigned(b) <= unsigned(Bank::D)) return uint32_t(ofs) * 128u * KiB;
+    return 0;
+}
+
+// ...and which SLOT it occupies, for the two uses addressed by slot rather than
+// by an offset in a window.  E as texture palette has no OFS and covers slots
+// 0-3 together, so its slot is the first of the four.
+constexpr int bankSlot(Bank b, Use u, uint8_t ofs) {
+    if (u == Use::TexPalette && (b == Bank::F || b == Bank::G))
+        return int(ofs & 1u) + int((ofs >> 1) & 1u) * 4;
+    return int(ofs);
+}
+static_assert(bankWindowOffset(Bank::F, 2) == 64 * KiB,
+              "F and G are not linear: OFS 2 is 10000h, not two 4000h steps");
+static_assert(bankSlot(Bank::G, Use::TexPalette, 2) == 4,
+              "F and G reach texture palette slots 0, 1, 4 and 5 and no others");
+static_assert(ofsMax(Bank::E, Use::MainObj) == 0,
+              "bank E has no OFS field, so it can only sit at its window's base");
+static_assert(ofsMax(Bank::A, Use::MainObj) == 1 && ofsMax(Bank::A, Use::MainBg) == 3,
+              "the legal OFS range depends on the use, not only on the bank");
+
 // One bank's disposition.  `offset` is where the bank lands inside its window;
 // for the banks used here it is always zero, because a non-zero OFS buys nothing
 // when a window holds one bank and costs the F/G offset quirk
@@ -330,6 +481,36 @@ constexpr int ASSIGNMENT_COUNT = sizeof ASSIGNMENTS / sizeof *ASSIGNMENTS;
 static_assert(ASSIGNMENT_COUNT == int(Bank::Count),
               "every bank must have an explicit disposition, LCDC included");
 
+// ...and the two fields of that table nothing used to read.  Both are checked
+// against the hardware rules above rather than against each other, so a row
+// whose ofs and offset are consistently wrong still fails.
+constexpr bool everyOffsetIsLegal() {
+    for (const Assignment& a : ASSIGNMENTS) {
+        const int hi = ofsMax(a.bank, a.use);
+        if (hi < 0 || int(a.ofs) > hi) return false;
+        const bool bySlot = a.use == Use::Texture || a.use == Use::TexPalette;
+        const uint32_t want = bySlot ? uint32_t(bankSlot(a.bank, a.use, a.ofs))
+                                     : bankWindowOffset(a.bank, a.ofs);
+        if (a.offset != want) return false;
+    }
+    return true;
+}
+static_assert(everyOffsetIsLegal(),
+              "an assignment sets an OFS its bank does not have, or a larger one "
+              "than that use allows, or records an offset that is not where the "
+              "OFS actually puts the bank -- and on F or G those are different "
+              "numbers, because their offset is not a linear step");
+
+// The slot a use ends up in, read off the table rather than restated.  There
+// were two statements of where the texture lives -- ASSIGNMENTS' row for bank A
+// and TEXTURE_SLOT below -- and nothing tied them, so moving the texture to
+// bank C for the extra slot would have left TEXTURE_SLOT saying 0.
+constexpr int slotAssignedTo(Use u) {
+    for (const Assignment& a : ASSIGNMENTS)
+        if (a.use == u) return bankSlot(a.bank, a.use, a.ofs);
+    return -1;
+}
+
 // ---------------------------------------------------------------------------
 // MAIN BG WINDOW -- bank B, 128 KiB at 0x06000000.
 //
@@ -391,6 +572,12 @@ constexpr Region SUB_OBJ_CHR{0, 16 * KiB};
 // window, and are not CPU-visible while mapped -- load them through LCDC.
 constexpr int TEXTURE_SLOT = 0;         // bank A, 128 KiB
 constexpr int TEXTURE_PALETTE_SLOT = 0; // bank F, 16 KiB
+static_assert(slotAssignedTo(Use::Texture) == TEXTURE_SLOT,
+              "the texture slot named here is not the slot ASSIGNMENTS puts the "
+              "texture bank in");
+static_assert(slotAssignedTo(Use::TexPalette) == TEXTURE_PALETTE_SLOT,
+              "the texture palette slot named here is not the slot ASSIGNMENTS "
+              "puts the palette bank in");
 
 // ---------------------------------------------------------------------------
 // WHICH LAYER, not just which bytes
@@ -458,6 +645,39 @@ static_assert(GROUND_CHR_MAX == TEXT_LAYER_CHARS,
 constexpr int FONT_CHARS = 128;
 static_assert(FONT_CHARS <= UI_CHR_MAX && FONT_CHARS <= SUB_CHR_MAX,
               "the font must fit both engines' character reservations");
+
+// ---------------------------------------------------------------------------
+// ...and the same reasoning for SPRITES, which the pass that stated the
+// character ceilings did not apply to them
+//
+// An OBJ tile number is ten bits as well, but it counts in units of the 1D
+// BOUNDARY rather than in characters -- so the ceiling is whichever of two
+// things binds first: the reach the boundary buys, or the bank behind the
+// window.  gen/assets.h states the first ("at boundary 32 it reaches only the
+// first 32 KiB of object VRAM however much of it the machine has") and cannot
+// state the second, because it does not know which bank is mapped where.
+//
+// ON THE MAIN ENGINE THE REACH BINDS.  OBJ_RESIDENT is exactly the 32 KiB a
+// ten-bit number reaches at boundary 32 and bank E holds 64 KiB, which is what
+// makes OBJ_BOUNDARY64 a reserve rather than a hole.
+//
+// ON THE SUB ENGINE THE BANK BINDS, and by a factor of two.  Bank I is 16 KiB,
+// so tile numbers 512 to 1023 name addresses past the end of it.  A sub-engine
+// sprite given a tile number above 511 is not clipped and does not fault: engine
+// B reads unmapped VRAM and draws whatever comes back.  That is the same silent
+// over-index the character ceilings were stated to prevent, one window across.
+// ---------------------------------------------------------------------------
+constexpr int OBJ_TILE_NUMBERS = 1024;      // ten bits, on both engines
+// At boundary 32, where a tile number's unit and a 4bpp character are both 32
+// bytes.  gen/assets.h owns the boundary; the guarded block at the bottom checks
+// that this arithmetic still holds if it is ever raised.
+constexpr int SUB_OBJ_TILES = int(SUB_OBJ_CHR.bytes) / CHAR_BYTES;   // 512
+static_assert(SUB_OBJ_TILES < OBJ_TILE_NUMBERS,
+              "bank I is smaller than a ten-bit tile number reaches, so the "
+              "ceiling is the bank and not the index -- if these ever become "
+              "equal the comment above is wrong and the sub engine gained a bank");
+static_assert(SUB_OBJ_TILES * CHAR_BYTES == int(SUB_OBJ_CHR.bytes),
+              "the sub-engine sprite ceiling is not a whole number of tiles");
 
 // ---------------------------------------------------------------------------
 // Palettes: RELOADED PER SCENE, not partitioned
@@ -548,6 +768,92 @@ constexpr uint32_t windowMax(Use u) {
 constexpr bool fits(const Region& r, Bank b, Use u) {
     return r.end() <= bankSize(b) && r.end() <= windowMax(u);
 }
+
+// ...and the base that goes with the ceiling, so that a Region -- which is an
+// OFFSET and nothing else -- can be turned into the address the device tier
+// writes.
+//
+// THIS COMPOSITION IS WHY THE FOUR BASES ARE HERE, and until this line nothing
+// performed it: MAIN_BG_BASE, MAIN_OBJ_BASE, SUB_BG_BASE and SUB_OBJ_BASE were
+// read by no code, no test and no assertion in the whole tree.  Four transcribed
+// addresses with no consumer is four chances for a wrong digit to survive to
+// §M7 and show up as a layer drawing the wrong thing -- which is the exact
+// failure this file exists to prevent, and the one kind of it the file was not
+// defending against.
+constexpr uint32_t windowBase(Use u) {
+    return u == Use::MainBg ? MAIN_BG_BASE
+         : u == Use::MainObj ? MAIN_OBJ_BASE
+         : u == Use::SubBg ? SUB_BG_BASE
+         : u == Use::SubObj ? SUB_OBJ_BASE : 0;
+}
+
+constexpr uint32_t address(const Region& r, Use u) {
+    return windowBase(u) + r.offset;
+}
+
+static_assert(address(GROUND_CHR, Use::MainBg) == 0x06000000,
+              "a window base or a region offset moved");
+static_assert(address(UI_CHR, Use::MainBg) == 0x06008000,
+              "a window base or a region offset moved");
+static_assert(address(GROUND_MAP, Use::MainBg) == 0x0600C000,
+              "a window base or a region offset moved");
+static_assert(address(BOX_MAP, Use::MainBg) == 0x0600E000,
+              "a window base or a region offset moved");
+static_assert(address(OVERLAY_MAP, Use::MainBg) == 0x0600E800,
+              "a window base or a region offset moved");
+static_assert(address(MAIN_BG_SPARE, Use::MainBg) == 0x0600F000,
+              "a window base or a region offset moved");
+static_assert(address(OBJ_RESIDENT, Use::MainObj) == 0x06400000,
+              "a window base or a region offset moved");
+static_assert(address(OBJ_BOUNDARY64, Use::MainObj) == 0x06408000,
+              "a window base or a region offset moved");
+static_assert(address(SUB_CHR, Use::SubBg) == 0x06200000,
+              "a window base or a region offset moved");
+static_assert(address(HUD_MAP, Use::SubBg) == 0x06204000,
+              "a window base or a region offset moved");
+static_assert(address(MENU_MAP, Use::SubBg) == 0x06204800,
+              "a window base or a region offset moved");
+static_assert(address(MINIMAP_MAP, Use::SubBg) == 0x06205000,
+              "a window base or a region offset moved");
+static_assert(address(SUB_BG_SPARE, Use::SubBg) == 0x06205800,
+              "a window base or a region offset moved");
+static_assert(address(SUB_OBJ_CHR, Use::SubObj) == 0x06600000,
+              "a window base or a region offset moved");
+
+// The whole graphics address space, so that the transcribed bases are checked
+// against each other rather than only against themselves.  These seven spans are
+// everything the display controllers can be pointed at, and they are mutually
+// exclusive: a base with a wrong digit lands in one of the others and this
+// stops compiling.
+struct AddressSpan {
+    uint32_t base;
+    uint32_t bytes;
+    const char* what;
+};
+
+constexpr AddressSpan ADDRESS_MAP[] = {
+    {PAL_MAIN_BG, 4 * PAL_REGION_BYTES, "palette RAM, four regions"},
+    {MAIN_BG_BASE, MAIN_BG_MAX, "engine A BG window"},
+    {SUB_BG_BASE, SUB_BG_MAX, "engine B BG window"},
+    {MAIN_OBJ_BASE, MAIN_OBJ_MAX, "engine A OBJ window"},
+    {SUB_OBJ_BASE, SUB_OBJ_MAX, "engine B OBJ window"},
+    {LCDC_ADDR[0], 656 * KiB, "LCDC, all nine banks"},
+    {OAM_MAIN, 2 * OAM_BYTES, "OAM, both engines"},
+};
+
+constexpr bool addressMapDisjoint() {
+    for (const AddressSpan& a : ADDRESS_MAP)
+        for (const AddressSpan& b : ADDRESS_MAP)
+            if (&a != &b && a.base < b.base + b.bytes && b.base < a.base + a.bytes)
+                return false;
+    return true;
+}
+static_assert(addressMapDisjoint(),
+              "two of the transcribed base addresses name overlapping regions, "
+              "so at least one of them is wrong -- and every Region in this file "
+              "is an offset from one of them");
+static_assert(LCDC_ADDR[0] + totalVram() == 0x068A4000,
+              "the LCDC region ends where GBATEK's memory map says it does");
 
 static_assert(fits(GROUND_CHR, Bank::B, Use::MainBg), "ground characters");
 static_assert(fits(UI_CHR, Bank::B, Use::MainBg), "dialogue and overlay characters");
@@ -657,6 +963,13 @@ static_assert(SUB_CHR.bytes >= 512u * 32u,
 //   the boundary in tools/ds_encode.py, which HALVES every cel's tile number --
 //   dsTileFor() is generated against the boundary for that reason.  No bank
 //   moves; bank E already covers 64 KiB.
+//   AND IT COSTS THE BOTTOM SCREEN HALF ITS SPRITE TILES, which was not written
+//   down until the pass that added SUB_OBJ_TILES: the boundary is one field of
+//   one register per engine, but the ceiling it produces is bounded by the BANK
+//   on the sub engine and by the REACH on the main one, so raising it buys 32 KiB
+//   up here and loses 256 tile numbers down there.  Bank I is 16 KiB, which is
+//   512 units at boundary 32 and 256 at 64.  Every assertion in this file passed
+//   at boundary 64 before that one existed, so the trade was invisible.
 //
 // MORE THAN 128 KiB OF TEXTURE: one slot of the four.  Texture space is 512 KiB
 //   addressed as four 128 KiB slots, slot n at texture offset 0x20000*n, and the
@@ -759,6 +1072,61 @@ static_assert(OBJ_RESIDENT.bytes == 1024u * 32u,
               "OBJ_RESIDENT is by definition the reach at boundary 32: 1024 tile "
               "numbers of 32 bytes.  Widening it does not create address space, "
               "it just overlaps the reserve that boundary 64 would need");
+// The sub engine's ceiling is the BANK, not the index, and SUB_OBJ_TILES was
+// derived above from CHAR_BYTES because this header must compile without
+// gen/assets.h.  Here both are in scope, so the assumption is checked: raising
+// the boundary halves the tile count and this catches a stale 512.
+static_assert(int(SUB_OBJ_CHR.bytes) / OBJ_BOUNDARY == SUB_OBJ_TILES,
+              "the sub-engine sprite ceiling was computed at boundary 32 and the "
+              "boundary has moved; every sub-engine tile number is now wrong by "
+              "the same factor");
+static_assert(OBJ_TILE_NUMBERS == int(MAP_TILE_MASK) + 1,
+              "a tile number and a character number are both ten bits");
+
+}  // namespace kh::vram
+#endif
+
+// The second cross-file block, and the same idea: constants.h is the gameplay
+// tier's numbers and this is the hardware's, and there is exactly one number
+// that belongs to both.  Guarded, so vram_map.h still compiles standalone --
+// the device tier includes it before constants.h exists in the build at all.
+//
+// The dependency runs THIS WAY ROUND on purpose.  constants.h could include
+// vram_map.h and get the tie unconditionally, but then the platform-neutral
+// simulation -- the whole of Tier 1, everything the host suite tests with no
+// hardware present -- would depend on the DS's VRAM layout to compile.  That is
+// backwards, and the guard is the price of keeping it the right way round.
+#ifdef KH_CONSTANTS_H_INCLUDED
+namespace kh::vram {
+
+// MAX_OBJECTS is a DS HARDWARE NUMBER in the gameplay header, which that
+// header's own docstring forbids: "Nothing SNES-hardware-specific is here: no
+// VRAM addresses, no PPU register values, no palette CGRAM layout."  The rule is
+// right and the exception was not deliberate -- 128 is the OAM entry count, it
+// belongs to this file, and it was asserted against nothing whatsoever.
+static_assert(MAX_OBJECTS == OAM_ENTRIES,
+              "constants.h's per-engine object budget is the number of OAM "
+              "entries the hardware has; they cannot be two different numbers");
+
+// The scenery budget with the rest of a worst-case frame on top of it.  This is
+// constants.h's own assertion restated against the hardware number rather than
+// against the copy of it -- so it now means what it says, instead of comparing
+// 128 with a 128 typed two lines above.
+static_assert(OBJ_BUDGET_SCENERY + TRANSIENT_ACTORS + 4 + 1 <= OAM_ENTRIES,
+              "a camera window's scenery, the transients, a four-quadrant boss "
+              "and Sora do not fit in one engine's OAM");
+
+// THE POOL IS NOT THE BUDGET, and the two being equal today is a coincidence of
+// two unrelated arguments -- MAX_ACTORS is 128 because the island needs 69 props
+// to exist, OAM_ENTRIES is 128 because the hardware says so.  A full pool
+// therefore CANNOT be drawn, and that is fine: the pool holds the whole map and
+// OAM holds what is on screen.  tools/check_map.py is what keeps the two apart,
+// by sliding a camera window over every map and holding it to
+// OBJ_BUDGET_SCENERY.  Asserted as an inequality in the direction that is
+// actually load-bearing: the budget must fit OAM, the pool need not.
+static_assert(OBJ_BUDGET_SCENERY < MAX_ACTORS,
+              "the scenery budget is a limit on a window of the pool, so a "
+              "budget at or above the pool size limits nothing");
 
 }  // namespace kh::vram
 #endif

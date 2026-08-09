@@ -588,7 +588,8 @@ section it tests.
 
 # §M4 — The VRAM map — **LANDED**
 
-**Done.** `platform/ds/include/vram_map.h`, `host/tests/test_vram.cpp` — 8 cases.
+**Done.** `platform/ds/include/vram_map.h`, `host/tests/test_vram.cpp` — 14 cases,
+`host/tests/test_oam.cpp` — 4 more.
 The allocation, and the constraint that forces each line of it:
 
 | Bank | Size | Use | MST | Why it could not be elsewhere |
@@ -670,6 +671,95 @@ BGxCNT's reach. All reverted. A fourth attempt — raising the 1D boundary in
 `ds_encode.py` — **did not fire**, which found a real defect: `OBJ_REACH` was
 emitted as a literal rather than derived from `OBJ_BOUNDARY`, so the two could
 disagree silently. It is derived now, and boundary 128 fails the build.
+
+**And then a re-audit**, asking the question the rest of this sweep has been
+asking: *is everything present used, and is everything used present?* The answer
+was no in both directions, in five places, and they share one cause — the file
+allocated everything it had a `Region` for and left everything else as a bare
+address.
+
+- **OAM was named and never allocated.** Two lines, `OAM_MAIN` and `OAM_SUB`, with
+  no size, no entry count, no partition, no assertion, and no reader anywhere in
+  the tree. Everything else in the header is allocated to the byte. And OAM is
+  the half of the sprite budget that actually binds: object VRAM is 32 KiB of
+  resident cels uploaded once, while OAM is **128 entries per engine re-competed
+  for every frame**. It is allocated now — `OAM_BYTES`, `OAM_ENTRIES`,
+  `OAM_ENTRY_BYTES`, `oamEntry()` — and the first thing that fell out is that the
+  two OAMs are **adjacent**: a 129th main-engine entry *is* the sub engine's
+  entry 0, so the symptom of overrunning is a sprite on the other screen.
+- **An entry is 8 bytes and only 6 of them are yours.** The affine matrices are
+  *interleaved* through OAM — matrix *n* is the fourth halfword of entries
+  4*n*…4*n*+3 — so clearing OAM clears the matrices, and writing 128 packed
+  6-byte records fits in 768 bytes, faults nothing, and puts every sprite after
+  the first at the wrong address. **The SNES cannot catch this**: its entry was
+  4 bytes plus 2 bits in a separate high table and it had no matrices at all, so
+  there is no oracle behind this one and it had to be pinned rather than diffed.
+- **`MAX_OBJECTS = 128` was a hardware number in the gameplay header**, which
+  `constants.h`'s own docstring forbids — *"Nothing SNES-hardware-specific is
+  here: no VRAM addresses, no PPU register values."* It is the OAM entry count.
+  Worse, it was asserted against **nothing**: `constants.h`'s
+  `OBJ_BUDGET_SCENERY + TRANSIENT_ACTORS + 4 + 1 <= MAX_OBJECTS` compared the
+  budget with a 128 typed two lines above it, which is a tautology wearing a
+  check's clothes. Proven by setting it to 127 — the old assertion passed, the
+  new one fires. Tied through a guarded block keyed on `KH_CONSTANTS_H_INCLUDED`,
+  the same idiom `gen/assets.h` already used, and **in that direction on
+  purpose**: `constants.h` could include `vram_map.h` and get the tie
+  unconditionally, but then the whole platform-neutral simulation would need the
+  DS's VRAM layout to compile.
+- **The four window base addresses reached nothing.** Every `Region` in the file
+  is an *offset*, and `MAIN_BG_BASE`, `MAIN_OBJ_BASE`, `SUB_BG_BASE` and
+  `SUB_OBJ_BASE` are what those offsets are from — and no code, test or
+  assertion performed the addition. Four transcribed addresses with no consumer
+  is four chances for a wrong digit to reach §M7 and surface as a layer drawing
+  the wrong thing, which is the exact failure this file exists to prevent and the
+  one kind of it the file was not defending against. `windowBase()` and
+  `address()` compose them now, all fourteen regions have their real address
+  asserted, and `ADDRESS_MAP` states the seven spans of the whole graphics
+  address space and proves them disjoint — so a wrong digit lands inside another
+  span and stops compiling.
+- **`Assignment::ofs` and `Assignment::offset` were written nine times and read
+  none.** Eighteen numbers, all zero, checked by nothing — and the recovery paths
+  at the bottom of the file are an invitation to set one. Three traps wait there,
+  all of them in the transcribed table already: **E, H and I have no OFS field at
+  all** ("Offset not used by VRAM-E,H,I"), so a non-zero `ofs` is a bit the
+  silicon ignores; **the legal range depends on the use**, since A and B take 0–3
+  as main BG and only 0–1 as main OBJ; and **F and G are not linear**, their
+  offset being `4000h*OFS.0 + 10000h*OFS.1`, so OFS 2 is 64 KiB and not 32 and
+  their palette slot is `OFS.0 + OFS.1*4` — which is *why* they reach slots 0, 1,
+  4 and 5 and never 2 or 3. `ofsMax()`, `bankWindowOffset()` and `bankSlot()`
+  encode all three, and `everyOffsetIsLegal()` checks every row against them.
+  It also caught a second statement of the same fact: `TEXTURE_SLOT` and
+  `ASSIGNMENTS`' row for bank A both said where the texture lives, and nothing
+  tied them, so moving the texture to bank C for the extra slot would have left
+  `TEXTURE_SLOT` saying 0.
+
+**One consequence of an already-documented recovery path turned out to be
+undocumented.** The character-ceiling finding above — *a region's size in bytes
+is not the limit a caller runs into* — had not been applied to sprites. An OBJ
+tile number is ten bits too, but it counts in units of the 1D boundary, so the
+ceiling is whichever binds first: the reach the boundary buys, or the bank behind
+the window. On the main engine the reach binds, which is what makes
+`OBJ_BOUNDARY64` a reserve. **On the sub engine the bank binds, by a factor of
+two** — bank I is 16 KiB, so tile numbers 512–1023 name addresses past the end of
+it and engine B draws whatever unmapped VRAM returns. So `SUB_OBJ_TILES = 512`,
+stated rather than inferred. And raising the boundary to 64 — which *is* the
+documented way to get a fourth resident object page — quietly halves that to 256.
+Every assertion in the file passed at boundary 64 before this pass, so the trade
+was invisible; it is in *WHAT THIS GIVES UP* now.
+
+**Nine assertions were broken on purpose and every one fired**, each reverted:
+moving `OAM_SUB` a kilobyte, mis-stating the affine interleave as 16 slots,
+putting `SUB_BG_BASE` on the main OBJ window (which fired five region addresses
+*and* the disjointness proof), setting `ofs = 1` on bank E, giving bank B an
+offset its OFS does not produce, pointing `TEXTURE_SLOT` at slot 2, raising
+`SUB_OBJ_TILES` past its bank, dropping `MAX_OBJECTS` to 127, and regenerating at
+boundary 64. The last two are the ones worth noting: **127 passes every check
+that existed before this pass**, and **boundary 64 passed every check that
+existed before this pass** — both are exactly the silent-wrong-picture failure
+the file was written to make impossible.
+
+`vram_map.h` stays frozen and every edit here was additive: no address moved, no
+region resized, no assignment changed. The file now says what it always meant.
 
 ---
 

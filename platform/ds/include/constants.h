@@ -20,6 +20,15 @@
 
 #pragma once
 
+// vram_map.h ties MAX_OBJECTS to the DS's OAM entry count, but only in a
+// translation unit that included this header FIRST -- it has to stay standalone,
+// because the device tier includes it before anything else exists.  This is how
+// it knows, and it is the same idiom gen/assets.h uses for the same reason.
+//
+// The dependency runs this way round so that the platform-neutral simulation
+// never has to include a hardware header to compile.
+#define KH_CONSTANTS_H_INCLUDED 1
+
 #include "fixed.h"
 
 namespace kh {
@@ -159,7 +168,14 @@ constexpr int TRANSIENT_ACTORS = 6;     // TRANSIENT_ACTORS  slack for spawned e
 // put more than OBJ_BUDGET_SCENERY objects inside one camera window; the rest is
 // held back for the transients, for Sora, and for a boss's four quadrants.
 // tools/check_map.py slides a window over every map and enforces it.
-constexpr int MAX_OBJECTS = 128;        // per 2D engine, so 256 across both screens
+//
+// 128 IS A HARDWARE NUMBER AND THIS FILE SAYS IT HOLDS NONE -- see the docstring
+// at the top.  It is the DS's OAM entry count, it is owned by
+// platform/ds/include/vram_map.h as vram::OAM_ENTRIES, and it stayed here
+// unchecked because a hardware header could not be included from the
+// platform-neutral tier.  It still cannot: the tie is a guarded block at the
+// bottom of vram_map.h, live in any translation unit that has both.
+constexpr int MAX_OBJECTS = 128;        // per 2D engine == vram::OAM_ENTRIES
 constexpr int OBJ_BUDGET_SCENERY = 96;
 static_assert(OBJ_BUDGET_SCENERY + TRANSIENT_ACTORS + 4 + 1 <= MAX_OBJECTS,
               "leave room for the transients, a four-quadrant boss and Sora");
