@@ -197,8 +197,34 @@ def probe_tier() -> Probe:
     if not srcs:
         return p.missing("platform/ds/device/ is empty")
     return p.found(f"{len(srcs)} source(s): {', '.join(srcs)} -- "
-                   f"initScreens() is tested against a recording MMIO stub on "
-                   f"every host run; see host/tests/test_device_init.cpp")
+                   f"all but mmio_device.cpp are compiled and asserted on by "
+                   f"every host run; see host/tests/")
+
+
+def probe_build() -> Probe:
+    """Is there something for a toolchain to build, if one turns up?
+
+    Separate from probe_tier() because "written" and "buildable" were conflated
+    once already and the fix was to make each a program.  The device tier was
+    eight sources with no main(), no makefile and no ARM7 for a whole milestone:
+    every decision written and tested, and nothing that could produce a .nds.
+    That is a third state and it deserves its own line.
+    """
+    p = Probe("the device build", "a makefile, two mains, and the asset link")
+    ds = ROOT / "platform" / "ds"
+    need = [
+        (ds / "Makefile", "the top-level build; wraps both ELFs with ndstool"),
+        (ds / "arm9" / "Makefile", "the ARM9, and the bin2s asset link step"),
+        (ds / "arm9" / "source" / "main.cpp", "the frame glue"),
+        (ds / "arm7" / "Makefile", "the ARM7"),
+        (ds / "arm7" / "source" / "main.c", "the touchscreen and the FIFO"),
+    ]
+    missing = [f"{f.relative_to(ROOT)} ({why})" for f, why in need
+               if not f.is_file()]
+    if missing:
+        return p.missing("absent: " + "; ".join(missing))
+    return p.found("make -C platform/ds; run tools/check_link.py first, it "
+                   "checks the asset symbols without a compiler")
 
 
 REQUIRED = ("devkitPro", "devkitARM", "libnds", "ndstool")
@@ -216,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
 
     probes = [probe_devkitpro(), probe_compiler(), probe_libnds(),
               probe_ndstool(), probe_emulator(), probe_docker(),
-              probe_tier()]
+              probe_tier(), probe_build()]
     if not args.no_network:
         probes.append(probe_apt_repo())
 
@@ -228,8 +254,10 @@ def main(argv: list[str] | None = None) -> int:
 
     missing = [p for p in probes if p.what in REQUIRED and not p.ok]
     if not missing:
-        print("\nthe device tier can be built here.  §M7 is NOT blocked: "
-              "run it, and delete the blocked note in platform/ds/README.md.")
+        print("\nthe device tier can be built here.  §M7 is NOT blocked:\n"
+              "  python3 tools/check_link.py     # the asset symbols\n"
+              "  make -C platform/ds             # produces platform/ds/kh.nds\n"
+              "...and delete the blocked note in platform/ds/README.md.")
         return 0
 
     print(f"\n§M7 is blocked: {len(missing)} of {len(REQUIRED)} required "

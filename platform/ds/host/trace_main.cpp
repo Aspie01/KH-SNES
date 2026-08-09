@@ -46,6 +46,7 @@
 #include <cstring>
 
 #include "hostblob.h"
+#include "perform.h"
 #include "stage.h"
 #include "trace.h"
 #include "world.h"
@@ -266,100 +267,11 @@ bool loadGround(bool snesSide, const char* collName, const char* heightName,
 // transition would put the trace on a different timeline from the oracle's and
 // the diff would name a frame hundreds later with no hint of why.
 // ---------------------------------------------------------------------------
-// RaiseArmor, town.s:866.  It comes down in the middle of the square, with its
-// hands -- and it MOVES SORA FIRST, to tile (16,10), which is the staging: the
-// armour lands two tiles above him, between him and the door he came in by.
-// PlaceSora also clears his velocity, faces him south and resets his state and
-// timer, so a player caught mid-swing by the retry is put down standing.
-bool raiseArmor() {
-    const int p = g_sim.player;
-    if (p < 0 || p >= MAX_ACTORS) return false;
-    g_sim.actors.x[p] = tileCentre(16);
-    g_sim.actors.y[p] = tileCentre(10);
-    g_sim.actors.vx[p] = World::fromRaw(0);
-    g_sim.actors.vy[p] = World::fromRaw(0);
-    g_sim.actors.dir[p] = Dir::S;
-    g_sim.actors.state[p] = ActState::Idle;
-    g_sim.actors.timer[p] = 0;
-    g_sim.actors.z[p] = g_sim.ground.heightAt(16, 10);
-
-    const int armor = g_sim.actors.spawn(ActType::Armor, tileCentre(16),
-                                         tileCentre(7));
-    if (armor < 0) return false;
-    g_sim.actors.z[armor] = uint8_t(GA_DROP_Z);
-    g_sim.actors.timer[armor] = uint8_t(GA_DROP);   // Drop, by the state being 0
-    g_sim.world.bossHP = uint8_t(GA_MAX_HP);
-    // SpawnHands: both start ON the torso, numbered 0 then 1.  The Drop branch
-    // is the one branch that does not call PlaceHands, so they arrive with the
-    // body rather than reaching out ahead of it.
-    for (int hand = 0; hand < 2; ++hand) {
-        const int h = g_sim.actors.spawn(ActType::Gauntlet, tileCentre(16),
-                                         tileCentre(7));
-        if (h < 0) return false;
-        g_sim.actors.anim[h] = uint8_t(hand);
-    }
-    return true;
-}
-
-// BeginFall, dive.s:439-465.  Only the three player bytes.  The stage byte, the
-// fall timer, shakeX, mosaicAmt and BG1 are the MACHINE's -- stage_dive.cpp's
-// DiveStage::Done case wrote all five before this was called, and writing them
-// again here would be a second author for one number.  dive.s:449-451's TM/TS
-// pair is `fx.bgVisible` and the device tier's; the trace samples no PPU
-// register, so there is nothing here for it to carry.
-//
-// It does NOT clear his velocity and it does NOT change his facing.  UpdateSora's
-// ST_FALL branch does both, on this same frame, AFTER SceneUpdate --
-// world.s:456-471, reached from the dispatch at world.s:386-388.  That ordering
-// is the whole reason the oracle's frame 2 already reads pdir 1 and not 0, and a
-// port that faced him here as well would turn him twice on the opening frame and
-// then agree again from frame 3 onward, which is one differing cell in a
-// two-hundred-frame trace.
-bool beginFall() {
-    const int p = g_sim.player;
-    if (p < 0 || p >= MAX_ACTORS) return false;
-    g_sim.actors.state[p] = ActState::Fall;
-    g_sim.actors.anim[p] = 0;
-    g_sim.actors.animT[p] = 0;
-    return true;
-}
-
-// SpawnMote, dive.s:494-550.  One speck of light, off to one side of Sora and
-// below the bottom of the screen, travelling up.
-bool spawnMote() {
-    const int p = g_sim.player;
-    if (p < 0 || p >= MAX_ACTORS) return false;
-    // THE FRAME COUNTER IS THE ONLY EXTERNAL INPUT THE FALL HAS.  g_sim.frame is
-    // set to the oracle's own frame LABEL at the top of the loop, and the SNES's
-    // NMI increments frameCount AFTER the sample point (nmi.s:193), so during
-    // frame N's work frameCount reads N on both machines.  An off-by-one here
-    // does not fail loudly: every mote would come off the neighbouring spread
-    // slot and land 200 to 3400 raw units away, for ever, silently -- there is no
-    // bound to violate, no pool to overflow and no assertion to trip, because a
-    // mote at the wrong place is a perfectly well-formed mote.  The `fall`
-    // scenario is what turns that into a red line at frame 4.
-    const MoteOffset o = moteOffset(g_sim.frame);
-    const int m = g_sim.actors.spawn(ActType::Mote, g_sim.actors.x[p] + o.dx,
-                                     g_sim.actors.y[p] + o.dy);
-    // dive.s:534, `bcc @out`: a full table just loses the mote.  Returning TRUE
-    // is deliberate and is NOT the `default:` branch's refusal -- an action the
-    // ROM performs by doing nothing has been performed, and stopping the run here
-    // would diverge from the oracle rather than follow it.  Unreachable in this
-    // scenario; the STATION1_CAST + MOTE_PEAK static_assert in stage_dive.cpp is
-    // what keeps it so, and it is there rather than here because the numbers it
-    // compares are the machine's.
-    if (m < 0) return true;
-    // AFTER the spawn, which zeroed both.  dive.s:535-536, then dive.s:544-545.
-    g_sim.actors.timer[m] = uint8_t(MOTE_LIFE);
-    g_sim.actors.vy[m] = -MOTE_RISE;            // `lda #.loword(-MOTE_RISE)`
-    // z is deliberately left at zero, and that is a match rather than an
-    // omission.  SpawnActor ends in `jsr SetActorZ` (world.s:234), but a mote
-    // spawns 120..160 px below Sora and therefore off the bottom edge of a
-    // 32x16 map: TileIndex rejects the row (grid.s:157-163), TileHeight returns
-    // zero for a rejected index (grid.s:235-237), and Actors::spawn already
-    // leaves zero (actor.cpp z[slot] = 0).  Same number, both machines.
-    return true;
-}
+// The four routine actions live in the SIMULATION tier now, at
+// include/perform.h, because §M7's device performer needs the same four and two
+// copies of `raiseArmor` would be two copies the oracle only ever checks one of.
+// They were written here, they are cited there, and this file is still the only
+// thing tools/trace_check.py runs -- which is what keeps the shared copy honest.
 
 const char* actionName(SceneAction a) {
     switch (a) {
@@ -461,23 +373,25 @@ bool perform(const StageStep& step) {
             // silently ignoring the action is the difference between a
             // scenario that has performed it and one that has forgotten to.
             return true;
-        case SceneAction::RaiseArmor:
-            return raiseArmor();
-        case SceneAction::BeginFall:
-            return beginFall();
-        case SceneAction::SpawnMote:
-            return spawnMote();
-        case SceneAction::SweepGauntlets:
-            // Its hands go with it, and ONLY its hands.  town.s:826-834 scans
-            // for ACT_GAUNTLET alone.
-            for (int i = 0; i < MAX_ACTORS; ++i)
-                if (g_sim.actors.type[i] == ActType::Gauntlet)
-                    g_sim.actors.type[i] = ActType::None;
-            g_sim.world.bossHP = 0;
-            g_sim.fx.shakeX = 0;
+        case SceneAction::RaiseArmor: {
+            SceneView v = g_sim.view();
+            return kh::raiseArmor(v, g_sim.world);
+        }
+        case SceneAction::BeginFall: {
+            SceneView v = g_sim.view();
+            return kh::beginFall(v);
+        }
+        case SceneAction::SpawnMote: {
+            SceneView v = g_sim.view();
+            return kh::spawnMote(v);
+        }
+        case SceneAction::SweepGauntlets: {
+            SceneView v = g_sim.view();
+            kh::sweepGauntlets(v, g_sim.world, g_sim.fx);
             if (step.script != ScriptId::None)
                 g_sim.dialogue.open(scriptFor(step.script), TextMode::Message);
             return true;
+        }
         default:
             std::fprintf(stderr,
                          "frame %u: the scenario cannot perform SceneAction::%s.\n"

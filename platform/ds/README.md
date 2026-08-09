@@ -23,6 +23,28 @@ relitigated, plus the constraints that will actually bite.
 **`../../docs/DS_PORT_PROMPT.md` is the agent brief** — the standing constraints
 plus one prompt per milestone, with mechanically checkable exit criteria.
 
+## Building it
+
+```sh
+python3 tools/build_assets.py     # the .bin tables the cartridge links in
+python3 tools/check_link.py       # every symbol the ARM9 declares is on disk
+make -C platform/ds               # -> platform/ds/kh.nds
+```
+
+That needs devkitPro. `python3 tools/check_device.py` says whether this machine
+has one and names every missing piece; it exits 0 only when a build is actually
+possible. On Windows, devkitPro's MSYS2 shell is where `make` lives, and it does
+not ship Python — either `pacman -S python3` there or run the two Python lines
+from PowerShell, where the installer's `DEVKITPRO`/`DEVKITARM` variables are
+already visible.
+
+The `.nds` runs on melonDS, DeSmuME or a flashcart. It boots straight into the
+first Station of Awakening; **L and R step through the nine scenes and SELECT
+restarts the loaded one**, because there is no save system and a person testing
+a build needs to reach the Third District without playing to it. The bottom
+screen carries the HUD and, in the panel below it, the name of the loaded scene
+and of any beat the build could not perform — see "what is not wired" below.
+
 **The toolchain is not installed in the development container.** Run
 `python3 ../../tools/check_device.py` — the block is a program, not this
 paragraph, and it exits 0 the day a toolchain appears.
@@ -55,6 +77,29 @@ The port is therefore split into a **host tier** — the whole simulation, built
 with the system `g++` and tested against the oracle — and a **device tier** that
 only builds where devkitPro is present. The host tier is most of the port and
 all of the risk; see the brief.
+
+**Almost all of the device tier is in the host tier too.** `device/*.cpp` is
+compiled and asserted on by every host run against a recording MMIO stub and
+against the real asset files — the frame loop, the scene table, the performer,
+the depth sort, the attribute packing, the ground streamer, the HUD, the
+dialogue box and the screen effects. Two files are not: `device/mmio_device.cpp`,
+which is three volatile stores and is syntax-checked on every host run anyway,
+and `arm9/source/main.cpp`, which includes `nds.h` and therefore cannot be. That
+second one is the only place in the port where a mistake survives a green run,
+which is why it is kept to input, copies and a vblank wait, and why
+`tools/check_link.py` exists to check the one thing in it that is checkable
+without a compiler.
+
+### What is not wired
+
+`device/boot.cpp` performs most of the `SceneAction`s and **refuses ten of them
+by name**: the night's three column beats, Donald and Goofy's descent, and the
+four retry paths. Those are beats with a body in the assembly that this port has
+not written. They are refused rather than ignored on purpose — an arm that
+returned success would let the machine's timer run out over a beat that never
+happened, which is invisible — and the ARM9 puts the refused action's name on the
+bottom screen, so a person testing the build sees which beat is missing, in the
+scene it is missing from, on the frame it was wanted.
 
 **Read `../../docs/BEHAVIOUR.md` first.** It is the specification — every frame
 count, range and state machine from the SNES build, extracted before any of that

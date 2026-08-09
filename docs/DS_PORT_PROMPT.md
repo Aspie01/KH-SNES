@@ -138,8 +138,19 @@ python3 tools/build_scripts.py --check      # gen/scripts.h vs the frozen ROM
 python3 tools/build_doors.py --check        # gen/doors.h vs the authored
                                             #   assets/ds/town_doors.txt
 python3 tools/snes_opcodes.py               # the table vs what ca65 emitted
+python3 tools/check_link.py                 # every asset the ARM9 declares is
+                                            #   on disk, and every table
+                                            #   SCENE_ASSETS claims exists
 make -f platform/ds/host/Makefile.host run  # the host suite, both orders
 ```
+
+**`check_link.py` is the one gate that checks a build nothing here can run.** The
+device links its tables in as symbols -- a cartridge has no filesystem -- and
+`platform/ds/arm9/source/main.cpp` declares each by hand. A typo there is an
+undefined reference, which is a perfectly good error that nobody in this
+container can see, so it would sit in the tree looking correct until the first
+person with a toolchain discovered the port does not link. The tool is three set
+comparisons and no compiler.
 
 **The doors line closes a hole that the obvious reading hides**, and it is worth
 stating exactly, because "the host suite already checks the doors" is true and
@@ -2204,12 +2215,60 @@ code, and both are worth recording:
   takes a fully-walkable 64×32 ground **and** an array bigger than the budget to
   tell them apart — which is now a case, and the probe fires.
 
+## §M7 — the build, and what it does and does not do
+
+**There is a device build now.** `make -C platform/ds` produces
+`platform/ds/kh.nds` from `platform/ds/Makefile` plus `arm9/` and `arm7/`, in
+devkitPro's standard combined layout. It needs a toolchain and this container
+still has none, so **it has never been compiled** — the honest state of every
+line in `arm9/source/main.cpp` and `arm7/source/main.c`.
+
+What is *not* merely unverified is everything the build calls. The frame loop,
+the scene table, the second performer, the dialogue box's tilemap and the
+screen-effect register mapping are `device/boot.cpp`, `device/box.cpp` and
+`device/fx.cpp` — compiled by the host build, driven against the real `.bin`
+files by `host/tests/test_boot.cpp`, and asserted on by 33 new cases. The split
+was drawn deliberately: `main.cpp` reads the pad, reads the pen, copies bytes to
+addresses `vram_map.h` names, and waits for the vertical blank. It decides
+nothing, because it is the one file a green host run cannot see.
+
+Three things came out of writing it, and all three are the same shape as
+everything else this project has found:
+
+* **`Dialogue::result()` could not be cleared.** `interact.h` documented the
+  contract — "the caller clears it after, exactly as `DiveUpdate` does with
+  `txtResult`" (dive.s:86) — and there was no method to do it with. A prompt
+  whose yes-arm speaks was fine; one whose no-arm is silent re-answers itself
+  every frame, for ever. `clearResult()` is the missing half.
+* **`begin(SceneId::Dive3)` could never raise the boss.** `DiveMachine::begin()`
+  rewinds to `DIVE_INTRO`, so starting the build on the third station ran the
+  first station's beats on the third station's glass and `SpawnBoss` — emitted
+  only from `DIVE_S3_INTRO` — was unreachable. Found by `test_boot.cpp` driving
+  it for four thousand frames and never seeing the action.
+* **`SceneAction::Ask` carries no menu mode.** A `StageStep` has an action, a
+  script and a byte. The raft naming is the game's only three-way menu, so the
+  performer infers `TextMode::Raft` from `ScriptId::IslandWhatName` and yes/no
+  otherwise. Getting it wrong is not a crash: `menuCount()` caps the answer at
+  two and Ragnarok silently becomes unreachable.
+
+`device/boot.cpp` **refuses ten actions by name** rather than ignoring them —
+the night's three column beats, the pair's descent, and the four retry paths —
+and the ARM9 prints the refused action on the bottom screen. Those are beats
+with a body in the assembly that this port has not written, and a performer arm
+that returned success would let the machine's timer run out over a beat that
+never happened.
+
+`tools/check_link.py` is in Gate 0 and is the one gate aimed at the build: a
+cartridge has no filesystem, every table is a linked symbol, `main.cpp` declares
+each by hand, and a typo there is an undefined reference nobody here can see.
+
 ## What §M7 still has to do, when a toolchain exists
 
 ~~two-screen init~~ → ~~2D tilemap ground renderer~~ → ~~sprites and the
-Y-sort~~ **three done — see the sections above** → the bottom screen (HUD,
-command menu, minimap) → touch input → the 3D quad backend as a second
-`GroundRenderer`.
+Y-sort~~ → ~~the bottom screen's HUD~~ → ~~touch input~~ → ~~the 3D quad
+backend~~ → ~~the frame glue, the asset link and the two `main()`s~~
+**all written; none of it compiled** → the command menu and the minimap, which
+are new content and need a screen.
 
 "Sprites and the Y-sort" is complete: the depth logic and the attribute
 packing. What is *not* written is the frame glue that calls them and DMAs the

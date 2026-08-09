@@ -152,7 +152,7 @@ MUSTCOMPILE := $(wildcard $(DS)/device/mmio_device.cpp)
 # into both tiers, that is how the device code is tested at all.
 .PHONY: layering
 layering:
-	@bad=$$(grep -l -E '#include "(mmio|init|ground|oam|oam_pack|hud|touch)\.h"' \
+	@bad=$$(grep -l -E '#include "(mmio|init|ground|ground3d|oam|oam_pack|hud|touch|box|fx|boot)\.h"' \
 	        $(DS)/source/*.cpp $(DS)/source/*/*.cpp $(DS)/include/*.h \
 	        $(DS)/include/*/*.h 2>/dev/null); \
 	if [ -n "$$bad" ]; then \

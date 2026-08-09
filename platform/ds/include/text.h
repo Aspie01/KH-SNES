@@ -76,6 +76,17 @@ public:
     int choice() const { return choice_; }
     // 1-based; 0 means "no answer yet", so a scene can poll it.
     int result() const { return result_; }
+    // ...and put it back to "no answer yet" once the scene has acted on it.
+    //
+    // THIS WAS THE MISSING HALF OF A DOCUMENTED CONTRACT.  interact.h's
+    // diveInteract() says of its `answer` parameter: "the caller clears it
+    // after, exactly as DiveUpdate does with txtResult" -- and there was no way
+    // to.  open() zeroes result_ and nothing else did, so an answer survived
+    // until the next box opened; a prompt whose yes-arm speaks is therefore
+    // fine and one whose no-arm is silent re-answers itself on the following
+    // frame, for ever.  dive.s:86 (`stz txtResult`, right after HandleAnswer)
+    // is the line this is.
+    void clearResult() { result_ = 0; }
     bool moreToCome() const { return more_; }
 
     // --- the page, for tests and for the renderer --------------------------
