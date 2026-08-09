@@ -68,6 +68,30 @@ struct Inventory {
 // the stage the town must have reached; below it the door has a line instead of
 // an opening, and above it the player may walk back through freely.  No lock
 // flags anywhere.
+//
+// WHO BUILDS THE ARRAY: tools/build_doors.py, out of assets/ds/town_doors.txt,
+// into include/gen/doors.h -- six rows in <scene>doors.bin order, so the header
+// and the binary are one table read twice.  Do not hand-write one outside a
+// fixture; the generator is what checks the wiring against town.s's doorTable,
+// against the maps and against the emitted collision planes.
+//
+// `landing` IS THE FAR SIDE -- the tile directly south of the door in the
+// DESTINATION's map (town.s:1386-1389: "every landing is the tile directly
+// south of the door on the far side, so a player who walks straight through
+// comes out facing the square").  <scene>doors.bin ALSO has a land_i/land_j and
+// it is a DIFFERENT TILE: the near side, beside the door in the door's own map,
+// always (i, DOOR_ROW + 1), which test_scene.cpp:256-260 asserts.  Nothing may
+// copy one into the other.  It is derived by the generator from the reciprocal
+// door rather than authored, so it cannot be typed wrong.
+//
+// `to == SceneId::Count` IS A DOOR WITH NO FAR SIDE.  The DS's districts carry
+// two painted shop fronts the SNES never had -- the Accessory Shop and the
+// Hotel -- and nothing is behind either of them: no fourth SceneId, no interior
+// map, no cast, no .bin.  Count is the existing end-of-enum sentinel
+// (constants.h:353) and it is tested BEFORE `needs`, because a shuttered door
+// is not a gated one and must never fall into the bolted-door line.  Such a row
+// is DECLARED rather than omitted so that "nothing happens" is on the record
+// and can never be the silent result of a door somebody forgot to wire.
 // ---------------------------------------------------------------------------
 struct TownDoor {
     Tile at;

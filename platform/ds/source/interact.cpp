@@ -316,6 +316,62 @@ StageStep townInteract(TownMachine& m, Interact& st, SceneView& view,
         const int who = nearestOfRange(a, view.player, ActType::Cid,
                                        ActType::TownWoman, TALK_X, TALK_Y);
         if (who >= 0) {
+            // CID IS THE REASON THE DOOR OPENS, and this branch is what makes
+            // the whole door table live.  town.s:533-551: talking to him at
+            // T_LOOK writes T_SECOND, calls HudUpdate and says scriptCid;
+            // afterwards it says scriptCid2 and changes nothing.
+            //
+            // Without it the wiring is dead on arrival.  Nothing else in the
+            // non-test tree sets TownStage::Second -- Woke (town.s:251) reaches
+            // Look and stops -- so the First District's exit is gated on a
+            // stage that never arrives, and the Second and Third Districts are
+            // unreachable in a town whose own rule is that every district stays
+            // reachable.  The bolted-door line would be the last thing the game
+            // ever said.
+            //
+            // THE HUD ACTION WITH THE LINE RIDING ALONG.  The SNES does both
+            // and in this order -- `jsr HudUpdate` then `jmp Say`,
+            // town.s:542-545 -- and a StageStep carries one action, so the
+            // redraw is the action and the script is the passenger.  The
+            // precedent for a passenger is NightMachine::talkToKairi
+            // (stage_night.cpp:146-153), which returns OpenTheDoor carrying
+            // ScriptId::NightKairi; the consumer's half of that bargain is
+            // trace_main.cpp:429-430, where the SweepGauntlets arm opens
+            // `step.script` when it is set.
+            //
+            // IT IS NOT THE ISLAND'S SHAPE, WHICH IS THE OPPOSITE ONE.
+            // IslandMachine::talkToKairi's Idle arm (stage_island.cpp:154-158)
+            // returns a BARE HudChanged, and talkTo bails out above the line
+            // lookup for exactly that case -- `if (s.action !=
+            // SceneAction::Say) return s;`, interact.cpp:184 -- so on the
+            // island "advance the state and redraw the objective" says nothing
+            // at all.  Cid cannot work that way: his line is the one that tells
+            // the player the door is open.
+            //
+            // STANDING HAZARD, recorded because it is not yet checkable here.
+            // HudChanged is the one action perform() deliberately drops
+            // (trace_main.cpp:405-408, "redrawing it changes no state the
+            // simulation can see"), and it drops the script with it.  Nothing
+            // in the non-test tree calls townInteract yet, so nothing performs
+            // this step today; the frame the scene layer does, whoever writes
+            // it must open `step.script` here the way the SweepGauntlets arm
+            // does, or Cid's line is lost AND the box never opens -- and an
+            // unopened box means dialogue.busy() stays false, so the player
+            // acts on the frame the SNES spent reading.  The host tests below
+            // assert the script is on the step; they cannot assert that
+            // somebody said it.
+            if (a.type[who] == ActType::Cid) {
+                if (m.stage() == TownStage::Look) {
+                    m.setStage(TownStage::Second);
+                    return StageStep{SceneAction::HudChanged, ScriptId::TownCid};
+                }
+                // "THE DOOR AT THE END OF THE ROW. IT'S OPEN NOW." -- and this
+                // is TownCid2's first and only reference in the tree.  Note it
+                // is reached at every OTHER stage, Arrive included, exactly as
+                // @cidAgain is: the SNES branches on `cmp #T_LOOK` and not on
+                // "later than Look".
+                return StageStep{SceneAction::Say, ScriptId::TownCid2};
+            }
             const int i = int(a.type[who]) - int(ActType::Cid);
             const ScriptId LINES[3] = {ScriptId::TownCid, ScriptId::TownMan,
                                        ScriptId::TownWoman};
@@ -333,8 +389,35 @@ StageStep townInteract(TownMachine& m, Interact& st, SceneView& view,
 
     for (int d = 0; d < nDoors; ++d) {
         if (doors[d].at.i != ti || doors[d].at.j != tj) continue;
+        // A DOOR WITH NO FAR SIDE.  The DS's First and Second Districts each
+        // carry a painted shop front -- the Accessory Shop and the Hotel -- that
+        // the SNES never had and that leads nowhere: there is no fourth SceneId
+        // (Count = 9 is the sentinel, constants.h:353), no interior map, no cast
+        // and no .bin behind either of them.  gen/doors.h says so with
+        // `to == SceneId::Count`.
+        //
+        // TESTED BEFORE THE GATE AND NOT AS A GATE.  The tempting shortcut is to
+        // give a shop front an unreachable `needs` and let the existing
+        // comparison keep it shut, but that is a rule pretending to be data: the
+        // town's stages are progress and every one of them is reached in a
+        // normal playthrough, so any value that worked would work by being out
+        // of range rather than by meaning anything, and it would silently become
+        // an opening door the day an eighth stage was added.  It also lands in
+        // the @shut arm below and makes the shop front SAY one of the two bolted
+        // lines -- both of which are written for a specific gate and are false
+        // on a shop (scriptShut1, town.s:1494, ends "FIND THEM FIRST", stale
+        // once Cid is found; scriptShut2, town.s:1501, ends "WHILE THE SQUARE
+        // BEHIND YOU IS MOVING", which is not true in the First District at all).
+        //
+        // So it returns nothing at all, at every stage, forever.  An
+        // unresponsive painted door is a smaller failure than a scripted lie,
+        // and test_doors.cpp walks all eight TownStages over both of them.
+        if (doors[d].to == SceneId::Count) return StageStep{};
         if (m.stage() >= doors[d].needs) {
-            m.openDoor(int(doors[d].to));
+            // The landing goes with it.  It is the FAR-side tile out of
+            // gen/doors.h -- directly south of the door in the DESTINATION's map
+            // (town.s:1386-1389) -- and not <scene>doors.bin's near-side one.
+            m.openDoor(int(doors[d].to), doors[d].landing);
             return StageStep{};
         }
         // Shut, and which line depends on WHICH door: the one to the Second

@@ -138,7 +138,7 @@ make -f platform/ds/host/Makefile.host run  # the host suite, both orders
 ```
 
 **And when the simulation changes**, `python3 tools/trace_check.py` — about a
-minute, both machines, seven scenarios, camera included since format v2. Not in Gate 0 because it needs the ROM
+minute, both machines, eight scenarios, camera included since format v2. Not in Gate 0 because it needs the ROM
 and the 65816 interpreter, but it is the check that notices a change in
 behaviour rather than a change in output.
 

@@ -6,6 +6,11 @@ void TownMachine::begin(Rng& rng) {
     stage_ = TownStage::Arrive;
     door_ = 0;
     doorTo_ = 0;
+    // Cleared with doorTo_ and for the same reason: a landing left over from a
+    // previous run of the town is a tile in a district that is no longer
+    // loaded, and it would be used by whatever asked for the next door before
+    // that door got round to setting it.
+    doorLanding_ = Tile{};
     timer_ = 0;
     spawn_ = 0;
     spawned_ = 0;
@@ -27,6 +32,10 @@ StageStep TownMachine::restart(ScreenFx& fx) {
 
     door_ = 0;
     doorTo_ = 0;
+    // TownRestart clears the door (town.s:94), and the landing is part of the
+    // door: dying halfway through a transition must not leave a tile behind
+    // that the retry's first door would inherit if it forgot to set one.
+    doorLanding_ = Tile{};
     // The Second District's wave starts over.  See the header for why.
     spawned_ = 0;
     spawn_ = TOWN_GAP;

@@ -301,6 +301,66 @@ bool raiseArmor() {
     return true;
 }
 
+// BeginFall, dive.s:439-465.  Only the three player bytes.  The stage byte, the
+// fall timer, shakeX, mosaicAmt and BG1 are the MACHINE's -- stage_dive.cpp's
+// DiveStage::Done case wrote all five before this was called, and writing them
+// again here would be a second author for one number.  dive.s:449-451's TM/TS
+// pair is `fx.bgVisible` and the device tier's; the trace samples no PPU
+// register, so there is nothing here for it to carry.
+//
+// It does NOT clear his velocity and it does NOT change his facing.  UpdateSora's
+// ST_FALL branch does both, on this same frame, AFTER SceneUpdate --
+// world.s:456-471, reached from the dispatch at world.s:386-388.  That ordering
+// is the whole reason the oracle's frame 2 already reads pdir 1 and not 0, and a
+// port that faced him here as well would turn him twice on the opening frame and
+// then agree again from frame 3 onward, which is one differing cell in a
+// two-hundred-frame trace.
+bool beginFall() {
+    const int p = g_sim.player;
+    if (p < 0 || p >= MAX_ACTORS) return false;
+    g_sim.actors.state[p] = ActState::Fall;
+    g_sim.actors.anim[p] = 0;
+    g_sim.actors.animT[p] = 0;
+    return true;
+}
+
+// SpawnMote, dive.s:494-550.  One speck of light, off to one side of Sora and
+// below the bottom of the screen, travelling up.
+bool spawnMote() {
+    const int p = g_sim.player;
+    if (p < 0 || p >= MAX_ACTORS) return false;
+    // THE FRAME COUNTER IS THE ONLY EXTERNAL INPUT THE FALL HAS.  g_sim.frame is
+    // set to the oracle's own frame LABEL at the top of the loop, and the SNES's
+    // NMI increments frameCount AFTER the sample point (nmi.s:193), so during
+    // frame N's work frameCount reads N on both machines.  An off-by-one here
+    // does not fail loudly: every mote would come off the neighbouring spread
+    // slot and land 200 to 3400 raw units away, for ever, silently -- there is no
+    // bound to violate, no pool to overflow and no assertion to trip, because a
+    // mote at the wrong place is a perfectly well-formed mote.  The `fall`
+    // scenario is what turns that into a red line at frame 4.
+    const MoteOffset o = moteOffset(g_sim.frame);
+    const int m = g_sim.actors.spawn(ActType::Mote, g_sim.actors.x[p] + o.dx,
+                                     g_sim.actors.y[p] + o.dy);
+    // dive.s:534, `bcc @out`: a full table just loses the mote.  Returning TRUE
+    // is deliberate and is NOT the `default:` branch's refusal -- an action the
+    // ROM performs by doing nothing has been performed, and stopping the run here
+    // would diverge from the oracle rather than follow it.  Unreachable in this
+    // scenario; the STATION1_CAST + MOTE_PEAK static_assert in stage_dive.cpp is
+    // what keeps it so, and it is there rather than here because the numbers it
+    // compares are the machine's.
+    if (m < 0) return true;
+    // AFTER the spawn, which zeroed both.  dive.s:535-536, then dive.s:544-545.
+    g_sim.actors.timer[m] = uint8_t(MOTE_LIFE);
+    g_sim.actors.vy[m] = -MOTE_RISE;            // `lda #.loword(-MOTE_RISE)`
+    // z is deliberately left at zero, and that is a match rather than an
+    // omission.  SpawnActor ends in `jsr SetActorZ` (world.s:234), but a mote
+    // spawns 120..160 px below Sora and therefore off the bottom edge of a
+    // 32x16 map: TileIndex rejects the row (grid.s:157-163), TileHeight returns
+    // zero for a rejected index (grid.s:235-237), and Actors::spawn already
+    // leaves zero (actor.cpp z[slot] = 0).  Same number, both machines.
+    return true;
+}
+
 const char* actionName(SceneAction a) {
     switch (a) {
         case SceneAction::None: return "None";
@@ -354,6 +414,10 @@ bool perform(const StageStep& step) {
             return true;
         case SceneAction::RaiseArmor:
             return raiseArmor();
+        case SceneAction::BeginFall:
+            return beginFall();
+        case SceneAction::SpawnMote:
+            return spawnMote();
         case SceneAction::SweepGauntlets:
             // Its hands go with it, and ONLY its hands.  town.s:826-834 scans
             // for ACT_GAUNTLET alone.
@@ -424,6 +488,21 @@ enum class FirstFrame : uint8_t {
     // and the stage machine did not -- the scene it rebuilt gets its first
     // update on the frame AFTER.
     Retry,
+    // An ORDINARY MainLoop frame, machine included.  A poke that lands on a live
+    // scene frame is neither of the two above, and `fall` is the first scenario
+    // to need one: it pokes diveStage to DIVE_DONE before frame 2, and frame 2 is
+    // the frame DiveUpdate turned that into BeginFall (dive.s:117-119).  Reset
+    // would emit the line with no work at all when the oracle did a whole frame
+    // of it -- BeginFall AND UpdateSora's tumble, which is why the oracle's frame
+    // 2 already reads pdir 1 and pstate 5.  Retry would run the world and skip
+    // the stage machine, which is the one thing that frame was for: the trace's
+    // very first line would read diveStage 9 against the oracle's 10.
+    //
+    // The loop below needs no case for this.  Both of its exceptions are written
+    // as `== FirstFrame::Reset` and `== FirstFrame::Retry`, so a third value gets
+    // the unexceptional frame by construction; that is why this is an addition
+    // and not a rewrite.
+    Live,
 };
 
 struct Scenario {
@@ -480,6 +559,55 @@ bool setupStation() {
     g_sim.bounds = pinnedBounds(DIVE_CAM_X, DIVE_CAM_Y);
     // No box.  The oracle's counterpart pokes txtState to zero, which is the
     // same statement made to the other machine: the intro has been read.
+    return true;
+}
+
+// --- fall: the drop between the stations -------------------------------------
+//
+// The state to reproduce is the state the ROM is in on the frame the victory line
+// is dismissed: the first station's cast on the first station's glass, the
+// machine at DIVE_DONE, no box.  Everything after that is the ROM's own
+// BeginFall (dive.s:439) and its own Fall (dive.s:472), which this is the first
+// scenario in the corpus actually to PERFORM.  SceneAction::BeginFall and
+// SceneAction::SpawnMote were produced by the machine and asserted on by
+// test_stage.cpp, and then fell to perform()'s `default:` -- so nothing in the
+// project had ever carried out what they ask for, and an action nobody performs
+// is invisible to a diff however many frames the diff covers.
+//
+// THE ORACLE POKED DIVE_DONE ONTO THE FIRST STATION rather than the third, and
+// that is not a shortcut being hidden.  BeginFall reads nothing about which
+// station is loaded -- it writes the stage byte, the fall timer, two effects and
+// three of Sora's bytes, and dive.s:439-465 mentions no scene at all.  What the
+// first station buys is the SEVEN-actor cast, which is what makes the mote pool
+// recycle through slots 7..17 and stay inside the SNES's MAX_ACTORS of 32.  The
+// third station's soraOnlySpawns (dive.s:913-915) is ONE actor, so the motes
+// would have started at slot 1 and the allocator would have been measured
+// against an empty table.
+//
+// FirstFrame::Live, and it is a THIRD value rather than either of the two that
+// existed: see the enum.  The oracle's frame 2 is an ordinary MainLoop frame
+// that did a whole frame of work, so Reset would emit an empty line and Retry
+// would skip the one thing the frame is for.
+bool setupFall() {
+    if (!loadGround(true, "divecoll.bin", nullptr, ORACLE_MAP_W, ORACLE_MAP_H))
+        return false;
+    if (!spawnRows(ORACLE_STATION1,
+                   int(sizeof ORACLE_STATION1 / sizeof *ORACLE_STATION1)))
+        return false;
+    g_sim.dive.begin();
+    // DIVE_DONE = 9 (game.inc:257) is the byte WatchBoss writes on the frame the
+    // last Darkside disappears, together with scriptVictory -- so DIVE_DONE with
+    // no box up is precisely "the victory line has just been dismissed", which is
+    // the shipped entry to the fall (dive.s:117-119).
+    g_sim.dive.setStage(DiveStage::Done);
+    g_sim.machine = Machine::Dive;
+    g_sim.scene = SceneId::Dive;
+    g_sim.bounds = pinnedBounds(DIVE_CAM_X, DIVE_CAM_Y);
+    // No box, which is `--poke txtState=0` said to the other machine.  Without
+    // it nothing at all would happen: DiveUpdate's first act is
+    // `jsr TextBusy / bcc @idle / rts` (dive.s:77-79), so while a box is up NO
+    // stage advances however diveStage is set, and DiveMachine::update opens with
+    // the same test.
     return true;
 }
 
@@ -802,6 +930,12 @@ constexpr Scenario SCENARIOS[] = {
      "tools/snes_trace.py --frames 700 --input traces/idle.txt --poke sceneId=3 "
      "--poke deadFlag=2 --poke 30:questState=6 --poke 30:rikuWp=0 --no-strict",
      30, FirstFrame::Retry, setupRace},
+    {"fall",
+     "the 170-frame drop between the stations: the tumble, and forty-three "
+     "motes rising past him off the eight-way spread",
+     "tools/snes_trace.py --frames 200 --input traces/idle.txt "
+     "--poke txtState=0 --poke 2:diveStage=9",
+     2, FirstFrame::Live, setupFall},
 };
 
 const Scenario* findScenario(const char* name) {

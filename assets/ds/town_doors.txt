@@ -1,0 +1,61 @@
+# Traverse Town -- where the districts join.  The DS's own doorTable.
+#
+# WHY THIS FILE EXISTS.  <scene>doors.bin carries four bytes a door --
+# (i, j, land_i, land_j) -- and deliberately does not say what is on the other
+# side: "Which district it leads to is scene logic and the table deliberately
+# does not say" (platform/ds/include/scene.h:37-38).  The SNES's row was seven
+# bytes (platform/snes/src/town.s:42-44): "which map it is in, where in that
+# map, where it leads, where to stand on the far side, and the stage it wants".
+# This file is the other three columns -- the destination and the gate -- for
+# the 48x32 districts, which is the reconstruction the milestone asks for.
+#
+# One file for the whole town rather than one per district, because doorTable
+# was ONE global list scanned from the top and filtered on its first byte
+# (town.s:300-312).  That first byte is why the `from` column exists here.
+#
+# THE LANDING IS NOT AUTHORED.  town.s:1386-1389 fixes it: "every landing is
+# the tile directly south of the door on the far side, so a player who walks
+# straight through comes out facing the square."  So the far-side landing IS
+# the reciprocal door's own tile, and tools/build_doors.py derives it and
+# refuses if there is not exactly one reciprocal.  A number that can be derived
+# is a number that cannot be typed wrong, and this is the number that would be
+# wrong silently: a landing off by one drops Sora inside a wall or on a tile he
+# cannot walk back out of, and nothing about that is visible in a diff.
+#
+# NOTE THE TWO DIFFERENT THINGS BOTH CALLED A LANDING.  <scene>doors.bin's
+# land_i/land_j are the NEAR side -- the tile beside the door in the door's own
+# map, always (i, DOOR_ROW + 1), which is what test_scene.cpp:256-260 asserts.
+# TownDoor::landing is the FAR side, in the destination's map.  Nothing may
+# copy one into the other; build_doors.py checks both shapes separately.
+#
+# from    i   j   to      needs      # why
+town1    24   4   town2   T_SECOND   # SNES row 0, town.s:1391 -- Cid's "the door at the end of the row"
+town2    28   4   town1   T_ARRIVE   # SNES row 1, town.s:1392 -- always open
+town2     5   4   town3   T_THIRD    # SNES row 2, town.s:1393 -- until the wave is spent
+town3    23   4   town2   T_ARRIVE   # SNES row 3, town.s:1394 -- always open
+#
+# ...and the two the SNES never had.  NEW CONTENT, and shuttered.
+#
+# There is no fourth SceneId (the largest is 8/Town3 and Count = 9 is a
+# sentinel, constants.h:349-354), no interior map in assets/ds/, no ds_scenes()
+# entry, no cast file and no .bin for either of them.  They are named places,
+# not transitions.
+#
+# And there is no line in the ROM a shop front can say without lying:
+# tools/build_scripts.py parses every script out of the frozen assembly and
+# checks it BYTE FOR BYTE against the frozen ROM, so a new one cannot be
+# written.  The two shut lines that exist are each written for one specific
+# gate -- scriptShut1 (town.s:1494) ends "FIND THEM FIRST", stale the moment
+# Cid has been found, and scriptShut2 (town.s:1501) ends "WHILE THE SQUARE
+# BEHIND YOU IS MOVING", false once the wave is spent and meaningless in the
+# First District.  An unresponsive painted door is a smaller failure than a
+# scripted lie.
+#
+# They are DECLARED here so that "nothing happens" is a recorded decision and
+# can never be the silent result of a door somebody forgot to wire.  That is
+# the failure mode this file is shaped around: build_doors.py refuses to emit
+# anything at all if a [doors] row has no row here or a row here has no [doors]
+# row, so an unwired door is a build failure and a shuttered one is a line of
+# text with a reason attached.
+town1    16   4   shut    -          # the Accessory Shop; Cid stands beside it (town1_cast.txt:19, :28)
+town2    24   4   shut    -          # the Hotel, off the square the Heartless come up in (town2_cast.txt:28)

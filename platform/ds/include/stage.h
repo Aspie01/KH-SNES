@@ -222,6 +222,55 @@ private:
     ActType given_ = ActType::None;
 };
 
+// --- the fall's spread of light, and why it lives out here -------------------
+//
+// Where each speck of light starts, relative to Sora.  moteOfsX / moteOfsY,
+// dive.s:919-924.
+//
+// This is Tier-1 LIBRARY data and not oracle-fixture data, which is the
+// distinction that decides which file it goes in.  ORACLE_NIGHT_SPOTS and
+// ORACLE_TOWN_SPOTS live in trace_main.cpp precisely BECAUSE the DS ships
+// different ones, so the fixture's copy is the SNES's and the shipped copy is
+// the DS's and they are two different facts.  The two halves of that are
+// documented in DIFFERENT places and it is worth naming both rather than
+// waving at one, because a reader who checks the citation and finds it does not
+// cover the case is entitled to distrust the whole argument: the night's ten
+// spots against the island's thirty-five are divergence 003, and the town's are
+// NOT in any divergence file at all -- assets/ds/town2_cast.txt ships twelve
+// against the SNES table's eight, and constants.h:471-472 is where TOWN_SPOTS
+// records that the DS reads its count from the file instead.  The motes have no
+// DS variant: the offsets are world-space Q12.4 and a screen 32 lines shorter
+// cannot see them, so there is exactly one table and it is shared.  Precedent is
+// RACE_WP (world.cpp:820-825) -- a table lifted from the assembly, cited there,
+// living in the simulation even with one caller.
+//
+// Two callers WILL exist.  trace_main.cpp's perform() needs it now, and the
+// device tier's scene layer needs it at §M7 where there is no oracle at all to
+// catch a copy that has drifted.  One table, one home.
+//
+// It stays a FREE FUNCTION of the frame number rather than a DiveMachine member
+// or a payload on StageStep, so that "A machine here is PURE LOGIC" at the top
+// of this file stays literally true: SceneAction::SpawnMote still carries no
+// position and the machine still touches no Actors.
+struct MoteOffset { World dx, dy; };
+
+// dive.s:479-481 tests `fallTimer & $03` -- one mote every fourth frame -- and
+// dive.s:512-515 indexes the spread with `(frameCount >> 2) & $07`.  The two are
+// a matched pair: eight offsets visited by a mote every fourth frame is what the
+// assembly's comment at dive.s:510-511 means by "so successive motes do not
+// stack up", and moving either number alone re-stacks them.
+//
+// They are here and not in constants.h because constants.h:388-394 is the
+// game.inc mirror and these two are dive.s CODE facts -- `and #$03` and
+// `and #$07` are addressing, not tuning, and game.inc names neither.  What
+// actually matters is that they exist ONCE: do not split the cadence and the
+// mask across two headers, because the thing that goes wrong is one of them
+// being changed alone.
+constexpr int MOTE_SPAWN_EVERY = 4;
+constexpr int MOTE_SPREAD = 8;
+
+MoteOffset moteOffset(uint32_t frame);
+
 // ---------------------------------------------------------------------------
 // Traverse Town
 //
@@ -254,7 +303,38 @@ public:
     // needs both the spot's world position and Sora's.
     void setSpots(const Tile* spots, int count) { spots_ = spots; nSpots_ = count; }
     // A door has been stepped onto; run the fade, swap at the midpoint.
-    void openDoor(int toDistrict) { door_ = DOOR_FADE * 2; doorTo_ = uint8_t(toDistrict); }
+    //
+    // THE LANDING TRAVELS WITH THE DOOR, and it did not before.  StageStep::arg
+    // carries a scene id and nothing else (stage_town.cpp:62), so
+    // SceneAction::EnterDistrict promised "load `arg`, stand Sora on the
+    // landing" (see the enum above) with no landing anywhere in the message --
+    // TownDoor::landing was written by the door table and read by nothing in
+    // the whole tree.  The caller would have had to re-find the row it had just
+    // matched, from a scene id that names the DESTINATION rather than the door,
+    // which cannot be done unambiguously once a district has two ways out.
+    //
+    // The machine is the right place to hold it because that is where the SNES
+    // held it: `doorTo` was the doorTable OFFSET, it survived LoadDistrict, and
+    // DoorRow re-read doorTable+4/+5 through it afterwards (town.s:373-381).
+    // One row, remembered across the swap.
+    //
+    // The landing DEFAULTS to nowhere so that the tests which only exercise the
+    // fade -- test_stage.cpp's timing walks, and the "clear the fade the last
+    // one armed" line in test_interact.cpp -- stay as they are: they are about
+    // doorTimer and say nothing about a destination tile, and making them
+    // invent one would be noise in a fixture.  Every call that means a real
+    // door passes it, and test_doors.cpp's end-to-end ladder asserts the value
+    // that comes back out, so a real call site that dropped it would fail
+    // rather than silently land Sora on (0,0).
+    void openDoor(int toDistrict, Tile landing = Tile{}) {
+        door_ = DOOR_FADE * 2;
+        doorTo_ = uint8_t(toDistrict);
+        doorLanding_ = landing;
+    }
+    // Where SceneAction::EnterDistrict is to stand him: the tile directly south
+    // of the door ON THE FAR SIDE (town.s:1386-1389).  NOT <scene>doors.bin's
+    // land_i/land_j, which is the near-side tile beside the door in its own map.
+    Tile doorLanding() const { return doorLanding_; }
     void arriveAtThird();
 
     // A death, and what the district owes the retry.  TownRestart (town.s:94)
@@ -281,6 +361,7 @@ private:
     SceneId district_ = SceneId::Town1;   // which of the three is loaded
     int door_ = 0;
     uint8_t doorTo_ = 0;
+    Tile doorLanding_;
     int timer_ = 0;
     int spawn_ = 0;
     int spawned_ = 0;

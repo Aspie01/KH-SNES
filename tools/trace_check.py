@@ -96,6 +96,23 @@ CASES = [
          poke=["sceneId=3", "deadFlag=2", "30:questState=6", "30:rikuWp=0"],
          strict=False, first=30,
          note="Riku's whole waypoint walk, every frame of it"),
+    # strict=True and identical=True are BOTH defaults here and both deliberate.
+    # The route never calls RestartScene, so no frame of it does a scene load and
+    # nothing needs --no-strict; the oracle's busiest ordinary frame is #128 at
+    # 38.5% of a frame.  And identical=True is not merely the stronger setting,
+    # it is the only one under which this scenario measures anything: divergence
+    # 002 has `scenes: [*]` and `trace_fields: [actorSlot, actorCount]`, which
+    # FIELD_ALIASES maps onto actorIdx and nactors -- so under identical=False the
+    # differ would suppress exactly the two columns the fall exists to pin, the
+    # mote slot recycling and the pool occupancy, and the "first unexplained
+    # divergence" pin would be structurally blind to them.
+    Case("fall", 200, "traces/idle.txt",
+         poke=["txtState=0", "2:diveStage=9"],
+         first=2, snes_cam=(16, 16), ds_cam=(32, 32),
+         note="the drop between the stations: 171 frames of DIVE_FALL, 43 motes "
+              "off the eight-way spread, and the eleven slots they recycle "
+              "through -- and idle.txt presses A twice inside the fall, so "
+              "\"no input\" is measured and not assumed"),
     # ...and the port as it actually ships, where the differences are the point.
     Case("dive", 150, "traces/dive.txt", identical=False,
          snes_cam=(16, 16), ds_cam=(32, 32),

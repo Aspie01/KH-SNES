@@ -466,9 +466,69 @@ KH_TEST(interact_a_resident_is_talked_to_and_a_conversation_holds_the_door) {
     const StageStep s = townInteract(m, st, v, TOWN1_DOORS, 1);
     // Talking wins the frame, and the door under his feet stays shut: a
     // district change under an open box is the thing this ordering prevents.
+    //
+    // The line is TownCid2 and not TownCid because the town is already at
+    // Second: @cidAgain, town.s:547-550.  Cid's first line is the one that
+    // ADVANCES the stage, so it belongs to the single frame the stage is Look,
+    // and the case below is where that is driven.
     CHECK(s.action == SceneAction::Say);
-    CHECK(s.script == ScriptId::TownCid);
+    CHECK(s.script == ScriptId::TownCid2);
     CHECK_EQ(m.doorTimer(), 0);
+    CHECK(m.stage() == TownStage::Second);      // and it changes nothing
+}
+
+KH_TEST(interact_cid_is_the_reason_the_door_opens) {
+    // town.s:533-551.  THE ONE PLACE IN THE NON-TEST TREE THAT SETS T_SECOND.
+    // Woke (town.s:251) gets the town as far as T_LOOK on the opening line and
+    // stops; without this branch the First District's exit is gated on a stage
+    // that never arrives, the Second and Third Districts are unreachable, and
+    // the bolted-door line is the last thing the game ever says.
+    //
+    // Both halves of the dispatch matter and they are not "before and after":
+    // the SNES tests `cmp #T_LOOK` exactly, so ARRIVE -- earlier than Look --
+    // takes the @cidAgain arm too, which is checked at the bottom.
+    Stub w;
+    Interact st;
+    TownMachine m;
+    m.begin(w.rng);
+    m.setStage(TownStage::Look);
+    w.putPlayer(10, 10);                        // nowhere near a door
+    w.actors.spawn(ActType::Cid, tileCentre(10), tileCentre(10));
+    SceneView v = w.view();
+
+    w.press(Button::A);
+    StageStep s = townInteract(m, st, v, TOWN1_DOORS, 1);
+    // HudChanged and not Say, with the line riding along: the SNES does both
+    // -- `jsr HudUpdate` then `jmp Say`, town.s:542-545 -- a StageStep carries
+    // one action, and NightMachine::talkToKairi (stage_night.cpp:146-153)
+    // already returns a non-Say action carrying its script.  NOT the island's
+    // shape: IslandMachine::talkToKairi's Idle arm returns a bare HudChanged
+    // and talkTo returns it without a line (interact.cpp:184).  The script
+    // being ON the step is all this can assert -- see the standing hazard at
+    // interact.cpp's Cid branch about the consumer that has to open it.
+    CHECK(s.action == SceneAction::HudChanged);
+    CHECK(s.script == ScriptId::TownCid);
+    CHECK(m.stage() == TownStage::Second);
+
+    // Asked again: the short line, and the stage does not move a second time.
+    w.release(); w.press(Button::A);
+    s = townInteract(m, st, v, TOWN1_DOORS, 1);
+    CHECK(s.action == SceneAction::Say);
+    CHECK(s.script == ScriptId::TownCid2);
+    CHECK(m.stage() == TownStage::Second);
+
+    // ...and BEFORE Look, on the wet stone, he says the same short line and
+    // still does not advance anything.  `cmp #T_LOOK` / `bne @cidAgain` is an
+    // equality test; a port that wrote `stage <= Look` would let the opening
+    // line be skipped by walking over and talking to him.
+    TownMachine early;
+    early.begin(w.rng);
+    CHECK(early.stage() == TownStage::Arrive);
+    w.release(); w.press(Button::A);
+    s = townInteract(early, st, v, TOWN1_DOORS, 1);
+    CHECK(s.action == SceneAction::Say);
+    CHECK(s.script == ScriptId::TownCid2);
+    CHECK(early.stage() == TownStage::Arrive);
 }
 
 // ===========================================================================

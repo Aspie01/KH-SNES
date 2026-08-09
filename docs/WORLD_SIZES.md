@@ -41,12 +41,12 @@ usable as an oracle.
 
 **Expanded**, because they are places:
 
-- **Destiny Islands** — 64×32. 717 walkable tiles against 196, so 3.7× the
+- **Destiny Islands** — 64×32. 670 walkable tiles against 196, so 3.4× the
   ground you can actually stand on. Real coastline instead of a rectangle, a
   water channel with the footbridge crossing it, and the Secret Place sealed on
   three sides so it is entered by wading round the waterfall rather than walked
   into from the lawn.
-- **Traverse Town's three districts** — 48×32 each, 3× the area, 912 / 840 / 895
+- **Traverse Town's three districts** — 48×32 each, 3× the area, 891 / 822 / 877
   walkable tiles against 303 / 292 / 273. Not 64 wide: a district is a walled
   courtyard, and past a certain width the walls stop enclosing it and start
   being a border on a field. What the extra ground bought is depth rather than
@@ -55,6 +55,21 @@ usable as an oracle.
   Second District big enough to walk around instead of past, and an open floor
   in the Third wide enough that the Guard Armor can be fought rather than
   cornered.
+
+Those four counts are of the **populated** maps, and they are smaller than the
+numbers this file used to carry — 717 for the island and 912 / 840 / 895 for the
+districts. Nothing shrank. A prop tile is not walkable, and the props and crates
+went into the maps one commit *after* the maps were expanded: the island gained
+24 `T`, 11 `r`, 8 `b`, 2 `R` and 2 `Y`, which is 47 tiles and 717 − 47 = 670, and
+each district gained 8 lamp posts and 10 to 13 crates, which is the 21 / 18 / 18
+that takes 912 / 840 / 895 to 891 / 822 / 877 exactly. The old figures were true
+of empty ground, were copied here by hand while they were true, and then stopped
+being true underneath the sentence that quoted them. `tools/build_assets.py`
+prints all four on every run and has done all along. See **How this section went
+stale** at the foot of the file: the numbers here and the list of open questions
+down there rotted by the same mechanism, and it is worth noticing that a
+document's *arithmetic* goes stale exactly the way its *prose* does — quietly,
+and without contradicting itself loudly enough for anyone to notice.
 
 Two structural notes about the districts, both learned by getting them wrong:
 
@@ -66,12 +81,41 @@ Two structural notes about the districts, both learned by getting them wrong:
   back to the north wall rather than being one row deep, and why doors and
   windows are kept out of the columns a terrace covers. In the First District
   that last one had hidden the only exit.
-- **Every district has exactly one way in.** The island tolerates a mistake in a
-  corner; a district does not, because the whole map hangs off a single door
-  tile in an otherwise solid row. `check_map.py` now checks each door from both
-  sides — the tile itself and the tile the scene code stands Sora on after the
-  swap — along with the walkways, the steps that are the only way up onto them,
-  and the alleys behind them.
+- **A district hangs off its door row, and there are six door tiles in all.**
+  The island tolerates a mistake in a corner; a district does not, because the
+  whole map is reached through row 4 — `DOOR_ROW`, `constants.h:477` — and
+  every other column of that row is wall. Checked, not assumed, against
+  `build_assets.TERRAIN`: row 4 of each of the three maps is unbroken +3
+  building except at town1 (16,4) and (24,4), town2 (5,4), (24,4) and (28,4),
+  and town3 (23,4). It is not literally all `w`, and the first draft of this
+  sentence said it was. `e` — the same building face with a lit window — also
+  appears in row 4, at four columns in the First District, four in the Second
+  and two in the Third, and `TERRAIN['e']` is character-for-character the same
+  tuple as `TERRAIN['w']`: height 3, not walkable. A window changes the picture
+  and not the reachability, so the *claim* survives and the *wording* did not,
+  which is exactly the shorthand-that-drifts this bullet exists to correct: a
+  reader who checked "solid `w`" against the map would have found it false and
+  had no way to tell whether the door list beside it was false too. Four of
+  those six door tiles are the SNES's joins and two are shop fronts that lead
+  nowhere; which is which was not decided until `assets/ds/town_doors.txt` was
+  written, long after the maps.
+
+  **This bullet used to say "every district has exactly one way in", and that
+  was never true of these maps.** It was written in the same commit that drew
+  two door tiles into the First District, and nothing has ever compared the
+  sentence to the map. It is not true of the frozen game either: `doorTable` is
+  four rows and two of them arrive in the Second District, so even the original
+  town had a district with two ways in. What the sentence was reaching for, and
+  what *is* true, is that a district's only connection to the rest of the game
+  is a handful of single tiles, so one of them mis-drawn strands a whole map
+  with nothing to fall back on. `check_map.py` checks each door from both sides
+  — the tile itself and the tile the scene code stands Sora on after the swap —
+  along with the walkways, the steps that are the only way up onto them, and
+  the alleys behind them. `tools/build_doors.py` now adds the check that would
+  have caught the sentence: it refuses to emit anything at all if a `d` tile
+  has no wiring row, or a wiring row names a tile that is not a `d`, so the
+  door count in the maps and the door count in the wiring cannot disagree, and
+  a district that cannot be left is a build failure rather than a claim.
 
 **Not expanded**, because they are not places:
 
@@ -89,7 +133,11 @@ Two structural notes about the districts, both learned by getting them wrong:
   the cast moved inward with it because two spawn tiles fell off the standable
   set. `build_dive_platform()` takes the radius as an argument defaulting to the
   SNES's 110, so the frozen ROM is byte-identical.
-  See `docs/behaviour/divergences/004-ds-station-radius.md`.
+  See `docs/behaviour/divergences/004-ds-station-radius.md`. The one thing that
+  file left as a derivation — the 170-frame fall *between* two stations, which
+  is the other half of "the camera never shows the void" — has since been
+  measured against the oracle and agrees byte for byte; see the `fall` entry
+  under **Consequences that closed** below.
 - **The island fragment.** It is the last scrap of ground left after the island
   comes apart, sized so Darkside can stand on it and Sora cannot retreat. Small
   is the entire point. It needed no redraw — it is authored, not generated, and
@@ -119,8 +167,14 @@ district's new size. They are warm paving now. No frozen map uses either
 character, so the SNES ROM is unaffected.
 
 The character dedupe is unchanged and still earns its keep at the larger size:
-the 64×32 island folds to **242 unique characters** from 8192 cells, and the
-districts to 85, 107 and 85 from 6144 each.
+the 64×32 island folds to **247 unique characters** from 8192 cells, and the
+districts to 85, 107 and 85 from 6144 each. (This file said 242 for the island
+until now. That was correct when it was written and stopped being correct in the
+same commit that broke the walkable counts above — twenty-four more palms, eleven
+more rocks and eight more bushes are new shapes against the ground they sit on.
+The districts' three happen to have survived unchanged, which is luck and not a
+reason to trust them: they are quoted from `build_assets.py`'s report, which
+prints all four every time it runs.)
 
 ## Filling them: the cast
 
@@ -186,7 +240,7 @@ The night is the same island. Its tiles, tilemap, collision and height are
 *byte-identical* to the two days' — what makes it night is one palette upload,
 which is how the SNES did it too. So a DS scene is a record rather than a
 filename: it names a map, a palette, a cast, and optionally another scene whose
-ground it shares and therefore does not re-emit. Three consequences fall out of
+ground it shares and therefore does not re-emit. Four consequences fall out of
 that, and each of them was a bug waiting to happen:
 
 - **The night does not duplicate 28 KB of ground.** Sharing is declared, not
@@ -259,34 +313,272 @@ size does and does not do to the oracle.
 
 ## Consequences still open
 
-- **The 2D ground renderer needs streaming** (§M7 of the porting brief). Until it
-  exists, the DS island can be built and validated but not drawn.
-- **The camera's clamp is per-scene now**, not a constant. `constants.h` carries
-  the oracle fixture size and the island's separately; M3 makes it a runtime
-  property of the loaded scene.
-- **The districts are not yet wired to a scene.** The maps, their cast and their
-  door tiles exist and are validated, but which district each door leads to is
-  scene logic and the `[doors]` section deliberately does not say. `town.s`'s
-  door table — seven bytes a row, carrying the destination scene and the stage
-  that gates it — is still written against the 32×16 originals. It moves with the
-  scene port in M5.
-- **`variant` is authored and unread.** The fourth byte of a cast row selects a
-  line of dialogue, which is what makes six townspeople six people rather than
-  one sentence six times: on the SNES `TalkTown` dispatched on actor *type*, so
-  it could not have told them apart. The field is filled in and nothing consumes
-  it until M5. It is there now because adding it later means re-authoring every
-  file.
-- **Every scene has a cast, and none of them has a scene yet.** Nine cast files
-  exist and are validated; nothing loads one. `LoadScene` and the four stage
-  machines are M5, and until they run, the only thing that has been proven about
-  this data is that it is self-consistent and reachable — which is worth
-  something, and is not the same as playable.
-- **The station radius is settled but the fall between them is not measured.**
-  `FALL_LEN` is 170 frames with `MOTE_LIFE` specks rising past Sora from up to
-  160 px below him. On a screen 32 lines shorter they start further outside the
-  visible area and end in the same place, so nothing should need changing — but
-  that is derived, not seen.
-- **Sprite VRAM is still M4's problem.** Instances share tiles, so the 69 palms
-  and rocks cost per *type* and not per actor — but the bank map that says where
-  those tiles live has not been written, and the OBJ budget check above says
-  nothing about it.
+This list had seven items and four of them had quietly closed. What follows is
+what is open **today**, checked one claim at a time against the tree rather than
+against the last person's memory of it; what closed is recorded in the section
+after, because knowing what was once uncertain is worth more than a short list.
+
+Three remain, and the first of them owns most of the other two.
+
+- **The 2D ground renderer needs streaming** (§M7 of the porting brief). Until
+  it exists, the DS island can be built and validated but not drawn. The block
+  is no longer a paragraph of prose that nobody rereads: `python3
+  tools/check_device.py` **is** the gate, it exits 1 today, and it names four of
+  four required components absent — devkitPro, devkitARM, libnds and ndstool —
+  with `apt.devkitpro.org` returning HTTP 403 through the egress proxy, which is
+  an organisation *policy* denial and not a network fault. What is missing is a
+  backend and a toolchain, not a place to put them: the seam exists and is
+  occupied. `GroundRenderer` and `NullGroundRenderer` are in
+  `platform/ds/include/grid.h:152-178`, the host tier runs against the null one,
+  and it *records* that it was asked to load and draw — so a scene that forgets
+  its ground fails a test instead of silently drawing the previous scene's.
+
+- **Nothing loads a scene**, and this needs saying precisely, because three
+  things standing next to it have moved a great deal. All four stage machines
+  are landed — `source/stage_dive.cpp`, `stage_town.cpp`, `stage_island.cpp`,
+  `stage_night.cpp` — and so is the caller they spent a milestone without:
+  `include/interact.h` and `source/interact.cpp`, added when §M5 was re-audited
+  and found complete on one side only. What does not exist is `LoadScene`. There
+  is no function of that name anywhere in `platform/ds/`; every occurrence of
+  the word is a comment about what the *SNES's* did (`source/stage_night.cpp:21`
+  and `:248`, `include/world.h:46`). There is no scene record naming a map, a
+  palette and a cast, and nothing walks one.
+
+  Two symptoms, both of which can be pointed at rather than asserted:
+
+  - **Of the nine cast files, exactly one is read at runtime**, and only by the
+    trace harness: `station1cast.bin`, at `host/trace_main.cpp:619-625`, which
+    is the single `spawnCast` call in the whole non-test tree. Seven of the
+    eight trace scenarios build hand-written `CastRow[]` tables instead, and
+    deliberately: they have to reproduce the *oracle's* cast, not the DS's.
+  - **`SceneAction::EnterDistrict` is returned by nothing that performs it.**
+    `TownMachine` emits it at `source/stage_town.cpp:71` and it is consumed only
+    in tests. `perform()` at `host/trace_main.cpp:398-442` handles eight of the
+    twenty-eight `SceneAction` values — `None`, `Say`, `HudChanged`,
+    `RespawnDistrict`, `RaiseArmor`, `BeginFall`, `SpawnMote` and
+    `SweepGauntlets` — and its `default:` arm stops the run with "the scenario
+    cannot perform SceneAction::…". Every action that means *load a scene*
+    lands in that arm. (This said "six" until the `fall` scenario added the
+    `BeginFall` and `SpawnMote` arms in the same working tree this section was
+    written against, which is the same drift the section is about, arriving
+    inside it before it was even committed. Naming the arms rather than
+    counting them is the cheap defence: a list is falsified by reading, a
+    number is falsified only by someone who bothers to count.)
+
+  So the town's door table is complete, generated, checked and tested, and at
+  runtime it still leads nowhere — the swap is the caller's half of the
+  protocol, and the caller is the piece that does not exist. That is the same
+  shape as the hole §M6 found in §M3 and §M5, one layer up again, and it is the
+  reason this item is phrased as "nothing loads a scene" rather than as anything
+  about the data: the data has been finished twice now.
+
+- **`variant` is parsed and still not consulted**, which is a narrower claim
+  than the one this file used to make and is the more useful one. The fourth
+  byte of a cast row selects a line of dialogue, which is what would make six
+  townspeople six people rather than one sentence six times: on the SNES
+  `TalkTown` dispatched on actor *type*, so it could not have told two townsmen
+  apart. `spawnCast` now reads the byte (`source/scene.cpp:39`) and copies it
+  into an optional `variantOut` array (`:57`, declared
+  `include/scene.h:95-96`) — so "authored and unread" is no longer true at the
+  spawn layer. But **the pointer is defaulted to null and only a test ever
+  passes one** (`host/tests/test_scene.cpp:92-93`); the one production call
+  (`host/trace_main.cpp:624`) omits it, so no variant survives the spawn. And
+  the layer the field exists for still dispatches on type exactly as the SNES
+  did: `townInteract` indexes a three-entry `LINES[]` by
+  `int(a.type[who]) - int(ActType::Cid)` at `source/interact.cpp:375-378`.
+  The bounds check §M5 asks for is likewise absent, and correctly so for now —
+  nothing indexes anything with a variant, so there is nothing to bound yet.
+  Read the item this way: the transport is built, the consumer is not, and the
+  field is still costing nothing but the four bytes it was authored into.
+
+## Consequences that closed, and what closed them
+
+Removed from the list above, kept here, because a project that deletes its
+uncertainties loses the record of what it did not know. Each of these now has a
+standing check named beside it — which is the difference between a thing that is
+closed and a thing that merely looks closed today.
+
+- **The camera's clamp is a runtime property now, and no longer a constant.**
+  `CameraBounds` is a struct of four ints (`include/grid.h:98-103`); a map larger
+  than the screen gets `scrollingBounds(mapW, mapH)` (`:117-120`) and one smaller
+  gets `pinnedBounds(x, y)` (`:123-125`), which is why they are *bounds* and not
+  a flag — a station pins itself by setting low equal to high. `updateCamera`
+  takes them as an argument (`:141-142`, `source/grid.cpp:106`) rather than
+  reading a global. `constants.h` still carries the oracle fixture's extents and
+  the island's separately, exactly as this file said it did, and that is now the
+  input to a function instead of the clamp itself. **Settled by §M3**, and it
+  survived the re-audit that found the camera had never been compared against
+  anything. **Standing check:** `host/tests/test_grid.cpp:269-349`, and — more to
+  the point — the oracle compares the camera columns on every scenario, so each
+  of the eight sets its bounds explicitly and a wrong one is a trace diff.
+  *Caveat, and it is the honest half:* the bounds are set by whatever stands the
+  scene up, and what stands a scene up today is a `setup*()` function in the
+  trace harness. The scene *record* that ought to carry them is the thing the
+  open item above says does not exist.
+
+- **The districts are wired, and the wiring is generated data rather than
+  scene logic.** This file used to say the `[doors]` section deliberately does
+  not name a destination and that `town.s`'s seven-byte row "moves with the
+  scene port in M5". The first half is still true and is the whole design; the
+  second half happened, and not the way the sentence implies. The three missing
+  columns are authored in `assets/ds/town_doors.txt` — six rows of
+  `from i j to needs`, the four SNES joins each cited to `town.s:1391-1394` and
+  the two shop fronts declared `shut / -` — and `tools/build_doors.py` resolves
+  the constants out of `game.inc`, parses `doorTable` live out of `town.s`, and
+  emits `platform/ds/include/gen/doors.h` in `<scene>doors.bin` order so the
+  header and the binary are one table read twice. `townInteract` takes the array
+  (`source/interact.cpp:307-308`) and `TownMachine::openDoor` now carries the
+  landing across the swap (`include/stage.h:329-333`), which it did not before:
+  `TownDoor::landing` was written by the table and read by nothing.
+  **Standing checks, and there are three kinds.** `python3 tools/build_doors.py
+  --check` fails if the committed header has drifted, on the `build_scripts.py`
+  pattern. The generator itself refuses nine numbered classes of wrong wiring
+  before it will emit anything, R1 to R9 — a door tile with no wiring row or a
+  wiring row on a tile that is not a door (R1); a `[doors]` section and the
+  wiring naming different sets of doors (R2); a door outside `DOOR_ROW`, or a
+  near-side landing that is not `(i, DOOR_ROW + 1)` (R3); a destination that is
+  neither a district nor `shut` (R4); a routed door with no reciprocal, or with
+  two (R5); a landing that is blocked, or more than `MAX_STEP` in height from
+  its door (R6); a gate on a shuttered door, or a routed door without one (R7);
+  a district that is stranded, soft-locked or unreachable at every stage (R8);
+  and a gate that disagrees with `town.s`'s own `doorTable` (R9). And
+  `host/tests/test_doors.cpp` walks the shipped tables, including a per-stage
+  reachability fixpoint over the real data.
+  *Two things are worth carrying forward.* The first is that the landing has two
+  meanings and they are different tiles — `<scene>doors.bin`'s is the near side,
+  `TownDoor`'s is the far side — and nothing may copy one into the other. The
+  second is that the DS's two extra door tiles were resolved as **shop fronts
+  that do nothing at any stage**, on the grounds that no line in the frozen ROM
+  can be said at one without lying and an unresponsive painted door is a smaller
+  failure than a scripted lie. That is a content decision, it is recorded in
+  `assets/ds/town_doors.txt` and `docs/TRAVERSE_TOWN.md`, and it is the reason
+  the "one way in" bullet further up this file had to be corrected.
+
+- **The fall between the stations is measured.** This item said `FALL_LEN` is
+  170 frames of `MOTE_LIFE` specks rising past Sora from up to 160 px below him,
+  that on a 32-line-shorter screen they start further outside the visible area
+  and end in the same place, and that all of this was "derived, not seen".
+  It has been seen. `fall` is the eighth scenario in `tools/trace_check.py`
+  (`:109-115`), 198 frames, `strict=True` and `identical=True`, and it is
+  **byte-identical to the SNES from frame 2**. The spread table is transcribed
+  from `dive.s:919-924` into `source/stage_dive.cpp:67-76` with the Q12.4
+  arithmetic written out: X spreads ±115 px, Y is 120 to 160 px below him, and
+  because Sora's `py` is pinned at 2944 throughout the drop those are absolute
+  screen facts and not merely relative ones — the SNES's bottom edge is at 240
+  and the DS's at 224, and the specks appear at 304…344 px on both. So the
+  derivation was right, and it is now a measurement.
+  **Standing checks:** the `fall` scenario itself; `host/tests/test_fall.cpp`,
+  four cases over where each speck goes; and four `static_assert`s
+  tying the table's length to the `& $07` mask (`source/stage_dive.cpp:84-90`)
+  plus a pool-headroom assert (`:105-107`) that fires if the fall could ever
+  reach `dive.s:534`'s silent skip, which nothing measures.
+  *The interesting part is what it did not find:* no divergence. `updateSora`'s
+  `ActState::Fall` branch and `updateMote` were already correct and no scenario
+  had ever reached either of them, which is the argument for adding a scenario
+  that nobody expects to fail. `docs/behaviour/divergences/004`'s closing
+  paragraph — "nothing to change; it is listed here so the next person does not
+  have to re-derive it" — is now backed by a trace instead of by reasoning.
+
+- **Sprite VRAM has a bank map, and it is checked in bytes as well as in
+  objects.** This item said instances share tiles so the 69 palms and rocks cost
+  per *type* and not per actor — still true — "but the bank map that says where
+  those tiles live has not been written". It is written. §M4 froze
+  `platform/ds/include/vram_map.h`: main-engine sprites are bank E, split into
+  `OBJ_RESIDENT{0, 32 KiB}` (`:667`) — exactly the reach of a ten-bit tile number
+  at boundary 32 — and `OBJ_BOUNDARY64{32 KiB, 32 KiB}` (`:670`), a reserve that
+  is unusable until the boundary is raised. The bottom screen's sprites are bank
+  I, `SUB_OBJ_CHR{0, 16 KiB}` (`:687`), and a later pass added `SUB_OBJ_TILES`
+  (`:792`) to record the thing the main engine's numbers hide: **on the sub
+  engine the bank binds and not the index**, so a tile number above 511 there
+  reads unmapped VRAM and draws whatever comes back.
+  **Standing checks:** `fits()` assertions place every region inside its bank
+  (`:976-989`); the guarded cross-file block ties the header to the pipeline, so
+  `OBJ_RESIDENT_BYTES = 31744` (`gen/assets.h:198`) is asserted against
+  `OBJ_REACH = 32768` (`gen/assets.h:75`) at `vram_map.h:1182` and a boundary
+  change moves both or compiles neither; and `host/tests/test_vram.cpp` and
+  `test_oam.cpp` are in the host suite.
+  **The other half of this item was right and stays right:** the OBJ *budget*
+  check says nothing about VRAM bytes, and should not. `OBJ_BUDGET_SCENERY = 96`
+  counts OAM entries inside a 17×13-tile camera window; `OBJ_RESIDENT_BYTES`
+  counts bytes of character data. They are two different ceilings a dense map
+  can hit independently, and it now takes both checks to clear a map — which is
+  the distinction the original sentence was making, arriving at the wrong
+  conclusion only because one of the two did not exist yet.
+
+## How this section went stale, and what would stop it
+
+`docs/WORLD_SIZES.md` was last edited twenty-nine commits ago, at "Add the three
+station casts, and redraw the disc so it fits the DS screen". Everything that
+closed four of its seven open items landed after that — §M3's camera, §M4's VRAM
+map, the door table, the `fall` scenario — and so did the work that *narrowed*
+two of the three that remain: §M5's stage machines got the caller they were
+missing, and `spawnCast` learned to read `variant`. None of it came back to read
+this file. That is not carelessness. **Nothing pointed here.** Every one of those
+commits had a check that told it when it was done, and not one of those checks
+knew this document existed.
+
+The two halves of the file rotted by the same mechanism, which is worth stating
+plainly because it makes the fix obvious:
+
+- **The numbers** were correct when copied and were copied by hand.
+  `tools/build_assets.py` prints all of them on every run — walkable counts,
+  unique characters, props, placed, spots, peak actors, the OBJ page budget —
+  and `tools/check_map.py` prints the per-map worst camera window. The maps
+  changed one commit later and the printed numbers changed with them; the
+  transcriptions did not.
+- **The open items** were correct when written and had no owner afterwards. An
+  item closes in a *different* file, and the closing agent has no reason to
+  grep the docs for a bullet that describes the world before its change.
+
+The mechanical answer to both is the same one this project has already applied
+twice, to the scripts and to the doors, and it is worth writing down even though
+it is not built:
+
+1. **Generate the numbers, or check them.** `tools/build_scripts.py --check` and
+   `tools/build_doors.py --check` both fail when a committed artefact has
+   drifted from its source. Only the first of the two is in Gate 0: the Gate 0
+   block at `docs/DS_PORT_PROMPT.md:125-140` lists `build_scripts.py --check`
+   and does not list `build_doors.py --check`, which was written after the
+   block and has not been added to it. **That gap is the whole thesis of this
+   section, one level up.** A generator that refuses nine classes of wrong
+   wiring refuses nothing at all on a commit where nobody runs it, and the
+   failure mode is the quiet one: the header in `platform/ds/include/gen/` is
+   committed, so a stale one compiles, links, passes the host suite and ships a
+   door that leads to the wrong district. Whoever owns Gate 0 should add the
+   line; until then, treat "`build_doors.py` checks it" as meaning "checks it
+   when run".
+
+   A `--check` that parses the tables out of this file and compares them
+   against the pipeline's own report would have caught 717, 912 / 840 / 895 and
+   242 on the commit that broke them, because the pipeline had already printed
+   the right answers in the same terminal. Anything a tool prints and a document
+   repeats is a copy waiting to go stale, and the pattern for fixing it exists
+   in two tools already.
+2. **Make an open item name the check that will close it.** Every bullet in
+   "still open" above cites something falsifiable — `check_device.py` exits 1,
+   `perform()`'s `default:` arm rejects `EnterDistrict`, `spawnCast`'s
+   `variantOut` is null at its only production call. That is deliberate. An open
+   item stated as a condition can be *tested*; an open item stated as a mood
+   cannot, and a prose list of moods with nothing checking it is precisely the
+   failure class this project keeps finding — the invisible wall, the two
+   hand-kept halves, the door with no far side, the milestone brief that was
+   three steps out of date. This file was one more instance of it.
+
+Neither of those is implemented, and this note is itself unchecked prose, which
+is the honest thing to say about it. **The corrected numbers above are exactly
+as unguarded as the wrong ones were, and that has been measured rather than
+assumed.** Turning one cobble into a crate in `assets/ds/town3.txt` — a
+one-character edit — takes the district from 877 walkable to 876, and
+`build_assets.py`, `check_map.py`, `check_modes.py`, `check_divergences.py`,
+`build_doors.py --check` and the whole host suite (208 cases, 113086 checks) all
+still exit zero with this file claiming 877. Nothing in the tree reads this
+document: the only mentions of `WORLD_SIZES.md` in `tools/` and `platform/` are
+six prose cross-references in comments. So the four numbers in **What is
+expanded** and the one in **the cast** are on their second transcription and
+their first day of being right, with the same nothing watching them as before.
+
+The immediate, cheap version of (2) is that the next agent to close one of the
+three items above should treat editing this section as part of closing it, in
+the same commit, the way
+`docs/behaviour/divergences/` entries are amended rather than quietly
+contradicted.
