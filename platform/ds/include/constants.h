@@ -473,6 +473,7 @@ constexpr uint8_t Pedestal = 0x40, Sword = 0x44, Shield = 0x48, Staff = 0x4C;
 constexpr uint8_t Darkside = 0x80, Orb = 0x88, Streak = 0x8C;
 constexpr uint8_t Heart0 = 0xC8, HeartNight = 0xA8;
 constexpr uint8_t Shadow = 0xE8, Slash0 = 0xEA, Rock = 0xEE;
+constexpr uint8_t Slash1 = 0xEC;    // TILE_SLASH1, the arc's second cel
 // page 1, islanders
 constexpr uint8_t Kairi = 0x00, Riku = 0x04, Tidus = 0x08, Selphie = 0x0C;
 constexpr uint8_t Wakka = 0x40, Door = 0x44;

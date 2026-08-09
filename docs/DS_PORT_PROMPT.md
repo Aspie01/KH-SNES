@@ -613,7 +613,7 @@ against the specification. No renderer required — these are logic tests.
 
 ---
 
-# §M6 — The trace oracle — **SNES half LANDED, DS half BLOCKED**
+# §M6 — The trace oracle — **LANDED**
 
 **Done.** `tools/snes_opcodes.py`, `tools/snes_cpu.py`, `tools/snes_trace.py`,
 `tools/trace_diff.py`.
@@ -680,6 +680,10 @@ scripted input he walks east at **+24 Q12.4 per frame** — `WALK_SPEED = 24` �
 stops at the platform edge, and the dialogue box dismisses on the second press,
 which is `txtHold` behaving as §13 describes.
 
+**The exit criterion is met.** A trace from each platform for the same scripted
+input, agreeing: see §M3b below, which was written against this oracle and
+reproduces 150 frames of the SNES exactly.
+
 **`trace_diff.py` reads `docs/behaviour/divergences/`** and suppresses only what a
 recorded divergence excuses, counting every suppression by which divergence
 excused it so a divergence that has quietly become a blanket is visible.
@@ -687,33 +691,62 @@ excused it so a divergence that has quietly become a blanket is visible.
 `php` altered from frame 40, the `px` change is excused by divergence 004 and the
 `php` change is reported with its earliest frame.
 
-## What is blocked, and by what
-
-**The DS half cannot be traced yet, because the DS side does not simulate
-actors.** `platform/ds/source/grid.cpp` provides `tryMoveActor` and **nothing
-calls it.** There is no `UpdateWorld` equivalent — no `UpdateSora`, no
-`UpdateShadow`, no boss AI, no orbs, no pickups. The host tier has the movement
-primitive (§M3), the scene machines (§M5) and the actor *table*, but not the
-per-actor behaviour that connects them.
-
-**That is a hole in this milestone list, not in the work.** §M3 is "movement,
-collision and the camera" and delivered the primitive; §M5 is the scene-level
-state machines. The per-actor simulation belongs to neither and was never given a
-milestone of its own. §M6 is simply where it surfaces, because you cannot diff
-traces of a simulation that does not simulate.
-
-So §M6's exit criterion — a trace from each platform for the same input — is met
-on the SNES side and cannot yet be met on the DS side. What is needed first is a
-**§M3b: the actor simulation**, ported from `world.s`, with `UpdateSora` and
-`UpdateHeartless` as the two that matter; everything else in the trace is already
-in place to receive it.
-
 One smaller thing found while building the differ: **a divergence's
 `trace_fields` cannot say which scenes it applies to.** Divergence 004 lists
 `actorX`/`actorY` because a station's cast moved inward, and the differ therefore
 suppresses actor positions *everywhere*, including on the island where nothing
 moved. The front matter needs a `scenes:` key. Until it has one, read the
 per-divergence suppression counts the differ prints rather than trusting them.
+
+---
+
+# §M3b — The actor simulation — **Sora and the Shadows LANDED**
+
+This milestone did not exist. §M6 found the hole: §M3 delivered the movement
+*primitive* and §M5 the scene-level machines, and nothing delivered the code in
+between — so `tryMoveActor` sat in `grid.cpp` **with no caller**, and there was
+no simulation to trace.
+
+**Done.** `platform/ds/include/world.h`, `source/world.cpp`,
+`host/tests/test_world.cpp` — 5 cases. `updateWorld` with its slot-order
+dispatch and hit-stop freeze, `updateSora` (free movement, attack, hurt, fall,
+dying), `updateHeartless`, `updateSlash`, `damageSora`, and the shared vocabulary
+— `readMoveDir`, `setVelFull`, `setVelHalf`, `clearVelocity`, `animateWalk`,
+`attackPoint`, `heartlessAimDir`, `heartlessTouchTest`, `hurtHeartless`,
+`doAttackHit`.
+
+**It is checked against the oracle, not against my reading of `world.s`.** That
+is the whole point of having built §M6 first, and it is a different kind of test
+from everything else in the suite: `tools/snes_trace.py` ran the frozen ROM for
+150 frames on a scripted input, and the fixture in `test_world.cpp` is its
+output. The script exercises a cardinal walk, the disc rim stopping it, a
+diagonal, and a swing. **The DS simulation reproduces all of it exactly** — same
+Q12.4 position, same facing, same state, on every sampled frame.
+
+Two deliberate breakages confirmed the test bites. Giving the diagonal full speed
+instead of the 17/24 scaling fails on position. Reversing `updateSora`'s
+attack-timer order to test-then-decrement — **precisely the mistake audit finding
+52 warns about** — fails on a *one-frame* state difference, which is the kind a
+hand-written expectation would have got wrong in the same direction as the code.
+
+The test loads the **SNES's** `divecoll.bin` rather than the DS's, on purpose: the
+DS station is radius 92 against 110 (divergence 004), so the two collision maps
+differ by design. Using the SNES's isolates the movement code, which must be
+identical, from the content decision, which must not be.
+
+## What is still on the SNES side only
+
+`UpdateDarkside`, `DarksideSlam`, `DarksideSweep`, `FireOrbs`, `SpawnOrb`,
+`UpdateOrb`, `OrbHitPlayer`, `HurtBoss`, `BossInRange`, `PlayerUnderBoss`,
+`UpdateArmor`, `UpdateFish`, `UpdateMote` and `UpdateRiku` — about 700 lines
+against the 300 ported.
+
+The dispatcher is written so their absence is **inert rather than wrong**: an
+actor whose type has no case is simply not updated, which is exactly what the
+assembly's comparison chain does for a prop. So the Station of Awakening, the
+night's search and the Second District's wave simulate completely; a boss fight
+simulates everything except the boss. And now that the oracle exists, the trace
+will say *which frame* it first matters on rather than leaving it to be found.
 
 ---
 
