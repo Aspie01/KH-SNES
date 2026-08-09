@@ -275,3 +275,71 @@ KH_TEST(vram_both_ground_renderers_fit_without_remapping_a_bank) {
     // vice versa: no bank serves both, so no bank has to change MST.
     CHECK(GROUND_CHR.bytes > 0 && GROUND_MAP.bytes > 0);
 }
+
+KH_TEST(vram_the_layers_are_assigned_and_the_ground_is_bg0_either_way) {
+    // The first version of this header reserved bytes and said nothing about
+    // layers, which was the real gap the adversarial pass found: with 3D on the
+    // main engine has only three tilemap layers left, so layers are scarcer than
+    // bytes and two later tasks picking their own would collide exactly the way
+    // two picking their own addresses would.
+    //
+    // BG0 is the ground under BOTH renderers -- a text background with the 2D
+    // one, the 3D image itself with the other -- which is what makes the two
+    // GroundRenderers alternatives rather than rivals.
+    CHECK_EQ(int(MAIN_GROUND_LAYER), int(Layer::Bg0));
+    // The box is on the highest-priority layer, because priority is per-LAYER
+    // here where the SNES had it per-tile.
+    CHECK_EQ(int(MAIN_BOX_LAYER), int(Layer::Bg3));
+    // Every main-engine layer is used at most once, and one is held back.
+    const Layer mainUsed[] = {MAIN_GROUND_LAYER, MAIN_OVERLAY_LAYER, MAIN_BOX_LAYER};
+    for (const Layer& a : mainUsed)
+        for (const Layer& b : mainUsed)
+            if (&a != &b) CHECK(int(a) != int(b));
+    const Layer subUsed[] = {SUB_HUD_LAYER, SUB_MENU_LAYER, SUB_MINIMAP_LAYER};
+    for (const Layer& a : subUsed)
+        for (const Layer& b : subUsed)
+            if (&a != &b) CHECK(int(a) != int(b));
+    // The sub engine has no 3D, so all four of its layers are tilemaps and the
+    // one left over is the margin there.
+    CHECK_EQ(int(SUB_HUD_LAYER), int(Layer::Bg0));
+}
+
+KH_TEST(vram_a_character_ceiling_is_a_number_not_an_inference) {
+    // A region's size in bytes is not the limit a caller hits -- the limit is how
+    // many characters it may index, and a text layer's index is ten bits whatever
+    // the reservation is.  GROUND_CHR was given all 1024 so it could not be
+    // outgrown; the pass found the same reasoning had not been applied to the
+    // other two, so their ceilings are stated rather than left to be worked out.
+    CHECK_EQ(GROUND_CHR_MAX, TEXT_LAYER_CHARS);
+    CHECK_EQ(GROUND_CHR_MAX, 1024);
+    CHECK_EQ(UI_CHR_MAX, 512);
+    CHECK_EQ(SUB_CHR_MAX, 512);
+    CHECK_EQ(GROUND_CHR_MAX * CHAR_BYTES, int(GROUND_CHR.bytes));
+    CHECK_EQ(UI_CHR_MAX * CHAR_BYTES, int(UI_CHR.bytes));
+
+    // A layer at UI_CHR's base indexing past its ceiling reads the NEXT region's
+    // bytes as characters.  This is the arithmetic that says which region, so a
+    // future overlay author can see what they would be reading.
+    const uint32_t past = UI_CHR.offset + uint32_t(UI_CHR_MAX) * CHAR_BYTES;
+    CHECK_EQ(past, GROUND_MAP.offset);      // ...the ground's streaming window
+    // The font is 128 characters, which is a quarter of the ceiling -- and there
+    // are two copies, because character data is per-engine.
+    CHECK_EQ(FONT_CHARS, 128);
+    CHECK(FONT_CHARS * CHAR_BYTES * 2 < int(UI_CHR.bytes + SUB_CHR.bytes));
+}
+
+KH_TEST(vram_the_scene_palette_is_reloaded_rather_than_partitioned) {
+    // Sixteen sub-palettes, nine OBJ and seven BG, all inside the sixteen a
+    // standard region holds -- so nothing overflows.  But the pipeline hard-codes
+    // sub-palette 0 for every scene's map, so the seven BG palettes want to BE
+    // sub-palette 0 at different times.  That is what the SNES did, and it is why
+    // index 0 keeps working as the backdrop.
+    CHECK_EQ(SCENE_BG_SUBPALETTE, 0);
+    CHECK_EQ(PAL_SUBPALETTES * PAL_SUBPALETTE_COLOURS * 2, int(PAL_REGION_BYTES));
+    // Each engine gets its own BG and OBJ region, 512 bytes apiece, and the
+    // sprite palettes are a SEPARATE region rather than the top half of a shared
+    // table as on the SNES.
+    CHECK_EQ(PAL_MAIN_OBJ - PAL_MAIN_BG, PAL_REGION_BYTES);
+    CHECK_EQ(PAL_SUB_BG - PAL_MAIN_OBJ, PAL_REGION_BYTES);
+    CHECK_EQ(PAL_SUB_OBJ - PAL_SUB_BG, PAL_REGION_BYTES);
+}

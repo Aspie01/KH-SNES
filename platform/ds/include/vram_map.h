@@ -393,6 +393,94 @@ constexpr int TEXTURE_SLOT = 0;         // bank A, 128 KiB
 constexpr int TEXTURE_PALETTE_SLOT = 0; // bank F, 16 KiB
 
 // ---------------------------------------------------------------------------
+// WHICH LAYER, not just which bytes
+//
+// The first version of this file reserved memory and said nothing about layers,
+// which was a real gap: on the main engine with 3D enabled there are only three
+// tilemap layers left, and layers are the scarcer resource.  Two later tasks
+// picking their own would collide exactly the way two tasks picking their own
+// addresses would -- which is the thing this file exists to prevent.
+//
+// THE GROUND IS ALWAYS BG0, on both engines' terms:
+//
+//   * With the 2D renderer it is a text background reading GROUND_CHR and
+//     GROUND_MAP.
+//   * With the 3D renderer BG0 *is* the 3D image -- GBATEK: the 3D layer
+//     occupies BG0 of engine A, and engine B has none ("BG0 is always Text").
+//
+// So "BG0 is the ground" holds under both renderers and the swap changes only
+// how BG0 is fed.  That is what makes the two GroundRenderers alternatives
+// rather than rivals, and it is why the priority bits are the only part of
+// BG0CNT the 3D path respects.
+//
+// The dialogue box takes the HIGHEST-priority layer, because it has to sit over
+// the world and over the sprites, and priority is per-layer on this machine
+// where the SNES had it per-tile.
+// ---------------------------------------------------------------------------
+enum class Layer : uint8_t { Bg0 = 0, Bg1 = 1, Bg2 = 2, Bg3 = 3 };
+
+// Engine A.  BG2 is deliberately empty: with 3D on, BG0 is spoken for and three
+// tilemap layers is all there is, so one held back is the whole margin.
+constexpr Layer MAIN_GROUND_LAYER = Layer::Bg0;      // 2D tilemap, or the 3D image
+constexpr Layer MAIN_OVERLAY_LAYER = Layer::Bg1;     // OVERLAY_MAP
+constexpr Layer MAIN_BOX_LAYER = Layer::Bg3;         // BOX_MAP, in front of all
+// Engine B.  No 3D here, so all four are tilemap layers and BG3 is the margin.
+constexpr Layer SUB_HUD_LAYER = Layer::Bg0;
+constexpr Layer SUB_MENU_LAYER = Layer::Bg1;
+constexpr Layer SUB_MINIMAP_LAYER = Layer::Bg2;
+
+// ---------------------------------------------------------------------------
+// The character CEILINGS, stated in characters
+//
+// A region's size in bytes is not the limit a caller runs into -- the limit is
+// how many characters it may index, and a text layer's index is ten bits whatever
+// its reservation is.  GROUND_CHR was given the full 1024 precisely so it could
+// not be outgrown; UI_CHR and SUB_CHR were not, and the same reasoning applies
+// to them.  So the ceiling is a number here rather than an inference: a layer
+// indexing past its own is reading the NEXT region's bytes as character data,
+// which draws recognisable-but-wrong glyphs and nothing faults.
+// ---------------------------------------------------------------------------
+constexpr int CHAR_BYTES = 32;                      // 8x8 at 4bpp
+constexpr int GROUND_CHR_MAX = int(GROUND_CHR.bytes / CHAR_BYTES);   // 1024
+constexpr int UI_CHR_MAX = int(UI_CHR.bytes / CHAR_BYTES);           // 512
+constexpr int SUB_CHR_MAX = int(SUB_CHR.bytes / CHAR_BYTES);         // 512
+// 1024 spelled out rather than borrowed from gen/assets.h's MAP_TILE_MASK: this
+// header must compile standalone, and the cross-file check that the two agree is
+// the guarded block at the bottom, where both are in scope.
+constexpr int TEXT_LAYER_CHARS = 1024;      // a ten-bit character index
+static_assert(GROUND_CHR_MAX == TEXT_LAYER_CHARS,
+              "the ground may address every character a text layer can name");
+
+// The font is 128 characters and there are TWO COPIES of it -- one in UI_CHR for
+// the dialogue box over the world, one in SUB_CHR for the bottom screen.
+// Character data is per-engine and cannot be shared across the two, so the 4 KiB
+// is spent twice on purpose rather than by oversight.
+constexpr int FONT_CHARS = 128;
+static_assert(FONT_CHARS <= UI_CHR_MAX && FONT_CHARS <= SUB_CHR_MAX,
+              "the font must fit both engines' character reservations");
+
+// ---------------------------------------------------------------------------
+// Palettes: RELOADED PER SCENE, not partitioned
+//
+// The pipeline emits sixteen 16-colour sub-palettes, and they split nine OBJ to
+// seven BG -- both inside the sixteen a standard region holds, so nothing
+// overflows.  But dedupe_tilemap_ds() hard-codes sub-palette 0 for every scene's
+// map, so all seven BG palettes want to BE sub-palette 0, at different times.
+//
+// That is a decision and not an accident: it is what the SNES did, DMAing a new
+// palette into CGRAM per scene, and it is why index 0 keeps working as the
+// backdrop (docs/DS_FORMATS.md -- the backdrop is entry 0 of sub-palette 0 and
+// of no other).  A later task that wants two scenes' grounds resident at once
+// must give one of them a non-zero sub-palette, and then it must ALSO emit that
+// scene's backdrop explicitly, because it will no longer inherit one.
+// ---------------------------------------------------------------------------
+constexpr int PAL_SUBPALETTES = 16;
+constexpr int PAL_SUBPALETTE_COLOURS = 16;
+static_assert(PAL_SUBPALETTES * PAL_SUBPALETTE_COLOURS * 2 == PAL_REGION_BYTES,
+              "a standard palette region is sixteen sub-palettes of sixteen");
+constexpr int SCENE_BG_SUBPALETTE = 0;      // and reloaded, see above
+
+// ---------------------------------------------------------------------------
 // THE ASSERTIONS
 //
 // These are the point of the file.  Everything above is a decision; this is what
@@ -579,7 +667,9 @@ static_assert(SUB_CHR.bytes >= 512u * 32u,
 //   slots actually available are 2 (bank C) and 3 (bank D).  RECOVERY: take D
 //   and slot 3 first -- it costs the sub-OBJ expansion path, and I already has
 //   four times the sprite room the bottom screen needs -- then C and slot 2,
-//   which costs the sub-BG one.
+//   which costs the sub-BG one.  But note the entry below: if a REAR-PLANE
+//   bitmap is ever wanted it needs both of those slots together, so taking one
+//   for texture forecloses it.
 //   Two arithmetic rules go with it, both from PLTT_BASE and TEXIMAGE_PARAM:
 //   texture image data is addressed div-8 so it must be 8-byte aligned, and a
 //   palette base is div-16 for every format except the 4-colour one (which is
@@ -601,6 +691,25 @@ static_assert(SUB_CHR.bytes >= 512u * 32u,
 //   `ora #$01` = BG1 only), so the 3D renderer cannot reproduce either.  The 2D
 //   renderer can, which is one more reason both survive in this allocation
 //   rather than one replacing the other.  See docs/behaviour/divergences/.
+//
+// A 3D REAR-PLANE BITMAP: not available, and it is the one recovery path that is
+//   NOT a matter of finding a spare bank.  GBATEK, "Rear Color/Depth Bitmaps":
+//   the rear plane can be fed by bitmap instead of by CLEAR_COLOR, and it is
+//   "two bitmaps (one with color data, one with depth data), each containing
+//   256x256 16bit entries, and so, each occupying a whole 128K slot -- Rear Color
+//   Bitmap (located in Texture Slot 2) ... Rear Depth Bitmap (located in Texture
+//   Slot 3) ... This method requires VRAM to be allocated to Texture Slot 2 AND
+//   3 ... in that case the VRAM is used as Rear-plane, and cannot be used for
+//   Textures."
+//
+//   So the slots are not negotiable and they are not independent: a rear-plane
+//   costs slot 2 AND slot 3, which under the pairing above is bank C AND bank D
+//   -- BOTH, or neither.  That spends the entire remaining texture budget and
+//   both of the sub engine's expansion banks at once, and it is worth knowing
+//   before wanting one, because a fog gradient behind the 3D ground is exactly
+//   the sort of thing the night and the Dive would ask for.  The register method
+//   (CLEAR_COLOR plus CLEAR_DEPTH) costs no VRAM at all and is the answer unless
+//   a per-pixel backdrop is genuinely the point.
 //
 // A SECOND BANK IN THE MAIN OBJ WINDOW: bank E has NO OFS field ("Offset not
 //   used by VRAM-E,H,I"), so it can only ever sit at the base of whatever window
@@ -644,6 +753,8 @@ static_assert(OBJ_RESIDENT_BYTES <= uint32_t(OBJ_REACH),
               "reaches at the current boundary");
 // Not a boundary check -- the one above is.  This pins OBJ_RESIDENT itself, so
 // that widening it to "make room" silently eats the boundary-64 reserve.
+static_assert(int(MAP_TILE_MASK) + 1 == TEXT_LAYER_CHARS,
+              "gen/assets.h's ten-bit character reach and this file's disagree");
 static_assert(OBJ_RESIDENT.bytes == 1024u * 32u,
               "OBJ_RESIDENT is by definition the reach at boundary 32: 1024 tile "
               "numbers of 32 bytes.  Widening it does not create address space, "

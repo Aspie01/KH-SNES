@@ -426,6 +426,41 @@ Four things a later milestone must not re-derive:
   coarsen the ground with mosaic. That is why the 2D ground's regions are
   reserved even in a build that intends to ship 3D. See divergence 006.
 
+**The adversarial pass has now run**, on all three lenses, and the freeze is no
+longer provisional. Arithmetic and legality came back clean: every address was
+recomputed from GBATEK's table transcribed fresh rather than re-read from this
+header, and there is no illegal MST, no overlap, nothing past a bank or a window,
+and every base aligned and expressible. Four things were found and fixed:
+
+- **The header reserved bytes and said nothing about LAYERS**, which was the real
+  gap: with 3D on, engine A has only three tilemap layers left, so layers are
+  scarcer than bytes and two later tasks picking their own would collide exactly
+  the way two picking their own addresses would. Assigned now — and **BG0 is the
+  ground under both renderers**, a text background with the 2D one and the 3D
+  image itself with the other, which is what makes them alternatives rather than
+  rivals. The box takes BG3, the highest priority, because priority is per-layer
+  here where the SNES had it per-tile.
+- **A 3D rear-plane bitmap needs texture slots 2 AND 3 — both, or neither.**
+  GBATEK: it is two 256×256 16-bit bitmaps, colour in slot 2 and depth in slot 3,
+  and "requires VRAM to be allocated to Texture Slot 2 and 3 ... in that case the
+  VRAM is used as Rear-plane, and cannot be used for Textures." Under this
+  allocation that is banks C **and** D together, so it spends the whole remaining
+  texture budget and both of the sub engine's expansion banks at once. The
+  recovery path had treated those two as independent 128 KiB increments. A fog
+  gradient behind the 3D ground is exactly what the night would ask for, so this
+  is worth knowing before wanting one — and `CLEAR_COLOR` costs no VRAM at all.
+- **The character ceilings were an inference.** `GROUND_CHR` was given the full
+  1024 precisely so it could not be outgrown; the same reasoning had not been
+  applied to `UI_CHR` or `SUB_CHR`, and a layer indexes ten bits whatever its
+  reservation is. Stated as numbers now, with the arithmetic showing that
+  over-indexing `UI_CHR` reads **the ground's streaming window** as glyphs.
+- **The scene palette is reloaded, not partitioned.** Nine OBJ and seven BG
+  sub-palettes both fit the sixteen a region holds, but the pipeline hard-codes
+  sub-palette 0, so all seven BG palettes want to *be* it at different times.
+  That is what the SNES did and it is why index 0 keeps working as the backdrop —
+  written down now, because a later task wanting two grounds resident must also
+  emit a backdrop it will no longer inherit.
+
 Three assertions were broken on purpose and reported: an overlap (moving
 `BOX_MAP` onto the streaming window fired *the streaming window over the box
 map* and *BG map base*), an illegal MST (assigning the sprites to bank C fired
