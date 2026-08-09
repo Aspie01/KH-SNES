@@ -1,0 +1,22 @@
+# The Station of Awakening, from reset.
+#
+# Ten frames of nothing while the opening line comes up, two presses to page it
+# and dismiss it, then a walk: east into the rim of the disc, south into it
+# again, north-west back across the middle, and one swing of the wooden sword.
+#
+# This is the script §M3b's fixture was taken from, so the two agree by
+# construction: platform/ds/host/tests/test_world.cpp replays it button for
+# button.
+none:10
+a:3
+none:8
+a:3
+none:8
+right:30
+none:4
+down:20
+none:4
+left+up:24
+none:6
+b:3
+none:20

@@ -45,6 +45,11 @@ FIELD_ALIASES = {
     "pdir": {"actorDir"},
     "nactors": {"actorCount"},
     "actorX": {"actorX", "collision"}, "actorY": {"actorY", "collision"},
+    # The comparison names this column actorIdx, because it is the `idx` part of
+    # an actor field; the divergences call the same thing a SLOT, because that is
+    # what 002 is about.  Without this line 002 cannot excuse the one difference
+    # it exists to excuse.
+    "actorIdx": {"actorSlot"},
     "actorSlot": {"actorSlot"},
     "nightStage": {"nightTimer"},
 }
@@ -100,6 +105,9 @@ class Trace:
         for raw in path.read_text().splitlines():
             if raw.startswith("#kh-trace"):
                 for part in raw.split("\t")[1:]:
+                    if re.fullmatch(r"v\d+", part):
+                        self.meta["version"] = part[1:]
+                        continue
                     k, _, v = part.partition("=")
                     self.meta[k] = v or k
                 continue
@@ -127,6 +135,40 @@ class Trace:
     @property
     def rev(self) -> str:
         return self.meta.get("rev", "?")
+
+    @property
+    def version(self) -> str:
+        return self.meta.get("version", "?")
+
+
+def check_comparable(a: Trace, b: Trace) -> None:
+    """Refuse a pair whose columns do not line up.
+
+    THIS IS NOT PEDANTRY, it is the one way this tool could report success while
+    comparing nothing.  Columns are matched BY NAME, and compare() skips a name
+    that is missing from either side -- so an emitter that renamed `px` to `pX`
+    would silently stop having its player position checked, and the run would
+    print "no unexplained divergence" with a straight face.  A format is only a
+    contract if somebody checks it.
+    """
+    if a.version != b.version:
+        raise SystemExit(f"{a.path.name} is trace v{a.version} and "
+                         f"{b.path.name} is v{b.version}.  The version changes "
+                         f"when a column changes meaning, so these two do not "
+                         f"describe the same thing.")
+    if a.columns != b.columns:
+        only_a = [c for c in a.columns if c not in b.columns]
+        only_b = [c for c in b.columns if c not in a.columns]
+        detail = ""
+        if only_a:
+            detail += f"\n  only in {a.platform}: " + ", ".join(only_a)
+        if only_b:
+            detail += f"\n  only in {b.platform}: " + ", ".join(only_b)
+        if not detail:
+            detail = "\n  same names, different order"
+        raise SystemExit(f"the two traces do not have the same columns, so a "
+                         f"comparison would silently skip the ones that differ."
+                         f"{detail}")
 
 
 ACTOR_PARTS = ("idx", "type", "x", "y", "state", "timer", "hp")
@@ -178,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     a, b = Trace(args.left), Trace(args.right)
+    check_comparable(a, b)
     divs = load_divergences()
     print(f"{a.platform} @ {a.rev}   vs   {b.platform} @ {b.rev}")
     print(f"{len(divs)} divergences on file, covering "

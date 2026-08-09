@@ -39,18 +39,24 @@ DEPFLAGS := -MMD -MP
 
 # Globbed, never listed.  Adding a source or a test must not require editing
 # this file: eight tasks share it and four of them run concurrently.
-SRCS := $(HERE)/check.cpp \
-        $(wildcard $(DS)/source/*.cpp) \
-        $(wildcard $(DS)/source/*/*.cpp) \
-        $(wildcard $(HERE)/tests/*.cpp)
+SIM  := $(wildcard $(DS)/source/*.cpp) $(wildcard $(DS)/source/*/*.cpp)
+SRCS := $(HERE)/check.cpp $(SIM) $(wildcard $(HERE)/tests/*.cpp)
 OBJS := $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(SRCS)))
 TARGET := $(BUILD)/hosttests
 
+# The trace emitter -- §M6's DS half.  A second binary rather than a mode of the
+# first, because it has its own main() and because a test suite that could be
+# made to write a file is a test suite somebody will make write a file.  It
+# links the same simulation objects, so the trace and the tests can never be
+# describing different builds.
+TRACE_OBJS := $(BUILD)/trace_main.o $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(SIM)))
+TRACE := $(BUILD)/dstrace
+
 VPATH := $(HERE) $(HERE)/tests $(DS)/source $(wildcard $(DS)/source/*)
 
-.PHONY: all run clean
+.PHONY: all run trace clean
 
-all: $(TARGET)
+all: $(TARGET) $(TRACE)
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -60,6 +66,11 @@ $(BUILD)/%.o: %.cpp | $(BUILD)
 
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS)
+
+$(TRACE): $(TRACE_OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(TRACE_OBJS)
+
+trace: $(TRACE)
 
 run: $(TARGET)
 	@$(TARGET)

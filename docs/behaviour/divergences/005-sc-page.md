@@ -95,3 +95,42 @@ wholesale rather than differ in a field. `tools/trace_diff.py` needs one of:
 behaviour is a flag someone eventually ships. Prefer (1), and reach for (2) only
 when a scene's stage machine genuinely needs a dialogue-bearing trace to be
 validated at all.
+
+## Measured, once both emitters existed
+
+The paragraph above was written before there was a DS trace to compare. There is
+one now — `tools/ds_trace.py`, §M6 — and it puts numbers on it.
+
+`tools/trace_check.py`'s **`dive`** scenario is the dialogue-bearing fixture this
+section warned about: the Station of Awakening from reset, with the opening line
+open. `scriptIntro` carries two `SC_PAGE`s, so the SNES box is one page and two
+presses and the DS box is three pages and six. Against the same 150-frame input
+script, `trace_diff.py` reports
+
+```
+FIRST UNEXPLAINED DIVERGENCE: frame 21, field diveStage: snes=1 ds=0
+443 unexplained difference(s) across 6 field(s)
+```
+
+Frame 21 is the second A press. The SNES closes the box, `DiveUpdate` sees
+`TextBusy` clear in the same frame and advances `DIVE_INTRO → DIVE_PICK`; the DS
+is still on page two, so Sora never gets control and every later field follows.
+
+Two things this settles that reading could not:
+
+- **The consequence lands on the STAGE BYTES, which are not in this file's
+  `trace_fields` and must not be added to it.** `diveStage`, `questState`,
+  `nightStage` and `townStage` are the four most load-bearing columns in the
+  trace; excusing them here to silence a dialogue artefact would blind the diff
+  to every real scene-machine bug. The field list stays as it is, and the
+  divergence is read rather than suppressed.
+- **The suppression that *does* happen is misattributed.** Six `nactors`
+  differences in that run are charged to divergence 002 (the pool holds 128),
+  when their real cause is that Sora swings on the SNES at frame 120 and spawns
+  a `Slash` while the DS is still reading. This is the same limitation already
+  recorded against 004 — a divergence's `trace_fields` cannot say *when* or
+  *where* it applies — showing up on a different divergence.
+
+The four scenarios that avoid dialogue — `station`, `darkside`, `armor`, `race`
+— are byte-identical to the oracle over 1469 frames, which is option (1) working
+exactly as this section predicted it would.

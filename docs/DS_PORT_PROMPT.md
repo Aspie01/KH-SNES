@@ -28,6 +28,7 @@ current branch**. Do not `git checkout` a tag or another commit.
 | `platform/ds/` | Your target. Currently `README.md` and `include/fixed.h` only |
 | `assets/*.txt` | The map data. Shared by both targets, valid verbatim on the DS |
 | `tools/` | The shared asset pipeline and checkers |
+| `traces/*.txt` | Button scripts, `keys:frames` a line. **Read by both emitters** — the DS pad's bits are the SNES's own |
 
 The tag `snes-final` marks the same tree you are working from. Earlier commits
 have a different layout (`src/` at the root, no `docs/BEHAVIOUR.md`) — if a
@@ -129,6 +130,11 @@ sha256sum -c docs/oracle-baseline.sha256    # all 45 lines must say OK
 python3 tools/check_map.py                  # all 5 maps OK
 python3 tools/check_modes.py                # must say modes ok
 ```
+
+**And when the simulation changes**, `python3 tools/trace_check.py` — half a
+minute, both machines, five scenarios. Not in Gate 0 because it needs the ROM
+and the 65816 interpreter, but it is the check that notices a change in
+behaviour rather than a change in output.
 
 Two traps. `make -C platform/snes clean` **deletes `assets/gen/`**, which is
 gitignored — the baseline is how you prove the regenerated assets are the same
@@ -715,10 +721,6 @@ scripted input he walks east at **+24 Q12.4 per frame** — `WALK_SPEED = 24` �
 stops at the platform edge, and the dialogue box dismisses on the second press,
 which is `txtHold` behaving as §13 describes.
 
-**The exit criterion is met.** A trace from each platform for the same scripted
-input, agreeing: see §M3b below, which was written against this oracle and
-reproduces 150 frames of the SNES exactly.
-
 **`trace_diff.py` reads `docs/behaviour/divergences/`** and suppresses only what a
 recorded divergence excuses, counting every suppression by which divergence
 excused it so a divergence that has quietly become a blanket is visible.
@@ -732,6 +734,83 @@ One smaller thing found while building the differ: **a divergence's
 suppresses actor positions *everywhere*, including on the island where nothing
 moved. The front matter needs a `scenes:` key. Until it has one, read the
 per-divergence suppression counts the differ prints rather than trusting them.
+
+---
+
+# §M6b — The DS trace emitter — **LANDED**
+
+**Done.** `platform/ds/include/trace.h`, `platform/ds/source/trace.cpp`,
+`platform/ds/host/trace_main.cpp`, `tools/ds_trace.py`, `tools/trace_check.py`,
+`traces/*.txt`.
+
+§M6 built the oracle and left the other half unbuilt: the format existed, the
+differ existed, nothing on the DS side emitted a line. This is that half.
+
+**The exit criterion is met, and by more than it asked for.** Four scenarios are
+**byte-identical to the SNES over 1469 frames**, under `--strict`, with nothing
+suppressed and no divergence file involved:
+
+| scenario | frames | what it exercises |
+| --- | --- | --- |
+| `station` | 130 | the walk, the rim of the disc, one swing |
+| `darkside` | 285 | rest → fist → orbs, the Shadow the slam leaves, an orb expiring |
+| `armor` | 384 | the drop, the landing freeze, the walk, the fist that connects |
+| `race` | 670 | Riku's whole waypoint course, every frame of it |
+
+`tools/trace_check.py` runs all of them plus the fifth against both machines in
+about half a minute. It is not in Gate 0 because it needs the ROM and the
+interpreter; run it whenever the simulation changes.
+
+**Why a scenario and not a game.** The oracle boots the ROM and the ROM does the
+rest. There is no equivalent here, because the code that would tie the four
+stage machines together is the device tier and the device tier is blocked. A
+scenario is that tying-together for one situation: `ReadPad → TextUpdate →
+SceneUpdate → UpdateWorld`, sampled where the oracle samples, and **a
+`SceneAction` it cannot perform stops the run and names it** rather than being
+dropped — a skipped transition would put the trace on a different timeline and
+the diff would blame a frame hundreds later.
+
+**Two families, and the difference is the point.** `station`, `darkside`,
+`armor` and `race` hold the CONTENT equal — the SNES's own collision maps, the
+SNES's own cast positions — so that any difference is a difference in the CODE.
+`dive` is the scene as the DS actually ships it, smaller disc and all, and its
+job is to show the recorded divergences being correctly excused.
+
+**One input script drives both emitters with no translation table**, because the
+DS pad's bits are the SNES's own (`pad.h`); `trace_main.cpp` static_asserts all
+twelve so that cannot quietly stop being true.
+
+## What building it found
+
+- **`diveStage` is a gate, not a label.** `SceneUpdate` runs `IslandUpdate` only
+  when `diveStage == DIVE_ARRIVED` and otherwise runs `DiveUpdate` *on the
+  island* (main.s:622-628). The first `race` run differed on exactly one column
+  for 670 straight frames, which is what that looks like from outside.
+- **`trace_diff.py` could report success while comparing nothing.** Columns are
+  matched by name and a name missing from one side was skipped, so renaming `px`
+  to `pX` on one emitter produced "no unexplained divergence" — demonstrated,
+  then fixed: the pair is now refused unless the column lists and the version
+  match. `tools/ds_trace.py --check-format` additionally compares the two
+  `#fields` lines byte for byte before every run, which is the only check that
+  can see both languages.
+- **The differ named a column the divergences could not.** Actor slots are
+  emitted as `actorIdx` and divergence 002 calls them `actorSlot`, so 002 could
+  never have excused the one thing it exists for. Aliased.
+- **Divergence 005 reaches the stage bytes**, measured rather than predicted:
+  the `dive` pair's first unexplained difference is frame 21, `diveStage`,
+  because `scriptIntro` has two `SC_PAGE`s and the DS box needs six presses
+  where the SNES needed two. The field list of 005 is deliberately **not**
+  widened to cover it — see that file's "Measured, once both emitters existed".
+- **A position had to be encoded as the oracle reads one.** The SNES stored
+  Q12.4 in two bytes and the trace prints them unsigned; `World` here is an
+  `int32_t`, so a negative would have printed `-16` against `65520` and been
+  reported as a divergence that was really an encoding difference.
+
+**Proven by perturbation, three ways:** renaming a column makes
+`--check-format` and the differ both refuse the pair; swapping two columns or
+changing the position encoding fails the host tests; and *fixing* Darkside's
+reproduced fist bug makes `trace_check.py` fail the `darkside` pair at frame
+116, by name. That last one is the whole point of the machinery.
 
 ---
 

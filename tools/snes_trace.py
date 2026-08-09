@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Run the frozen SNES build headlessly and emit a per-frame trace of its WRAM.
 
-    tools/snes_trace.py --frames 600 --input scripts/idle.txt -o out/snes.trace
+    tools/snes_trace.py --frames 600 --input traces/idle.txt -o out/snes.trace
 
-This is the oracle half of §M6.  The other half is the DS host tier emitting the
-same format, and tools/trace_diff.py compares them knowing which differences
-docs/behaviour/divergences/ has already accounted for.
+This is the oracle half of §M6.  The other half is tools/ds_trace.py, which runs
+the DS host tier and emits the same format, and tools/trace_diff.py compares
+them knowing which differences docs/behaviour/divergences/ has already accounted
+for.  tools/trace_check.py runs all three over every scenario, which is the
+exit criterion made executable.
+
+THE INPUT SCRIPTS IN traces/ ARE SHARED.  The DS pad's bit assignments are the
+SNES's own -- see platform/ds/include/pad.h -- so one file drives both emitters
+with no translation table, and BUTTONS below is the same twelve numbers the C++
+side static_asserts.
 
 WHY NOT MEDNAFEN.  tools/playtest.sh drives the real emulator and is the right
 tool for "does this look right" -- it is how the SC_PAGE bug was proved.  But its

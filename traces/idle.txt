@@ -1,0 +1,11 @@
+# Two presses to page the scene's opening line away, then nothing at all.
+#
+# The scenes reached with --poke all open a message on arrival, and this is the
+# script that dismisses it and then lets the scene run itself: a boss fight
+# nobody interferes with, so what the trace records is the machine and not the
+# player.
+none:4
+a:3
+none:8
+a:3
+none:1000
