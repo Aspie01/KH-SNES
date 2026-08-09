@@ -25,18 +25,34 @@ plus one prompt per milestone, with mechanically checkable exit criteria.
 
 ## Building it
 
+Two prerequisites, and they are needed by different lines below:
+
+* **Pillow**, for the asset pipeline — `sudo apt install python3-pil`, or
+  `pip install Pillow`, or a venv if pip refuses with
+  `externally-managed-environment`. `tools/pixel.py` draws every asset as an
+  indexed image and imports `PIL`; without it `build_assets.py` stops on
+  `ModuleNotFoundError` before emitting anything. The root `README.md` has said
+  this since the SNES build and it is repeated here because this is the page
+  that tells you to run the pipeline.
+* **devkitPro**, for the compiler. `python3 tools/check_device.py` says whether
+  this machine has one and names every missing piece; it exits 0 only when a
+  build is actually possible.
+
 ```sh
 python3 tools/build_assets.py     # the .bin tables the cartridge links in
 python3 tools/check_link.py       # every symbol the ARM9 declares is on disk
 make -C platform/ds               # -> platform/ds/kh.nds
 ```
 
-That needs devkitPro. `python3 tools/check_device.py` says whether this machine
-has one and names every missing piece; it exits 0 only when a build is actually
-possible. On Windows, devkitPro's MSYS2 shell is where `make` lives, and it does
-not ship Python — either `pacman -S python3` there or run the two Python lines
-from PowerShell, where the installer's `DEVKITPRO`/`DEVKITARM` variables are
-already visible.
+**Pick one environment and stay in it.** The three lines above have to run in
+the same place: `make` reads `$DEVKITARM`, and the `.bin` files the first line
+writes are the ones the third links in. A Windows devkitPro install sets
+`DEVKITPRO`/`DEVKITARM` for PowerShell and for its own MSYS2 shell, and a WSL
+Ubuntu install sets them for WSL — neither is visible to the other, and a clone
+under `/home/…` in WSL is a different working tree from one under
+`C:\Users\…`. On Windows, devkitPro's MSYS2 shell is where `make` lives and it
+ships no Python, so either `pacman -S python3` there or install devkitPro inside
+WSL (`apt` route, `tools/check_device.py` prints it) and do everything there.
 
 The `.nds` runs on melonDS, DeSmuME or a flashcart. It boots straight into the
 first Station of Awakening; **L and R step through the nine scenes and SELECT
