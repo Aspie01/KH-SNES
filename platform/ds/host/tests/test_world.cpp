@@ -139,6 +139,125 @@ KH_TEST(world_sora_walks_exactly_as_the_snes_did) {
     CHECK_EQ(checked, int(sizeof ORACLE / sizeof *ORACLE));
 }
 
+KH_TEST(world_soras_cel_is_five_facings_and_a_mirror) {
+    // UpdateSoraFrame, world.s:667.  Eight compass directions and five drawn
+    // facings: west is east mirrored, and so are the two diagonals on that
+    // side.  The whole reason it matters to the SIMULATION rather than to the
+    // renderer is that the mirror is a bit in actFlags, and this is the only
+    // place that writes it for the player.
+    Actors a;
+    a.clear();
+    const int sora = a.spawn(ActType::Sora, tileCentre(4), tileCentre(4));
+
+    struct Want { Dir dir; int facing; bool flip; };
+    const Want WANTS[] = {
+        {Dir::S,  0, false}, {Dir::SE, 1, false}, {Dir::E,  2, false},
+        {Dir::NE, 3, false}, {Dir::N,  4, false},
+        {Dir::NW, 3, true},  {Dir::W,  2, true},  {Dir::SW, 1, true},
+    };
+    for (const Want& want : WANTS) {
+        a.dir[sora] = want.dir;
+        const int cel = updateSoraFrame(a, sora);
+        CHECK_EQ(cel, want.facing * SORA_CELS_PER_FACING);   // idle is cel zero
+        CHECK_EQ(has(a.flags[sora], ActFlags::HFlip), want.flip);
+        CHECK(cel >= 0);
+        CHECK(cel < SORA_CELS);
+    }
+
+    // THE CLEAR BEFORE THE SET.  Turning from west back to east has to put the
+    // bit down again; an `ora` on its own would leave him mirrored for ever,
+    // and the only symptom would be a sprite facing the wrong way.
+    a.dir[sora] = Dir::W;
+    updateSoraFrame(a, sora);
+    CHECK(has(a.flags[sora], ActFlags::HFlip));
+    a.dir[sora] = Dir::E;
+    updateSoraFrame(a, sora);
+    CHECK(!has(a.flags[sora], ActFlags::HFlip));
+    // ...and it touches no other flag while it does that.
+    CHECK(has(a.flags[sora], ActFlags::Large));
+    CHECK(has(a.flags[sora], ActFlags::Shadow));
+
+    // Gone means nothing to stream, which is a state a death reaches.
+    a.type[sora] = ActType::None;
+    CHECK_EQ(updateSoraFrame(a, sora), -1);
+    CHECK_EQ(updateSoraFrame(a, -1), -1);
+}
+
+KH_TEST(world_the_swing_is_two_cels_and_the_walk_is_four) {
+    // Six cels a facing: the four of the walk cycle, then the wind-up and the
+    // follow-through.  The timer counts DOWN, so `< 10` is the LATE half --
+    // nine frames of wind-up and ten of follow-through, not the other way
+    // round, and reading the comparison backwards is the obvious mistake.
+    Actors a;
+    a.clear();
+    const int sora = a.spawn(ActType::Sora, tileCentre(4), tileCentre(4));
+    a.dir[sora] = Dir::E;
+    const int base = 2 * SORA_CELS_PER_FACING;
+
+    a.state[sora] = ActState::Attack;
+    for (int timer = ATTACK_FRAMES; timer >= 0; --timer) {
+        a.timer[sora] = uint8_t(timer);
+        const int want = timer < SORA_ATTACK_SWITCH ? SORA_CEL_ATTACK_LATE
+                                                    : SORA_CEL_ATTACK_EARLY;
+        CHECK_EQ(updateSoraFrame(a, sora), base + want);
+    }
+
+    a.state[sora] = ActState::Walk;
+    for (int cel = 0; cel < SORA_WALK_CELS; ++cel) {
+        a.anim[sora] = uint8_t(cel);
+        CHECK_EQ(updateSoraFrame(a, sora), base + cel);
+    }
+
+    // Idle, hurt, dead and falling are all cel zero.  That is not an omission:
+    // there is no hurt cel and no death cel, and the flash palette carries both.
+    a.anim[sora] = 3;
+    const ActState QUIET[] = {ActState::Idle, ActState::Hurt, ActState::Dead,
+                              ActState::Fall};
+    for (const ActState s : QUIET) {
+        a.state[sora] = s;
+        CHECK_EQ(updateSoraFrame(a, sora), base);
+    }
+}
+
+KH_TEST(world_the_cel_is_picked_once_a_frame_and_not_on_a_frozen_one) {
+    // It runs after the loop, not per actor, and the hit-stop returns before it
+    // -- so a held frame does not restream a cel.  Driven through updateWorld
+    // rather than called directly, because "once, after the loop" is the part
+    // of the specification that a port gets wrong by putting it inside.
+    Actors a;
+    a.clear();
+    const int sora = a.spawn(ActType::Sora, tileCentre(4), tileCentre(4));
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    SceneView v{a, dlg, pad, ground, rng};
+    v.player = sora;
+
+    // Walking west sets the mirror through updateWorld alone.
+    pad.held = raw(Button::Left);
+    updateWorld(w, v, fx);
+    CHECK_EQ(int(a.dir[sora]), int(Dir::W));
+    CHECK(has(a.flags[sora], ActFlags::HFlip));
+
+    // Freeze, turn him east by hand, and the flag must NOT follow: the frozen
+    // frame returns before the cel is picked.
+    w.hitStop = 2;
+    a.dir[sora] = Dir::E;
+    updateWorld(w, v, fx);
+    CHECK(has(a.flags[sora], ActFlags::HFlip));     // still mirrored
+    CHECK_EQ(int(w.hitStop), 1);
+    updateWorld(w, v, fx);
+    CHECK(has(a.flags[sora], ActFlags::HFlip));
+    CHECK_EQ(int(w.hitStop), 0);
+    // ...and the first unfrozen frame puts it right.
+    pad.held = 0;
+    updateWorld(w, v, fx);
+    CHECK(!has(a.flags[sora], ActFlags::HFlip));
+}
+
 KH_TEST(world_hit_stop_freezes_every_actor_and_only_actors) {
     Actors actors;
     actors.clear();
@@ -169,6 +288,107 @@ KH_TEST(world_hit_stop_freezes_every_actor_and_only_actors) {
     updateWorld(w, view, fx);
     CHECK_EQ(int(actors.state[sora]), int(ActState::Walk));
     CHECK_EQ(int(actors.dir[sora]), int(Dir::E));
+}
+
+KH_TEST(world_dying_ramps_the_brightness_and_hands_over_exactly_once) {
+    // The last thing in UpdateSora with no trace covering it: no scenario kills
+    // Sora, because at one point of damage a cycle the Guard Armor would need
+    // four thousand frames to do it.  So this is read against world.s:474-491
+    // rather than against the oracle, and it says so.
+    Actors a;
+    a.clear();
+    const int sora = a.spawn(ActType::Sora, tileCentre(8), tileCentre(8));
+    const int sh = a.spawn(ActType::Shadow, tileCentre(9), tileCentre(8));
+    a.dir[sh] = Dir::E;
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{a, dlg, pad, ground, rng};
+    view.player = sora;
+
+    a.hp[sora] = 1;                             // one more will do it
+    damageSora(w, view, sh);
+    CHECK_EQ(a.hp[sora], 0);
+    CHECK_EQ(int(a.state[sora]), int(ActState::Dead));
+    CHECK_EQ(int(a.timer[sora]), DEATH_FRAMES);
+    CHECK_EQ(int(w.hitStop), 3);
+    CHECK_EQ(int(w.deadFlag), 0);               // not yet: the ramp runs first
+    // Knocked back along the SHADOW's heading, doubled.
+    CHECK_EQ(a.vx[sora].raw(), DIR_VEL_X[int(Dir::E)].raw() * 2);
+
+    // The freeze first, then fifty frames of fading.  Brightness reads the
+    // POST-decrement timer, so it starts at 12 and floors at 3 -- it must never
+    // reach black, because GAME OVER has to stay readable on top of it.
+    for (int i = 0; i < 3; ++i) updateWorld(w, view, fx);
+    CHECK_EQ(int(w.hitStop), 0);
+
+    int lowest = 15, highest = 0, handed = -1;
+    for (int f = 0; f < DEATH_FRAMES + 4; ++f) {
+        updateWorld(w, view, fx);
+        if (a.timer[sora] != 0) {
+            if (fx.brightness < lowest) lowest = fx.brightness;
+            if (fx.brightness > highest) highest = fx.brightness;
+        }
+        if (w.deadFlag != 0 && handed < 0) handed = f;
+    }
+    CHECK_EQ(highest, 12);                      // 49 >> 2
+    CHECK_EQ(lowest, 3);                        // floored, not zero
+    CHECK_EQ(handed, DEATH_FRAMES);             // the frame the timer read zero
+    CHECK_EQ(int(w.deadFlag), 1);
+
+    // The scene takes it from 1 to 2 when it puts the card up, and the dying
+    // branch must not knock it back down however long it sits there.
+    w.deadFlag = 2;
+    for (int f = 0; f < 60; ++f) updateWorld(w, view, fx);
+    CHECK_EQ(int(w.deadFlag), 2);
+    // ...and nothing can hurt him twice: he is already down.
+    damageSora(w, view, sh);
+    CHECK_EQ(int(a.state[sora]), int(ActState::Dead));
+    CHECK_EQ(int(w.hitStop), 0);                // not even the freeze
+}
+
+KH_TEST(world_a_westward_knockback_never_quite_stops) {
+    // asr1 is an ARITHMETIC shift, and -1 is its fixed point: -1 >> 1 is -1.
+    // So a knockback with a negative component decays to exactly one unit a
+    // frame and stays there for the rest of the recoil, which is a sixteenth of
+    // a pixel of drift nobody sees and a divergence a port would introduce by
+    // dividing instead of shifting.
+    Actors a;
+    a.clear();
+    const int sora = a.spawn(ActType::Sora, tileCentre(8), tileCentre(8));
+    const int sh = a.spawn(ActType::Shadow, tileCentre(7), tileCentre(8));
+    a.dir[sh] = Dir::W;                         // pushes him west
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    unsigned char coll[32 * 16], hgt[32 * 16];
+    for (unsigned i = 0; i < sizeof coll; ++i) { coll[i] = 1; hgt[i] = 0; }
+    SceneGround ground;
+    ground.set(Blob{coll, sizeof coll}, Blob{hgt, sizeof hgt}, 32, 16);
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{a, dlg, pad, ground, rng};
+    view.player = sora;
+
+    damageSora(w, view, sh);
+    CHECK_EQ(int(a.state[sora]), int(ActState::Hurt));
+    CHECK_EQ(a.vx[sora].raw(), -48);            // -24 doubled
+    for (int i = 0; i < 3; ++i) updateWorld(w, view, fx);   // the freeze
+
+    // -48, -24, -12, -6, -3, -2, -1, -1, -1 ... and never zero.
+    const int WANT[] = {-24, -12, -6, -3, -2, -1, -1, -1, -1, -1};
+    for (int i = 0; i < int(sizeof WANT / sizeof *WANT); ++i) {
+        updateWorld(w, view, fx);
+        CHECK_EQ(a.vx[sora].raw(), WANT[i]);
+    }
+    CHECK_EQ(int(a.state[sora]), int(ActState::Hurt));      // 20 frames of it
+    // The eastward side does reach zero, which is the asymmetry.
+    a.vx[sora] = World::fromRaw(4);
+    for (int i = 0; i < 6; ++i) updateWorld(w, view, fx);
+    CHECK_EQ(a.vx[sora].raw(), 0);
 }
 
 KH_TEST(world_opposite_buttons_do_not_cancel) {

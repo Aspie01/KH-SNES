@@ -86,6 +86,22 @@ void clearVelocity(Actors& a, int slot);
 void animateWalk(Actors& a, int slot);
 
 void updateSora(WorldState& w, SceneView& view, ScreenFx& fx, int slot);
+
+// The player's cel for this frame, and the mirror flag that goes with it.
+// Returns the index into sorachr.bin -- facing * SORA_CELS_PER_FACING + frame,
+// so 0..29 -- or -1 when there is no player to draw.
+//
+// WHY THIS IS SIMULATION AND NOT RENDERING, which is the only interesting thing
+// about it: it WRITES actFlags's HFlip bit.  Five facings are drawn and eight
+// exist, so west is east mirrored, and the mirror lives in the actor table
+// beside Large and Shadow rather than in whatever is emitting sprites.  A port
+// that left this to the renderer would have Sora walking west in the eastern
+// art and nothing in the actor table would disagree with it.
+//
+// The half that is NOT here is residency: `soraFrameCur` and the DMA request
+// (world.s:733-757) are facts about VRAM, so the device tier owns them.  This
+// runs ONCE per frame, after the actor loop, and not at all on a frozen one.
+int updateSoraFrame(Actors& a, int player);
 void updateHeartless(WorldState& w, SceneView& view, int slot);
 void updateSlash(Actors& a, int slot);
 

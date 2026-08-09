@@ -218,6 +218,35 @@ constexpr int HURT_FRAMES = 20;         // HURT_FRAMES
 constexpr int DEATH_FRAMES = 50;        // DEATH_FRAMES  brightness 12 down to 3
 constexpr int KNOCKBACK_SHIFT = 1;      // both knockback sites use `asl a`, i.e. x2
 
+// Sora's cel sheet, and the arithmetic UpdateSoraFrame does on it.
+//
+// Eight compass directions, FIVE drawn facings: west is east mirrored and so
+// are the two diagonals on that side.  That is the whole reason sorachr.bin is
+// 15360 bytes and not 24576 -- and it is why the mirror bit has to be written
+// somewhere, which is a thing the simulation does and not the renderer.
+//
+// Six cels a facing: the four of the walk cycle, then the swing's wind-up and
+// its follow-through.  Idle reuses walk cel 0.
+constexpr int SORA_WALK_CELS = 4;       // animateWalk cycles 0..3
+constexpr int SORA_CEL_ATTACK_EARLY = 4;
+constexpr int SORA_CEL_ATTACK_LATE = 5;
+// The timer counts DOWN from ATTACK_FRAMES, so this is the LATE half: nine
+// frames of wind-up and ten of follow-through.
+constexpr int SORA_ATTACK_SWITCH = 10;
+constexpr int SORA_FACINGS = 5;
+constexpr int SORA_CELS_PER_FACING = SORA_CEL_ATTACK_LATE + 1;
+constexpr int SORA_CELS = SORA_FACINGS * SORA_CELS_PER_FACING;
+constexpr int SORA_CEL_BYTES = 512;     // 32x32 at 4bpp, the same on both
+
+static_assert(SORA_WALK_CELS + 2 == SORA_CELS_PER_FACING,
+              "the walk cycle plus the two swing cels IS the per-facing count");
+static_assert(SORA_CELS * SORA_CEL_BYTES == 15360,
+              "assets/gen/sorachr.bin is 15360 bytes on both targets; a facing "
+              "or a cel added here without the pipeline agreeing would stream "
+              "the wrong 512 bytes and nothing would say so");
+static_assert(SORA_ATTACK_SWITCH < ATTACK_FRAMES,
+              "the swing has to reach its follow-through before it ends");
+
 // Eight facings.  Only S, SE, E, NE, N are drawn; W, SW, NW reuse the eastern
 // art mirrored.  The order is load-bearing: the velocity tables index by it.
 enum class Dir : uint8_t {

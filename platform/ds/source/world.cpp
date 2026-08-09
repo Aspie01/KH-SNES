@@ -84,6 +84,40 @@ void clearVelocity(Actors& a, int slot) {
     a.vy[slot] = World::fromRaw(0);
 }
 
+// drawFacing / drawFlip, world.s:2261-2262.  Eight compass directions collapse
+// to five drawn facings and a mirror flag.
+constexpr uint8_t DRAW_FACING[8] = {0, 1, 2, 3, 4, 3, 2, 1};
+constexpr bool DRAW_FLIP[8] = {false, false, false, false, false,
+                               true, true, true};
+static_assert(DRAW_FACING[int(Dir::W)] == DRAW_FACING[int(Dir::E)]
+                  && DRAW_FLIP[int(Dir::W)] && !DRAW_FLIP[int(Dir::E)],
+              "west is east, mirrored");
+
+int updateSoraFrame(Actors& a, int player) {
+    if (player < 0 || player >= MAX_ACTORS) return -1;
+    if (a.type[player] == ActType::None) return -1;     // gone; nothing to stream
+
+    const int d = idx(a.dir[player]);
+    // THE MIRROR BIT IS SIMULATION STATE.  It lives in actFlags beside Large and
+    // Shadow, this is the only place that writes it for the player, and it is
+    // cleared before it is set -- a facing that has stopped being a mirrored one
+    // has to put it back, which an `ora` on its own would not.
+    a.flags[player] = without(a.flags[player], ActFlags::HFlip);
+    if (DRAW_FLIP[d]) a.flags[player] = a.flags[player] | ActFlags::HFlip;
+
+    int frame = 0;
+    if (a.state[player] == ActState::Attack) {
+        frame = a.timer[player] < SORA_ATTACK_SWITCH ? SORA_CEL_ATTACK_LATE
+                                                     : SORA_CEL_ATTACK_EARLY;
+    } else if (a.state[player] == ActState::Walk) {
+        frame = a.anim[player];
+    }
+    // ...and everything else -- idle, hurt, dead, falling -- is cel zero, which
+    // is also walk cel zero.  That is not an omission in the assembly: there is
+    // no hurt cel and no death cel, and the flash palette carries both.
+    return DRAW_FACING[d] * SORA_CELS_PER_FACING + frame;
+}
+
 void animateWalk(Actors& a, int slot) {
     if (a.animT[slot] != 0) {
         --a.animT[slot];
@@ -853,13 +887,22 @@ void updateWorld(WorldState& w, SceneView& view, ScreenFx& fx) {
             case ActType::Fish:    updateFish(a, i);                break;
             case ActType::Mote:    updateMote(a, i);                break;
             case ActType::Riku:    updateRiku(w, a, i);             break;
-            // Darkside, Armor, Orb, Mote, Fish and Riku have behaviour in
-            // world.s and island.s and are NOT here yet -- see the note below.
-            // Everything else is inert by having no case, which is the same
-            // thing the assembly's comparison chain does.
+            // Nine types with behaviour, which is every one the assembly's
+            // comparison chain names.  Everything else -- the props, the
+            // pickups, the islanders, the town's residents -- is inert by
+            // having no case rather than by being skipped, which is exactly
+            // what falling off the end of that chain does.
             default:                                               break;
         }
     }
+
+    // UpdateSoraFrame runs ONCE, after the loop, and NOT on a frozen frame:
+    // the hit-stop returns above, so a held frame does not restream a cel.
+    // What it does here is pick the cel and write the mirror bit; comparing
+    // that against what is resident in VRAM and asking for the DMA is the
+    // device tier's half, because `soraFrameCur` is a fact about VRAM and not
+    // about the world.
+    (void)updateSoraFrame(a, view.player);
 }
 
 // WHAT IS NOT HERE, AND WHY IT IS SAFE TO SAY SO.

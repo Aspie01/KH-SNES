@@ -919,7 +919,7 @@ trace scenario cannot follow.
 
 ---
 
-# §M3b — The actor simulation — **COMPLETE**
+# §M3b — The actor simulation — **COMPLETE**, re-audited against `world.s`
 
 This milestone did not exist. §M6 found the hole: §M3 delivered the movement
 *primitive* and §M5 the scene-level machines, and nothing delivered the code in
@@ -952,6 +952,58 @@ The test loads the **SNES's** `divecoll.bin` rather than the DS's, on purpose: t
 DS station is radius 92 against 110 (divergence 004), so the two collision maps
 differ by design. Using the SNES's isolates the movement code, which must be
 identical, from the content decision, which must not be.
+
+## The completeness audit, run again once the traces existed
+
+The traces agree over 3125 frames, and that is a statement about the code they
+*execute*. It is not a statement about the code that is missing: a routine with
+no caller and a type that no scenario spawns are both invisible to a diff. So
+every `.proc` in `world.s` was walked against this tier, one at a time.
+
+**Thirty-eight of the thirty-nine are present** — as a function of the same name
+where the shape carried across, and as inline behaviour where it did not
+(`BossInRange` is the extent test inside `doAttackHit`, `OrbHitPlayer` the touch
+test inside `updateOrb`, `PlayerPos` an actor-table read). The nine-way dispatch
+matches the assembly's comparison chain type for type, and every `sta actFlags`
+in the SNES sources has a counterpart: `SpawnActor`'s initial flags,
+`UpdateFish`'s mirror, `UpdateRiku`'s mirror.
+
+**The thirty-ninth was `UpdateSoraFrame`, and it was not written.** `world.h`'s
+own header listed it in the specification — "UpdateSoraFrame runs ONCE, after
+the loop, not per actor" — and `updateWorld` called nothing after the loop.
+
+It matters because of what it writes. Eight compass directions, **five drawn
+facings**: west is east mirrored and so are the two diagonals on that side,
+which is why `sorachr.bin` is 15360 bytes and not 24576. The mirror is a bit in
+`actFlags`, beside `Large` and `Shadow` — **simulation state, in the actor
+table** — and this routine is the only thing that writes it for the player.
+Without it Sora walks west in the eastern art and nothing in the actor table
+disagrees. `updateSoraFrame()` now returns the cel index (`facing * 6 + frame`,
+0..29) and writes the bit; residency — `soraFrameCur` and the DMA request — is
+§M7's, because that is a fact about VRAM and not about the world.
+
+**The traces did not notice, and could not have.** `actFlags` is not a trace
+column, and adding one would be redundant rather than useful: the flip is a pure
+function of fields the trace already carries — Sora's from `pdir`, the fish's
+from its `timer`, Riku's from his position — so a divergence in the *table*
+would show up as a divergence in the input to it. What was untested was the
+table itself, and that is a host test's job. Three of them now cover the five
+facings, the clear-before-set (an `ora` without the `and` leaves him mirrored
+for ever), the swing's two cels and the once-a-frame-not-on-a-frozen-one rule.
+
+**One stale comment was worse than the gap.** `updateWorld`'s default case still
+read *"Darkside, Armor, Orb, Mote, Fish and Riku have behaviour in world.s and
+island.s and are NOT here yet"* — directly above the six cases that handle them.
+
+**And two paths that were right but had no test.** Nothing kills Sora in any
+scenario, because at one point of damage a cycle the Guard Armor would need four
+thousand frames to do it, so the death ramp and the knockback decay were read
+against the assembly instead: the brightness floors at **3** rather than going to
+black so GAME OVER stays readable, `deadFlag` is handed over once and never
+knocked back down from the 2 the scene writes, and `asr1` is an *arithmetic*
+shift — **-1 is its fixed point**, so a westward knockback decays to exactly one
+unit a frame and stays there while an eastward one reaches zero. Replacing the
+shift with a division fails that test on the sixth frame.
 
 ## Darkside, and the bug the oracle found
 
