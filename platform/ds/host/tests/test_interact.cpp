@@ -517,10 +517,18 @@ KH_TEST(interact_cid_is_the_reason_the_door_opens) {
     CHECK(s.script == ScriptId::TownCid2);
     CHECK(m.stage() == TownStage::Second);
 
-    // ...and BEFORE Look, on the wet stone, he says the same short line and
-    // still does not advance anything.  `cmp #T_LOOK` / `bne @cidAgain` is an
-    // equality test; a port that wrote `stage <= Look` would let the opening
-    // line be skipped by walking over and talking to him.
+    // ...and at Arrive he says the same short line and still advances nothing.
+    //
+    // ARRIVE IS NOT REACHABLE IN PLAY and this case is not pretending it is:
+    // TownUpdate sends T_ARRIVE to Woke before TalkTown is ever called
+    // (town.s:217-220), so no player stands here.  The state is driven directly
+    // BECAUSE it is unreachable -- what is being pinned is the shape of the
+    // branch, not a situation.  `cmp #T_LOOK` / `bne @cidAgain` is an equality
+    // test, and a port that wrote `stage <= Look` instead would agree with the
+    // oracle on every reachable stage and differ only here, where nothing can
+    // walk.  Then the day something moves the Arrive gate, the opening line
+    // becomes skippable by walking over to Cid and the cause is a comparison
+    // nobody changed.  See docs/BEHAVIOUR.md section 6.
     TownMachine early;
     early.begin(w.rng);
     CHECK(early.stage() == TownStage::Arrive);

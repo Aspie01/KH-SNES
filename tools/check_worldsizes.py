@@ -1363,12 +1363,50 @@ def check_citations(d: Doc, w: dict) -> None:
 
 
 def check_divergence_files(d: Doc, w: dict) -> None:
-    """Every divergence the document names is a file on disk."""
+    """Every divergence the document names is a file on disk.
+
+    A REFERENCE THAT SPELLS THE FILENAME OUT HAS TO BE THAT EXACT FILE, and not
+    merely some file sharing its three-digit prefix.  The looser reading is the
+    one this check shipped with, and it lets through precisely the mistake these
+    references are most likely to make: they are copied from one another, so the
+    way one goes wrong is a real title with the wrong number pasted onto the
+    front of it -- `docs/behaviour/divergences/005-ds-station-radius.md` names
+    nothing (005 is `005-sc-page.md`, 004 is the station radius), and under
+    "some file starts 005-" it passed, because 005-sc-page.md does.  A reader
+    following that link lands on a page about text paging while the sentence
+    around it talks about the disc, and the citation is then exactly the defect
+    this project rates worst: one that does not support the claim it is
+    attached to.  Nothing else here would catch it -- check_citations skips a
+    backticked path it cannot resolve when the path carries no `:line`, so a
+    divergence filename is checked here or nowhere.
+
+    A reference that is ONLY the number -- "divergence 001", or the bare
+    `docs/behaviour/divergences/004` this document uses once -- keeps the prefix
+    reading, because there is no filename in it to be wrong about.
+    """
     G = "divergence files"
     have = sorted(p.name for p in DIVERGENCES.glob("*.md"))
-    for m in d.every(r"`docs/behaviour/divergences/(\d{3})[a-z0-9-]*(?:\.md)?`"
-                     r"|\bdivergence (\d{3})\b"):
-        ident = m.group(1) or m.group(2)
+    for m in d.every(r"`docs/behaviour/divergences/(\d{3})([a-z0-9-]*)"
+                     r"(?:\.md)?`|\bdivergence (\d{3})\b"):
+        ident = m.group(1) or m.group(3)
+        # The title after the number, when the reference carries one.  Empty for
+        # `.../004` and for "divergence 001".
+        tail = m.group(2) or ""
+        if tail:
+            want = f"{ident}{tail}.md"
+            if want not in have:
+                near = next((n for n in have if n.startswith(ident + "-")), None)
+                d.bad.append(
+                    f"line {d.at(m.start())}: the document cites "
+                    f"docs/behaviour/divergences/{want}, which does not exist"
+                    + (f" -- divergence {ident} is {near}, so this is a real "
+                       f"title with the wrong number on it, or a real number "
+                       f"with the wrong title" if near else
+                       f", and nothing in docs/behaviour/divergences/ is "
+                       f"divergence {ident} at all"))
+                continue
+            d.eq(G, f"divergence {ident}", True, True, want)
+            continue
         if not any(n.startswith(ident + "-") for n in have):
             d.bad.append(f"line {d.at(m.start())}: divergence {ident} has no "
                          f"file in docs/behaviour/divergences/")

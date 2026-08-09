@@ -385,11 +385,31 @@ StageStep townInteract(TownMachine& m, Interact& st, SceneView& view,
                     m.setStage(TownStage::Second);
                     return StageStep{SceneAction::HudChanged, ScriptId::TownCid};
                 }
-                // "THE DOOR AT THE END OF THE ROW. IT'S OPEN NOW." -- and this
-                // is TownCid2's first and only reference in the tree.  Note it
-                // is reached at every OTHER stage, Arrive included, exactly as
-                // @cidAgain is: the SNES branches on `cmp #T_LOOK` and not on
-                // "later than Look".
+                // "THE DOOR AT THE END OF THE ROW. IT'S OPEN NOW."
+                // (town.s:1479-1481) -- TownCid2's first and only reference in
+                // the tree, and @cidAgain's line.
+                //
+                // THE EQUALITY IS DELIBERATE AND IT IS ALSO SAFE, which are two
+                // different facts and an earlier version of this comment ran
+                // them together.  `cmp #T_LOOK` is an equality and not a
+                // "later than", so read on its own this arm looks reachable at
+                // every other stage, Arrive included.  It is not: TalkTown has
+                // exactly one caller (town.s:240) and that caller gates it,
+                // sending T_ARRIVE to Woke, T_MEET to Meet, T_BOSS to
+                // WatchArmor, T_WON to AfterArmor and T_OVER to an immediate
+                // rts (town.s:217-232), and falling through only on the three
+                // stages its own comment calls walkable -- "T_LOOK, T_SECOND,
+                // T_THIRD: the town is walkable and the doors are live"
+                // (town.s:234).  So this arm is reached at Second and Third
+                // and nowhere else.
+                //
+                // WHICH IS WHY THE LINE IS NEVER A LIE.  The door it promises
+                // is doorTable row 0, gated on T_SECOND (town.s:1391), and both
+                // stages that can reach this arm have passed that gate.  Saying
+                // it were Arrive reachable would have Cid announce an open door
+                // before Sora has been told to look for him -- see
+                // docs/BEHAVIOUR.md section 6, which specifies this and says
+                // why the equality is safe rather than sloppy.
                 return StageStep{SceneAction::Say, ScriptId::TownCid2};
             }
             const int i = int(a.type[who]) - int(ActType::Cid);
