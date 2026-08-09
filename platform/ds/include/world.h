@@ -49,6 +49,7 @@ struct WorldState {
     // neither has a scene machine to hand.
     bool keyGot = true;
     uint8_t heartTile = 0;  // the Shadow's cel base; the night uses its own
+    uint8_t bossHP = 0;     // mirrored out of the actor table for the gauge
 
     void reset() { *this = WorldState{}; }
 };
@@ -79,6 +80,20 @@ void animateWalk(Actors& a, int slot);
 void updateSora(WorldState& w, SceneView& view, ScreenFx& fx, int slot);
 void updateHeartless(WorldState& w, SceneView& view, int slot);
 void updateSlash(Actors& a, int slot);
+
+// Darkside.  It never walks: it rests, then either brings a fist down on where
+// you were standing 44 frames ago, or fires three orbs -- and answers standing
+// underneath with a sweep, ahead of that alternation.
+void updateDarkside(WorldState& w, SceneView& view, int slot);
+
+// An orb travels in a straight line at twice a walk, IGNORING THE GROUND, and
+// bursts on contact or when its life runs out.
+void updateOrb(WorldState& w, SceneView& view, int slot);
+
+// Is the player inside the boss's sweep box?  Exposed because the resting
+// state tests it before choosing an attack, and because it is the one boss
+// range a test can check without driving the whole machine.
+bool playerUnderBoss(const Actors& a, int boss, int player);
 
 // Contact damage, and the knockback that goes with it.  `from` is the actor
 // that connected; Sora is pushed along ITS facing, not away from it.

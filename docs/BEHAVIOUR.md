@@ -439,7 +439,17 @@ has no mechanical consequence** — `weaponTaken` and `weaponGiven` are each
 written once and read nowhere — and **the raft's name only selects a
 confirmation line**. Do not invent stat effects for either.
 
-## 12. Two latent bugs, inherited unless fixed
+## 12. Two latent bugs, inherited unless fixed — and one that is not latent
+
+**[added] Darkside's slam cannot damage Sora**, because `DarksideSlam` reads
+`tmp0`/`tmp1` back as the impact point after `SpawnActor` has let `SetActorZ`
+overwrite them with the position shifted right by four. The fist misses by
+roughly 3960 Q12.4 units against a 160 tolerance, wherever he stands. Only the
+sweep and the orbs can hurt him. Found by the §M6 oracle, not by reading; see
+audit finding 59. The two bugs below are unreachable, and this one is the boss's
+main attack.
+
+
 
 Both are unreachable in the SNES build and become reachable in a port that adds
 a damage source where there is not one today.

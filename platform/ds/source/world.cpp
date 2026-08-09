@@ -26,9 +26,23 @@ constexpr int8_t DIR_TABLE[9] = {
     int8_t(Dir::SW), int8_t(Dir::S), int8_t(Dir::SE),
 };
 
+// Forward: the boss hurt test lives with the other attack code.
 World absW(World v) { return World::fromRaw(v.raw() < 0 ? -v.raw() : v.raw()); }
 
 int idx(Dir d) { return static_cast<int>(d); }
+
+// actState is ONE BYTE on the SNES and two different enumerations use it: an
+// ordinary actor stores ST_IDLE..ST_FALL and a boss stores DSS_REST..DSS_SWEEP_HIT
+// in the same field.  The DS types the field as ActState, so the sharing has to
+// be spelled somewhere; spelling it here, once, is better than a cast at each of
+// the fourteen sites that would otherwise need one.
+BossState bossState(const Actors& a, int slot) {
+    return static_cast<BossState>(static_cast<uint8_t>(a.state[slot]));
+}
+void setBossState(Actors& a, int slot, BossState s) {
+    a.state[slot] = static_cast<ActState>(static_cast<uint8_t>(s));
+}
+
 
 }  // namespace
 
@@ -110,11 +124,35 @@ void hurtHeartless(WorldState& w, Actors& a, int slot, int player) {
     w.hitStop = 3;
 }
 
+// HurtBoss.  Gated on the flinch, so a boss cannot be hit twice in ten frames --
+// which is the difference between it and a Shadow, and the reason a boss fight
+// is a rhythm rather than a mash.
+void hurtBoss(WorldState& w, Actors& a, int slot) {
+    if (a.hitT[slot] != 0) return;
+    if (a.hp[slot] == 0) return;
+    --a.hp[slot];
+    w.bossHP = a.hp[slot];
+    a.hitT[slot] = 10;
+    w.hitStop = 3;
+    if (a.hp[slot] == 0) a.type[slot] = ActType::None;
+}
+
 void doAttackHit(WorldState& w, SceneView& view, int player) {
     Actors& a = view.actors;
     World cx{}, cy{};
     attackPoint(a, player, cx, cy);
     for (int i = 0; i < MAX_ACTORS; ++i) {
+        if (a.type[i] == ActType::Darkside || a.type[i] == ActType::Armor) {
+            // Both bosses answer to the same test with their own extents; the
+            // Guard Armor's torso is the narrower of the two.
+            const World hx = a.type[i] == ActType::Darkside ? DS_HURT_X : GA_HURT_X;
+            const World hy = a.type[i] == ActType::Darkside ? DS_HURT_Y : GA_HURT_Y;
+            if (absW(a.x[i] - cx).raw() < hx.raw()
+                && absW(a.y[i] - cy).raw() < hy.raw()) {
+                hurtBoss(w, a, i);
+            }
+            continue;
+        }
         if (a.type[i] != ActType::Shadow) continue;
         // A wooden sword goes straight through them.  The assembly loads this
         // eight-bit deliberately: saidNoUse is the byte after keyGot, and a
@@ -123,9 +161,8 @@ void doAttackHit(WorldState& w, SceneView& view, int player) {
         if (!heartlessInRange(a, i, cx, cy)) continue;
         hurtHeartless(w, a, i, player);
     }
-    // The two bosses answer to the same test with their own extents.  Neither
-    // is simulated yet -- see the note at the end of this file.
 }
+
 
 void spawnSlash(SceneView& view, int player) {
     World cx{}, cy{};
@@ -334,6 +371,230 @@ void updateHeartless(WorldState& w, SceneView& view, int slot) {
     a.tile[slot] = uint8_t(a.anim[slot] * 2 + w.heartTile);
 }
 
+
+// ---------------------------------------------------------------------------
+// Darkside
+//
+// THE BOSS HAS NO VELOCITY, AND USES actVX/actVY FOR SOMETHING ELSE.  It never
+// walks, so AimAtPlayer parks the player's POSITION in those two fields and the
+// slam reads them back 44 frames later.  That is why the mark is stale for the
+// whole telegraph -- audit finding 4, the single most consequential error in the
+// original specification, which said the mark was taken at the END of the
+// wind-up and so inverted the dodge window.
+// ---------------------------------------------------------------------------
+namespace {
+
+// The three arcs a sweep leaves across the front of the boss, Q12.4.
+constexpr World SWEEP_OFS[3] = {
+    World::fromRaw(-384), World::fromRaw(0), World::fromRaw(384),
+};
+
+// AimAtPlayer: remember where the player is standing, in the velocity fields.
+void aimAtPlayer(Actors& a, int boss, int player) {
+    a.vx[boss] = a.x[player];
+    a.vy[boss] = a.y[player];
+}
+
+// The same nine-bucket table the pad and the Shadows use, but on a delta rather
+// than on buttons -- so an orb is fired along one of the eight facings a player
+// could walk, which is what makes it dodgeable by walking.
+bool bucketDir(World dx, World dy, World deadX, World deadY, Dir& out) {
+    int h = 1;
+    if (dx.raw() >= 0) {
+        if (dx.raw() >= deadX.raw()) h = 2;
+    } else if (-dx.raw() >= deadX.raw()) {
+        h = 0;
+    }
+    int v = 1;
+    if (dy.raw() >= 0) {
+        if (dy.raw() >= deadY.raw()) v = 2;
+    } else if (-dy.raw() >= deadY.raw()) {
+        v = 0;
+    }
+    const int8_t d = DIR_TABLE[v * 3 + h];
+    if (d < 0) return false;
+    out = static_cast<Dir>(d);
+    return true;
+}
+
+void spawnOrb(SceneView& view, World ox, World oy, Dir d) {
+    const int s = view.actors.spawn(ActType::Orb, ox, oy);
+    if (s < 0) return;                  // the table was full; the orb is lost
+    view.actors.dir[s] = d;
+    view.actors.timer[s] = ORB_LIFE;
+    // Twice a walk: an orb outruns you.  ORB_SPEED = 40 in game.inc is DEAD --
+    // it has one reference, its own definition, and nothing reads it.
+    view.actors.vx[s] = World::fromRaw(int16_t(DIR_VEL_X[idx(d)].raw() * 2));
+    view.actors.vy[s] = World::fromRaw(int16_t(DIR_VEL_Y[idx(d)].raw() * 2));
+}
+
+void fireOrbs(SceneView& view, int boss) {
+    Actors& a = view.actors;
+    // The hole in the chest, 40 px above its feet.
+    const World ox = a.x[boss];
+    const World oy = a.y[boss] - ORB_MUZZLE_UP;
+    Dir d{};
+    if (!bucketDir(a.x[view.player] - ox, a.y[view.player] - oy,
+                   HEART_DEAD_X, HEART_DEAD_Y, d)) {
+        d = Dir::S;             // directly underneath: fire downward
+    }
+    // Centre, then one either side -- a three-way spread you walk out of
+    // rather than dodge through.
+    spawnOrb(view, ox, oy, static_cast<Dir>((idx(d) + 7) & 7));
+    spawnOrb(view, ox, oy, d);
+    spawnOrb(view, ox, oy, static_cast<Dir>((idx(d) + 1) & 7));
+}
+
+void darksideSlam(WorldState& w, SceneView& view, int boss) {
+    Actors& a = view.actors;
+    const World mx = a.vx[boss], my = a.vy[boss];    // the mark, not a velocity
+    // A Shadow crawls out of the impact.  The Dive never sweeps these up, which
+    // is BEHAVIOUR.md section 12's first latent bug -- a survivor persists into
+    // the 170-frame fall.
+    a.spawn(ActType::Shadow, mx, my);
+    // ...and here is where the fist misses, every single time.
+    //
+    // The impact point is held in tmp0/tmp1, and the Shadow's SpawnActor call
+    // above ends with `jsr SetActorZ` -- whose own comment says it "clobbers
+    // tmp0-tmp4, ALL OF WHICH ARE SPENT" (world.s:SpawnActor).  In every other
+    // caller they are.  Here they are not: SetActorZ leaves the new actor's
+    // position SHIFTED DOWN BY FOUR in them (world.s:SetActorZ), so by the time
+    // this test runs, the "impact point" is one sixteenth of the mark.
+    //
+    // With Sora at 4224 and the clobbered value 264, the difference is 3960
+    // against a TOUCH_X of 160.  It is never close.  DARKSIDE'S SLAM CANNOT
+    // DAMAGE SORA -- only the sweep and the orbs can, because neither reads
+    // tmp after a spawn.  Confirmed on the oracle: a fist landing exactly on
+    // him leaves him at 20 HP with hitStopTimer still zero.
+    //
+    // Reproduced rather than fixed, because the oracle is the specification and
+    // a silent fix would make every trace diff meaningless.  Audit finding 59
+    // has the one-line change if it is ever wanted.
+    const World hx = World::fromRaw(int16_t(mx.raw() >> 4));
+    const World hy = World::fromRaw(int16_t(my.raw() >> 4));
+    if (absW(a.x[view.player] - hx).raw() < TOUCH_X.raw()
+        && absW(a.y[view.player] - hy).raw() < TOUCH_Y.raw()) {
+        damageSora(w, view, boss);
+    }
+}
+
+void darksideSweep(WorldState& w, SceneView& view, int boss) {
+    Actors& a = view.actors;
+    const World cx = a.x[boss];
+    const World cy = a.y[boss] + World::fromRaw(160);    // 10 px in front
+    for (const World& off : SWEEP_OFS) {
+        const int s = a.spawn(ActType::Slash, cx + off, cy);
+        if (s >= 0) a.timer[s] = 8;
+    }
+    if (playerUnderBoss(a, boss, view.player)) damageSora(w, view, boss);
+}
+
+}  // namespace
+
+bool playerUnderBoss(const Actors& a, int boss, int player) {
+    return absW(a.x[player] - a.x[boss]).raw() < SWEEP_X.raw()
+        && absW(a.y[player] - a.y[boss]).raw() < SWEEP_Y.raw();
+}
+
+void updateDarkside(WorldState& w, SceneView& view, int slot) {
+    Actors& a = view.actors;
+    // The flinch counts down every frame whatever else is happening, and it is
+    // what makes the boss invulnerable between hits -- unlike a Shadow, which
+    // can be hit again while it recoils.
+    if (a.hitT[slot] != 0) --a.hitT[slot];
+
+    switch (bossState(a, slot)) {
+        case BossState::SlamUp:
+            if (a.timer[slot] != 0) { --a.timer[slot]; return; }
+            darksideSlam(w, view, slot);
+            setBossState(a, slot, BossState::SlamHit);
+            a.timer[slot] = DS_SLAM_HOLD;
+            return;
+
+        case BossState::OrbUp:
+            if (a.timer[slot] != 0) { --a.timer[slot]; return; }
+            fireOrbs(view, slot);
+            setBossState(a, slot, BossState::OrbFire);
+            a.timer[slot] = DS_ORB_REST;
+            return;
+
+        case BossState::SweepUp:
+            if (a.timer[slot] != 0) { --a.timer[slot]; return; }
+            darksideSweep(w, view, slot);
+            setBossState(a, slot, BossState::SweepHit);
+            a.timer[slot] = DS_SWEEP_HOLD;
+            return;
+
+        case BossState::SlamHit:
+        case BossState::OrbFire:
+        case BossState::SweepHit:
+            if (a.timer[slot] != 0) { --a.timer[slot]; return; }
+            setBossState(a, slot, BossState::Rest);
+            a.timer[slot] = DS_REST;
+            return;
+
+        case BossState::Rest:
+        default:
+            break;
+    }
+
+    // Resting.
+    if (a.timer[slot] != 0) { --a.timer[slot]; return; }
+
+    // Standing underneath is answered IMMEDIATELY, ahead of the alternation --
+    // the sweep is the punish for hugging its feet, and it has a shorter
+    // telegraph than the fist for exactly that reason.
+    if (playerUnderBoss(a, slot, view.player)) {
+        setBossState(a, slot, BossState::SweepUp);
+        a.timer[slot] = DS_SWEEP_WIND;
+        return;
+    }
+
+    // Otherwise it strictly alternates, using actAnim as the toggle: the flip
+    // happens FIRST, so a boss that has just spawned with anim 0 slams before
+    // it ever fires.
+    a.anim[slot] = uint8_t(a.anim[slot] ^ 1);
+    if (a.anim[slot] == 0) {
+        setBossState(a, slot, BossState::OrbUp);
+        a.timer[slot] = DS_ORB_WIND;
+    } else {
+        aimAtPlayer(a, slot, view.player);      // the mark, taken NOW
+        setBossState(a, slot, BossState::SlamUp);
+        a.timer[slot] = DS_SLAM_WIND;
+    }
+}
+
+void updateOrb(WorldState& w, SceneView& view, int slot) {
+    Actors& a = view.actors;
+    if (a.timer[slot] == 0) {
+        a.type[slot] = ActType::None;           // burnt out
+        return;
+    }
+    --a.timer[slot];
+
+    if (a.animT[slot] == 0) {
+        a.animT[slot] = 5;
+        a.anim[slot] = uint8_t(a.anim[slot] ^ 1);
+        a.tile[slot] = uint8_t(a.anim[slot] * 2 + sprite::Orb);
+    } else {
+        --a.animT[slot];
+    }
+
+    // Straight line, no collision, no ground: an orb goes through walls and
+    // over the void, which is why the Station of Awakening's rim does not
+    // shelter you.
+    a.x[slot] = a.x[slot] + a.vx[slot];
+    a.y[slot] = a.y[slot] + a.vy[slot];
+
+    const int p = view.player;
+    if (a.type[p] == ActType::None) return;
+    if (a.state[p] == ActState::Hurt) return;
+    // The same halved-X overlap the Shadows use; nothing here is Shadow-specific.
+    if (!heartlessTouchTest(a, slot, a.x[p], a.y[p])) return;
+    damageSora(w, view, slot);      // knocked back along the ORB's heading
+    a.type[slot] = ActType::None;   // ...and it bursts
+}
+
 // ---------------------------------------------------------------------------
 // The dispatcher
 // ---------------------------------------------------------------------------
@@ -354,6 +615,8 @@ void updateWorld(WorldState& w, SceneView& view, ScreenFx& fx) {
             case ActType::Sora:    updateSora(w, view, fx, i);     break;
             case ActType::Shadow:  updateHeartless(w, view, i);    break;
             case ActType::Slash:   updateSlash(a, i);              break;
+            case ActType::Darkside: updateDarkside(w, view, i);     break;
+            case ActType::Orb:     updateOrb(w, view, i);           break;
             // Darkside, Armor, Orb, Mote, Fish and Riku have behaviour in
             // world.s and island.s and are NOT here yet -- see the note below.
             // Everything else is inert by having no case, which is the same
@@ -365,10 +628,10 @@ void updateWorld(WorldState& w, SceneView& view, ScreenFx& fx) {
 
 // WHAT IS NOT HERE, AND WHY IT IS SAFE TO SAY SO.
 //
-// UpdateDarkside, DarksideSlam, DarksideSweep, FireOrbs, SpawnOrb, UpdateOrb,
-// OrbHitPlayer, HurtBoss, BossInRange, PlayerUnderBoss, UpdateArmor, UpdateFish,
-// UpdateMote and UpdateRiku are all still on the SNES side only.  That is 700
-// lines of world.s and town.s against the 300 here.
+// UpdateArmor and its four helpers -- StepArmor, PlaceHands, ArmorSlam, OneHand
+// -- are still on the SNES side only, and so are UpdateFish, UpdateMote and
+// UpdateRiku.  The Guard Armor lives in town.s rather than world.s because it
+// walks and carries two separate hand actors, and it belongs with the town.
 //
 // The dispatcher above is written so their absence is INERT rather than wrong:
 // an actor of a type with no case is simply not updated, which is exactly what

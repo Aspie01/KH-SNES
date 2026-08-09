@@ -247,3 +247,249 @@ KH_TEST(world_a_wooden_sword_goes_straight_through_a_shadow) {
     CHECK_EQ(actors.hp[sh], hp0);
     CHECK_EQ(int(actors.type[sh]), int(ActType::Shadow));
 }
+
+// ---------------------------------------------------------------------------
+// Darkside, against the oracle again -- but reached a different way.
+//
+// The boss is on the THIRD Station of Awakening and playing to it would be a
+// four-hundred-frame input script full of guesses.  Instead the oracle pokes two
+// WRAM bytes -- sceneId and deadFlag -- and the ROM walks its OWN retry path
+// into the fight: RestartScene loads SCENE_DIVE3, spawns soraOnlySpawns, calls
+// SpawnBoss and sets DIVE_BOSS.  So the setup is the game's code and not a
+// hand-built state, which is the only kind of fixture worth having.
+//
+//     tools/snes_trace.py --frames 300 --input <two A presses>
+//         --poke sceneId=2 --poke deadFlag=2 --no-strict
+//
+// --no-strict is needed and is sound HERE specifically: the scene load overruns
+// a frame (see the note in snes_trace.py), which corrupts frameCount's parity --
+// and nothing in Darkside's state machine reads frameCount.  It would not be
+// sound for anything that drives shakeX or a flash palette.
+// ---------------------------------------------------------------------------
+KH_TEST(world_darkside_alternates_exactly_as_the_snes_did) {
+    Actors actors;
+    actors.clear();
+    // Sora far enough away that he is never under the boss: the sweep would
+    // pre-empt the alternation, which is a separate test below.
+    const int sora = actors.spawn(ActType::Sora, tileCentre(16), tileCentre(13));
+    const int boss = actors.spawn(ActType::Darkside, World::fromRaw(4224),
+                                  World::fromRaw(1920));
+    CHECK(boss > 0);
+    actors.hp[boss] = uint8_t(DS_MAX_HP);
+    actors.state[boss] = ActState::Idle;        // DSS_REST shares the byte
+    actors.timer[boss] = uint8_t(DS_REST);
+
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{actors, dlg, pad, ground, rng};
+    view.player = sora;
+
+    // Every interval the SNES produced, as a duration rather than an absolute
+    // frame -- the oracle run began mid-scene, and a duration is what actually
+    // has to match.  Each is its constant PLUS ONE, because these are the
+    // lda/beq/dec shape: the frame that reads zero is spent on the transition.
+    struct Leg { int state; int frames; };
+    const Leg LEGS[] = {
+        {int(BossState::Rest),    DS_REST + 1},
+        {int(BossState::SlamUp),  DS_SLAM_WIND + 1},
+        {int(BossState::SlamHit), DS_SLAM_HOLD + 1},
+        {int(BossState::Rest),    DS_REST + 1},
+        {int(BossState::OrbUp),   DS_ORB_WIND + 1},
+        {int(BossState::OrbFire), DS_ORB_REST + 1},
+    };
+
+    int leg = 0, spent = 0, shadowsAfterSlam = -1, orbsAfterVolley = -1;
+    for (int f = 0; f < 400 && leg < int(sizeof LEGS / sizeof *LEGS); ++f) {
+        CHECK_EQ(int(actors.state[boss]), LEGS[leg].state);
+        updateWorld(w, view, fx);
+        if (++spent == LEGS[leg].frames) {
+            // The slam leaves a Shadow behind; the volley leaves three orbs.
+            if (LEGS[leg].state == int(BossState::SlamUp))
+                shadowsAfterSlam = actors.count(ActType::Shadow);
+            if (LEGS[leg].state == int(BossState::OrbUp))
+                orbsAfterVolley = actors.count(ActType::Orb);
+            ++leg;
+            spent = 0;
+        }
+    }
+    CHECK_EQ(leg, int(sizeof LEGS / sizeof *LEGS));   // it got through them all
+    CHECK_EQ(shadowsAfterSlam, 1);      // "a Shadow crawls out of the impact"
+    CHECK_EQ(orbsAfterVolley, 3);       // centre, and one either side
+}
+
+KH_TEST(world_standing_underneath_pre_empts_the_alternation) {
+    // The sweep is the punish for hugging its feet, and it is chosen AHEAD of
+    // the fist/orb toggle -- so a boss that would have fired orbs sweeps
+    // instead, and the toggle does not advance.
+    Actors actors;
+    actors.clear();
+    const int sora = actors.spawn(ActType::Sora, World::fromRaw(4224),
+                                  World::fromRaw(2100));
+    const int boss = actors.spawn(ActType::Darkside, World::fromRaw(4224),
+                                  World::fromRaw(1920));
+    actors.hp[boss] = uint8_t(DS_MAX_HP);
+    actors.timer[boss] = 0;             // about to choose
+
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{actors, dlg, pad, ground, rng};
+    view.player = sora;
+
+    CHECK(playerUnderBoss(actors, boss, sora));
+    const uint8_t toggle = actors.anim[boss];
+    updateWorld(w, view, fx);
+    CHECK_EQ(int(actors.state[boss]), int(BossState::SweepUp));
+    CHECK_EQ(int(actors.timer[boss]), DS_SWEEP_WIND);
+    CHECK_EQ(actors.anim[boss], toggle);        // the alternation did not turn
+}
+
+KH_TEST(world_the_slam_mark_is_taken_at_the_start_of_the_wind_up) {
+    // The single most consequential error in the original specification, which
+    // said the mark was taken at the END of the telegraph and so inverted the
+    // dodge window.  AimAtPlayer runs on ENTRY to DSS_SLAM_UP, 44 frames early,
+    // and parks the position in actVX/actVY -- fields the boss never uses as a
+    // velocity, because it never walks.  Audit finding 4.
+    Actors actors;
+    actors.clear();
+    const int sora = actors.spawn(ActType::Sora, World::fromRaw(6000),
+                                  World::fromRaw(2600));
+    const int boss = actors.spawn(ActType::Darkside, World::fromRaw(4224),
+                                  World::fromRaw(1920));
+    actors.hp[boss] = uint8_t(DS_MAX_HP);
+    actors.timer[boss] = 0;
+    actors.anim[boss] = 0;              // so the toggle picks the fist
+
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{actors, dlg, pad, ground, rng};
+    view.player = sora;
+
+    CHECK(!playerUnderBoss(actors, boss, sora));
+    updateWorld(w, view, fx);
+    CHECK_EQ(int(actors.state[boss]), int(BossState::SlamUp));
+    // The mark is where he was standing NOW.
+    CHECK_EQ(actors.vx[boss].raw(), 6000);
+    CHECK_EQ(actors.vy[boss].raw(), 2600);
+
+    // Walk him a long way off; the mark must not follow.
+    actors.x[sora] = World::fromRaw(3000);
+    actors.y[sora] = World::fromRaw(3000);
+    for (int f = 0; f < DS_SLAM_WIND + 1; ++f) updateWorld(w, view, fx);
+    CHECK_EQ(int(actors.state[boss]), int(BossState::SlamHit));
+    CHECK_EQ(actors.vx[boss].raw(), 6000);      // still the old mark
+    CHECK_EQ(actors.vy[boss].raw(), 2600);
+    // ...and the Shadow crawled out THERE, not where he is now.
+    int shadow = -1;
+    for (int i = 0; i < MAX_ACTORS; ++i)
+        if (actors.type[i] == ActType::Shadow) shadow = i;
+    CHECK(shadow >= 0);
+    CHECK_EQ(actors.x[shadow].raw(), 6000);
+    // ...and he is unhurt -- which he would be even standing ON the mark, see
+    // world_the_fist_can_never_actually_hit_anyone below.
+    CHECK_EQ(actors.hp[sora], uint8_t(SORA_MAX_HP));
+}
+
+KH_TEST(world_a_boss_cannot_be_hit_twice_inside_its_flinch) {
+    // HurtBoss is gated on actHitT where HurtHeartless is not: a Shadow can be
+    // hit again while it recoils and a boss cannot, which is what makes a boss
+    // fight a rhythm rather than a mash.
+    Actors actors;
+    actors.clear();
+    const int sora = actors.spawn(ActType::Sora, World::fromRaw(4224),
+                                  World::fromRaw(2400));
+    const int boss = actors.spawn(ActType::Darkside, World::fromRaw(4224),
+                                  World::fromRaw(1920));
+    actors.hp[boss] = uint8_t(DS_MAX_HP);
+    actors.timer[boss] = 200;           // parked in Rest, out of the way
+    actors.dir[sora] = Dir::N;
+
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{actors, dlg, pad, ground, rng};
+    view.player = sora;
+
+    int swings = 0;
+    for (int f = 0; f < 200; ++f) {
+        // Swing whenever he is idle and the freeze has lifted.
+        const bool canSwing = w.hitStop == 0
+                           && actors.state[sora] == ActState::Idle;
+        pad.held = canSwing ? raw(Button::B) : uint16_t(0);
+        pad.pressed = pad.held;
+        if (canSwing) ++swings;
+        updateWorld(w, view, fx);
+    }
+    CHECK(swings > 4);                          // he really did swing repeatedly
+    // Every landed hit costs exactly one HP and arms a ten-frame flinch, so the
+    // damage is bounded by the swings and not by the frames.
+    CHECK(actors.hp[boss] < uint8_t(DS_MAX_HP));
+    CHECK_EQ(int(w.bossHP), int(actors.hp[boss]));
+    CHECK(int(DS_MAX_HP) - int(actors.hp[boss]) <= swings);
+}
+
+KH_TEST(world_the_fist_can_never_actually_hit_anyone) {
+    // A BUG IN THE SNES BUILD, reproduced deliberately.  DarksideSlam holds the
+    // impact point in tmp0/tmp1 and spawns a Shadow there -- and SpawnActor
+    // ends with SetActorZ, which leaves the new actor's position SHIFTED DOWN
+    // BY FOUR in those same two slots.  The damage test that follows therefore
+    // compares a Q12.4 position against one sixteenth of one, and misses by
+    // three thousand nine hundred and sixty units.
+    //
+    // Found by the oracle, not by reading: a fist landing exactly on Sora left
+    // him at full HP with hitStopTimer zero, and the DS port -- which did not
+    // have the bug -- ran its SlamHit three frames long because of the hit-stop
+    // the SNES never incurred.  That three-frame difference is the whole of the
+    // evidence, and no hand-written test would have produced it.
+    Actors actors;
+    actors.clear();
+    const int sora = actors.spawn(ActType::Sora, World::fromRaw(6000),
+                                  World::fromRaw(2600));
+    const int boss = actors.spawn(ActType::Darkside, World::fromRaw(4224),
+                                  World::fromRaw(1920));
+    actors.hp[boss] = uint8_t(DS_MAX_HP);
+    actors.timer[boss] = 0;
+    actors.anim[boss] = 0;
+
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{actors, dlg, pad, ground, rng};
+    view.player = sora;
+
+    updateWorld(w, view, fx);                   // aims, enters SlamUp
+    CHECK_EQ(actors.vx[boss].raw(), 6000);
+    // Sora does not move an inch: the fist comes down exactly on him.
+    for (int f = 0; f < DS_SLAM_WIND + 1; ++f) updateWorld(w, view, fx);
+    CHECK_EQ(int(actors.state[boss]), int(BossState::SlamHit));
+    CHECK_EQ(actors.hp[sora], uint8_t(SORA_MAX_HP));    // ...and nothing happens
+    CHECK_EQ(int(actors.state[sora]), int(ActState::Idle));
+    CHECK_EQ(int(w.hitStop), 0);                        // no connect, no freeze
+
+    // The sweep, by contrast, reads no scratch after a spawn and does connect.
+    actors.x[sora] = actors.x[boss];
+    actors.y[sora] = actors.y[boss] + World::fromRaw(200);
+    actors.state[boss] = ActState::Idle;
+    actors.timer[boss] = 0;
+    updateWorld(w, view, fx);
+    CHECK_EQ(int(actors.state[boss]), int(BossState::SweepUp));
+    for (int f = 0; f < DS_SWEEP_WIND + 1; ++f) updateWorld(w, view, fx);
+    CHECK(actors.hp[sora] < uint8_t(SORA_MAX_HP));
+}

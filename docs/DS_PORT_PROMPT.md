@@ -700,7 +700,7 @@ per-divergence suppression counts the differ prints rather than trusting them.
 
 ---
 
-# §M3b — The actor simulation — **Sora and the Shadows LANDED**
+# §M3b — The actor simulation — **Sora, the Shadows and Darkside LANDED**
 
 This milestone did not exist. §M6 found the hole: §M3 delivered the movement
 *primitive* and §M5 the scene-level machines, and nothing delivered the code in
@@ -734,12 +734,39 @@ DS station is radius 92 against 110 (divergence 004), so the two collision maps
 differ by design. Using the SNES's isolates the movement code, which must be
 identical, from the content decision, which must not be.
 
+## Darkside, and the bug the oracle found
+
+`updateDarkside`, `updateOrb`, `playerUnderBoss`, `hurtBoss` and the slam, sweep
+and orb volley are ported, and every interval matches the oracle exactly:
+`SlamUp` 45 frames, `SlamHit` 23, `Rest` 57, `OrbUp` 41, `OrbFire` 31 — each its
+constant plus one — with a Shadow crawling out of the fist and three orbs from
+the volley.
+
+Reaching the boss for a fixture would have meant a four-hundred-frame input
+script full of guesses, so the oracle gained `--poke`: two WRAM bytes,
+`sceneId` and `deadFlag`, make the ROM walk its **own** retry path into the
+fight. The setup is the game's code, not a hand-built state.
+
+**And the port disagreed with the oracle by three frames, which turned out to be
+a bug in the SNES build.** `DarksideSlam` holds the impact point in `tmp0`/`tmp1`
+and spawns a Shadow there — and `SpawnActor` ends with `jsr SetActorZ`, whose
+call site is commented *"clobbers tmp0-tmp4, all of which are spent"*. Here they
+are **not** spent: the damage test reads them back, and `SetActorZ` has left the
+position shifted right by four. The test compares a Q12.4 coordinate against one
+sixteenth of one and misses by ~3960 against a tolerance of 160.
+
+**Darkside's fist cannot damage Sora, wherever he stands.** Only the sweep and
+the orbs can. The three frames were the hit-stop the SNES never incurred. No
+hand-written expectation would have caught it, because the same misreading that
+wrote the port would have written the test. Audit finding 59; the port
+reproduces it, because a silent fix would make every trace diff meaningless.
+
 ## What is still on the SNES side only
 
-`UpdateDarkside`, `DarksideSlam`, `DarksideSweep`, `FireOrbs`, `SpawnOrb`,
-`UpdateOrb`, `OrbHitPlayer`, `HurtBoss`, `BossInRange`, `PlayerUnderBoss`,
-`UpdateArmor`, `UpdateFish`, `UpdateMote` and `UpdateRiku` — about 700 lines
-against the 300 ported.
+`UpdateArmor` and its helpers — `StepArmor`, `PlaceHands`, `ArmorSlam`,
+`OneHand` — plus `UpdateFish`, `UpdateMote` and `UpdateRiku`. The Guard Armor
+lives in `town.s` rather than `world.s` because it walks and carries two separate
+hand actors, and it belongs with the town.
 
 The dispatcher is written so their absence is **inert rather than wrong**: an
 actor whose type has no case is simply not updated, which is exactly what the

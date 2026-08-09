@@ -352,3 +352,40 @@ these correct findings written above.
   same-frame tie goes to Riku; and `UpdateRiku` runs from `UpdateWorld`, which is
   not behind the dialogue gate, while `RaceRun` is — so Riku keeps running while
   a box is open and his win registers on the frame it closes.
+
+## Found by the trace oracle, during §M3b
+
+The first finding in this document that was not found by reading. §M6's headless
+interpreter ran the frozen ROM and the DS port disagreed with it by three frames;
+this is what the three frames were.
+
+- **Finding 59: Darkside's fist cannot damage Sora. Ever.** `DarksideSlam` holds
+  the impact point in `tmp0`/`tmp1`, spawns a Shadow there, and then reads those
+  same two slots back for the damage test. In between, `SpawnActor` ends with
+  `jsr SetActorZ` — whose call site is commented *"clobbers tmp0-tmp4, all of
+  which are spent"*. In every other caller they are spent. Here they are not:
+  `SetActorZ` writes the new actor's position **shifted right by four** into
+  `tmp0`/`tmp1` (world.s, `SetActorZ`), so the test compares a Q12.4 coordinate
+  against one sixteenth of one.
+
+  With Sora at 4224 the clobbered value is 264 and the difference is 3960,
+  against a `TOUCH_X` of 160. It is not marginal and it does not depend where he
+  stands: **the fist misses by construction.** Only the sweep and the orbs can
+  hurt him, because neither reads scratch after a spawn.
+
+  Confirmed on the oracle rather than deduced: a fist landing exactly on Sora
+  leaves him at 20 HP with `hitStopTimer` still zero. It was found because the DS
+  port — which did not have the bug — ran its `DSS_SLAM_HIT` three frames long,
+  the extra three being the hit-stop the SNES never incurred. No hand-written
+  expectation would have produced that discrepancy, because the same misreading
+  that wrote the port would have written the test.
+
+  **The port reproduces it**, because the oracle is the specification and a
+  silent fix would make every trace diff meaningless. The fix, if it is ever
+  wanted, is to reload the mark after the spawn — two instructions — and it
+  belongs in a divergence file, not in a quiet edit.
+
+  This also makes §12's list of latent bugs incomplete in an instructive way:
+  the two it lists are unreachable and this one is not merely reachable, it is
+  the boss's headline attack. It has presumably never been noticed because the
+  sweep and the orbs are enough to lose to.
