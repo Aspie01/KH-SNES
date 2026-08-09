@@ -1860,15 +1860,66 @@ an ARM instruction. These cases prove `initScreens()` writes what `vram_map.h`
 says it should. They are no evidence that GBATEK is right, that the values are
 the ones the hardware wants, or that a picture appears.
 
+## Step two: the 2D ground and its streamer
+
+`device/ground.cpp`. A DS text background addresses at most 64×64 characters —
+512×512 pixels — and the island is **128×64**. So the window is a sliding view,
+and the sliding is the class.
+
+**The window is a torus, not a buffer.** The hardware wraps a 512×512 background
+at 512 pixels with no help and no cost, so nothing is ever *moved*: what moves is
+which map column each window column *holds*. A scroll of one character rewrites
+one column — sixty-four entries — instead of blitting a screen. That is the same
+technique the SNES used on its 64×32 window, and it is why 8 KiB of map RAM can
+scroll a 1024-pixel map.
+
+| property | why it is not obvious |
+| --- | --- |
+| a still frame writes **nothing** | 33 visible columns in a 64-column window is 31 of slack; a streamer that rewrote the visible columns every frame would look identical and spend 33 columns of DMA forever |
+| the slide is a `while`, not an `if` | a door or the Shatter moves the camera further in one frame than the slack absorbs, and an `if` slides one column and leaves the rest of the window holding another part of the map — visibly, and only on the frames that jump |
+| a jump past the window **refills** | the `while` would still be *correct*, walking one column at a time and writing hundreds nobody sees; the refill bounds the cost at one window |
+| the scroll register gets `cam.bgHOfs`, not `cam.x` | they differ by `shakeX` — the Shatter and the Tear. `bgHOfs` **is** a trace column, so a streamer using `cam.x` would drop the shake and the oracle diff could never see it: the diff compares the simulation's value and never the register |
+| `wrap()` is a positive modulus | C++'s `%` keeps the dividend's sign, so `-1 % 64` is `-1` and indexes before the window. This is the likeliest way to write a streamer that is perfect until something reaches an edge |
+
+**The map is not in `SceneGround`, and that is deliberate.** `SceneGround` carries
+collision and height — what the simulation needs and what the *3D* backend needs.
+A character map is what the *2D* backend needs and what the 3D one would never
+read. Widening the shared type would hand every consumer a field one of them
+cannot use and make `GroundRenderer::load()` mean different things to its two
+implementations. So the common part stays in the virtual and `CharMap` arrives
+through `setMap()`.
+
+**One overflow is refused rather than handled.** There is no row logic here at
+all: the window is as tall as the tallest map anyone has authored, and a
+65-character map would wrap onto itself and draw its top rows under its bottom
+ones — a seam a third of the way up the screen that reads as corrupt data. It is
+refused at load with the reason, and `ground_every_streaming_scene_in_the_pipeline_actually_fits`
+walks all nine scenes to prove the claim holds today.
+
+**Six breakages, all fired**, and each is a real way to write this wrong: a
+signed `%`, the partial right-hand column forgotten, `cam.x` for `cam.bgHOfs`, an
+`if` for the `while`, a flat row-major window ignoring the hardware's block
+layout, and the height refusal removed.
+
+**And the sixth found a defect in the test rather than the code.** Removing the
+height rule made the suite exit **139 with zero output** — `CHECK` does not
+abort, so `CHECK(g.error() != nullptr)` failed and the next line called
+`std::strstr(nullptr, …)` anyway. A case that segfaults on the failure it exists
+to detect is worse than no case: it reports nothing at the moment it fires. The
+message assertions go through a `saysWhy()` helper now.
+
+The cases run against the **real** `islandmap.bin`, every entry compared, walking
+the camera pixel-by-pixel across the whole island and back. A streamer tested on
+a synthetic grid would only agree with itself.
+
 ## What §M7 still has to do, when a toolchain exists
 
-~~two-screen init consuming `vram_map.h`~~ **done — see the section above** →
-2D tilemap ground renderer implementing `GroundRenderer` → sprites and the
-Y-sort → the bottom screen (HUD, command menu, minimap) → touch input → the 3D
-quad backend as a second `GroundRenderer`. The `GroundRenderer` seam and its
-`NullGroundRenderer` are already in `include/grid.h`.
+~~two-screen init consuming `vram_map.h`~~ → ~~2D tilemap ground renderer
+implementing `GroundRenderer`~~ **both done — see the two sections above** →
+sprites and the Y-sort → the bottom screen (HUD, command menu, minimap) → touch
+input → the 3D quad backend as a second `GroundRenderer`.
 
-**The five that remain are where the stub stops paying**, and that is the honest
+**The four that remain are where the stub stops paying**, and that is the honest
 reason they are not written rather than a shortage of effort. Each needs
 decisions a screen would inform — how the streamer schedules its column and row
 rewrites, what the Y-sort does with a tie, what the bottom screen's furniture
