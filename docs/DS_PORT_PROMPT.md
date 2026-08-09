@@ -1962,6 +1962,56 @@ Mutating the sort key to subtract the height lift — the mutation standing for
 
 A probe that does not fire is worth as much as one that does.
 
+### ...and the attribute packing
+
+`device/oam_pack.cpp`. `oam.cpp` decided *who* is drawn and in what order; this
+decides what the hardware is told. It is the first sprite work where the SNES's
+answer cannot simply be copied — the two machines lay an entry out differently
+enough that this is a **translation**, and the four places they part company are
+what the file is about:
+
+1. **There is no high table.** X is nine bits inside `attr1` and the size is two
+   more, so the whole `oamHigh` apparatus — the shift-by-slot, the
+   read-modify-write, the 32 extra bytes DMA'd every frame — goes away. The one
+   place the DS is straightforwardly simpler.
+2. **There is no name-page bit.** The SNES reached its second 256-tile page
+   through bit 0 of the attribute byte; a DS tile number is ten flat bits and
+   the pipeline has already re-serialised each page cel-contiguous. So `AF_PAGE1`
+   stops being a bit that is *written* and becomes a bit that *selects a base* —
+   a port still looking for a bit to set would put every islander on top of the
+   Heartless.
+3. **The palette field is four bits, not three.** Sixteen sub-palettes against
+   the SNES's eight. Nothing uses the extra eight, which is the correct amount
+   of use for them until something needs one.
+4. **The coordinate wrap is the behaviour, not a guard.** Y is eight bits and X
+   is nine, so y = −16 is stored as 240 and the hardware draws rows 240–255 (off
+   a 192-line screen) then 0–15 at the top. That is what makes a
+   partially-off-screen sprite work and why the cull can accept anything from
+   −32 without a second thought. A clamp would pin it to the edge and it would
+   slide along instead of leaving.
+
+The page bases are **derived** from `SPRITE_ASSETS` — Sora's 30-cel sheet, then
+two 8 KiB pages, divided by the 1D boundary — because typing 480 and 736 would
+be two numbers that stop being right the moment a page is resized. Raise the
+boundary to 64 and both halve along with every cel index.
+
+**`updateSoraFrame()` finally has a consumer.** `world.cpp:905` discards its
+return with a comment saying the rest "is the device tier's half, because
+`soraFrameCur` is a fact about VRAM and not about the world." This is that half.
+
+**Unused slots are hidden explicitly**, which `ClearOamBuffer` does at the *top*
+of `BuildOam` for a reason its name does not give: OAM holds what the previous
+frame left in it, so a frame with fewer sprites would go on drawing the tail of
+the last one, frozen. The park is 224 on both machines for different reasons —
+the SNES's screen height, and here the largest value at which a 32-tall sprite
+does not wrap back across the top. `static_assert`ed, and moving it to 240 fails
+to compile.
+
+**Nine breakages, all fired**: a clamp for the wrap, `& 1` for the flash parity,
+`AF_PAGE1` as a bit, the page base added before `dsTileFor` instead of after, a
+shadow inheriting the actor's palette, a shadow inheriting its mirror bit,
+unused slots left alone, priority 1 instead of 2, and the park at 240.
+
 ## What §M7 still has to do, when a toolchain exists
 
 ~~two-screen init~~ → ~~2D tilemap ground renderer~~ → ~~sprites and the
@@ -1969,11 +2019,11 @@ Y-sort~~ **three done — see the sections above** → the bottom screen (HUD,
 command menu, minimap) → touch input → the 3D quad backend as a second
 `GroundRenderer`.
 
-Half of "sprites and the Y-sort" is done: the **depth logic** — who is in front
-of whom, who is on screen, who gets one of the 128 slots, and where each goes.
-What is left of it is the **attribute packing**: attr0/attr1/attr2, the tile
-number through `dsTileFor()`, the palette and the flip bits. That is mechanical
-and derivable, and `SpriteSlot` is the boundary it consumes.
+"Sprites and the Y-sort" is complete: the depth logic and the attribute
+packing. What is *not* written is the frame glue that calls them and DMAs the
+result into OAM — a dozen lines that need a `swiWaitForVBlank` and therefore
+libnds, which is the first thing in this milestone genuinely blocked rather than
+merely unverifiable.
 
 **The three that remain are where the stub stops paying**, and that is the honest
 reason they are not written rather than a shortage of effort. Each needs
