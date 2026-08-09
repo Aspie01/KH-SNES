@@ -419,3 +419,138 @@ KH_TEST(assets_the_font_went_from_two_bits_to_four) {
         if (font.data[i] != 0) spaceOpaque = true;
     CHECK(spaceOpaque);
 }
+
+// ===========================================================================
+// What §M2's audit found: two tables that were emitted and never described
+// ===========================================================================
+
+KH_TEST(assets_a_scene_says_which_optional_tables_it_has) {
+    // Every scene emits a cast, a collision map and a height map.  The rest --
+    // spots, doors, a boss row, the pair, the island's two days -- are per
+    // scene, and the DEVICE cannot discover which at run time: there is no
+    // filesystem, a .bin is a linked symbol, and a symbol that does not exist
+    // is a link error.  So the generator has to say, and until this audit it
+    // did not: SceneAsset carried the ground's shape and nothing about tables.
+    struct Want { const char* name; uint8_t tables; };
+    const Want WANTS[] = {
+        {"station1", uint8_t(SceneTable::None)},
+        {"station2", uint8_t(SceneTable::None)},
+        {"station3", uint8_t(SceneTable::Boss)},
+        {"island", SceneTable::Spots | SceneTable::Day1 | SceneTable::Day2},
+        {"night", uint8_t(SceneTable::Spots)},
+        {"fragment", uint8_t(SceneTable::Boss)},
+        {"town1", uint8_t(SceneTable::Doors)},
+        {"town2", SceneTable::Doors | SceneTable::Spots},
+        {"town3", SceneTable::Doors | SceneTable::Pair},
+    };
+    const int n = int(sizeof SCENE_ASSETS / sizeof *SCENE_ASSETS);
+    CHECK_EQ(n, int(sizeof WANTS / sizeof *WANTS));
+    int checked = 0;
+    for (int i = 0; i < n; ++i) {
+        for (const Want& want : WANTS) {
+            if (std::strcmp(SCENE_ASSETS[i].name, want.name) != 0) continue;
+            CHECK_EQ(SCENE_ASSETS[i].tables, want.tables);
+            ++checked;
+        }
+    }
+    CHECK_EQ(checked, n);
+
+    // The file has to be there when the flag is, and absent when it is not --
+    // this is the half a table of flags cannot check on its own.
+    unsigned char buf[4096];
+    for (int i = 0; i < n; ++i) {
+        const SceneAsset& s = SCENE_ASSETS[i];
+        struct Kind { SceneTable flag; const char* suffix; };
+        const Kind KINDS[] = {
+            {SceneTable::Spots, "spots"}, {SceneTable::Doors, "doors"},
+            {SceneTable::Boss, "boss"},   {SceneTable::Pair, "pair"},
+            {SceneTable::Day1, "day1"},   {SceneTable::Day2, "day2"},
+        };
+        for (const Kind& k : KINDS) {
+            char name[64];
+            std::snprintf(name, sizeof name, "%s%s.bin", s.name, k.suffix);
+            const kh::Blob b = khhost::load(name, buf, sizeof buf);
+            CHECK_EQ(!b.empty(), has(s.tables, k.flag));
+        }
+    }
+}
+
+KH_TEST(assets_a_palette_knows_which_sub_palette_it_lands_in) {
+    // PALETTE_ASSETS was emitted with a name and a colour count and had NO
+    // CONSUMER ANYWHERE -- not in the port, not in a test.  It could not have
+    // had one: palFor() returns a sub-palette number and nothing said which
+    // file belonged to which.  build_ds_palettes' docstring deferred the
+    // question to §M4, and §M4 settled the BG half and left the OBJ half.
+    //
+    // The answer was never open.  main.s:270 lays objPal over OBJ sub-palettes
+    // 0-5 in the order SORA/HEART/SCENE/FX/SHADOW/DIVE, which is the same six
+    // numbers pal:: carries.
+    struct Want { const char* name; PalRegion region; uint8_t slot; };
+    const Want WANTS[] = {
+        {"sorapal", PalRegion::MainObj, pal::Sora},
+        {"heartpal", PalRegion::MainObj, pal::Heart},
+        {"objpal", PalRegion::MainObj, pal::Scene},
+        {"fxpal", PalRegion::MainObj, pal::Fx},
+        {"shadowpal", PalRegion::MainObj, pal::Shadow},
+        {"divobjpal", PalRegion::MainObj, pal::Dive},
+        // The three scene overrides, each over the slot it replaces.
+        {"islepal", PalRegion::MainObj, pal::Isle},
+        {"nightscenepal", PalRegion::MainObj, pal::Heart},
+        {"townobjpal", PalRegion::MainObj, pal::Heart},
+        {"nightobjpal", PalRegion::MainObj, pal::Scene},
+        {"armorpal", PalRegion::MainObj, pal::Scene},
+        // ...and the four grounds, all into sub-palette 0, one at a time.
+        {"bgpal", PalRegion::MainBg, 0},
+        {"nightpal", PalRegion::MainBg, 0},
+        {"townpal", PalRegion::MainBg, 0},
+        {"divepal", PalRegion::MainBg, 0},
+        {"hudpal", PalRegion::Ui, UI_SUBPALETTE},
+    };
+    const int n = int(sizeof PALETTE_ASSETS / sizeof *PALETTE_ASSETS);
+    CHECK_EQ(n, int(sizeof WANTS / sizeof *WANTS));
+    int checked = 0;
+    for (int i = 0; i < n; ++i) {
+        for (const Want& want : WANTS) {
+            if (std::strcmp(PALETTE_ASSETS[i].name, want.name) != 0) continue;
+            CHECK(PALETTE_ASSETS[i].region == want.region);
+            CHECK_EQ(PALETTE_ASSETS[i].slot, want.slot);
+            CHECK_EQ(PALETTE_ASSETS[i].entries, vram::PAL_SUBPALETTE_COLOURS);
+            ++checked;
+        }
+    }
+    CHECK_EQ(checked, n);
+    // pal::Isle sharing pal::Heart's slot is the documented SNES trick and not
+    // a collision: nothing on the island is a Heartless.
+    CHECK_EQ(int(pal::Isle), int(pal::Heart));
+}
+
+KH_TEST(assets_every_palette_slot_fits_its_region_and_the_font_is_not_the_ground) {
+    // A sub-palette number is four bits of a map entry or of an OAM attribute,
+    // and there are sixteen of them in a standard region.
+    for (const PaletteAsset& p : PALETTE_ASSETS) {
+        CHECK(p.slot < vram::PAL_SUBPALETTES);
+        CHECK(p.entries == vram::PAL_SUBPALETTE_COLOURS);
+    }
+    // The one slot that had to be CHOSEN rather than read off the assembly.
+    // The font is resident on both screens -- the dialogue box on the main one,
+    // the HUD on the sub -- so it needs a slot free in both, and on the main
+    // screen sub-palette 0 is the ground's, reloaded on every scene load.  A
+    // font there would change colour with the scenery.
+    CHECK(UI_SUBPALETTE != vram::SCENE_BG_SUBPALETTE);
+    CHECK(UI_SUBPALETTE < vram::PAL_SUBPALETTES);
+    for (const PaletteAsset& p : PALETTE_ASSETS) {
+        if (p.region != PalRegion::MainBg) continue;
+        CHECK_EQ(p.slot, vram::SCENE_BG_SUBPALETTE);      // and they take turns
+        CHECK(p.slot != UI_SUBPALETTE);
+    }
+    // Every sub-palette an actor can ask for has a palette that supplies it.
+    for (int i = 0; i < ACT_TYPE_COUNT; ++i) {
+        const ActType t = ActType(i);
+        if (t == ActType::None) continue;
+        bool supplied = false;
+        for (const PaletteAsset& p : PALETTE_ASSETS)
+            if (p.region == PalRegion::MainObj && p.slot == palFor(t))
+                supplied = true;
+        CHECK(supplied);
+    }
+}

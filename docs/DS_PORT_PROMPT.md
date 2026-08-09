@@ -329,6 +329,54 @@ hardware or in an emulator. Two specific things to watch when one exists: the
 extended-affine map entry's bit layout, which GBATEK never states and libnds only
 implies, and the DS LCD's gamma against palettes chosen for a CRT.
 
+## The audit, run again against what the pipeline emits
+
+The formats were already checked against the primary documentation and are
+right. This walk asked the other question — **is everything emitted described,
+and is everything described used?** — the one that found `UpdateSoraFrame` in
+§M3b and the missing caller in §M5.
+
+The inventory itself is clean: 80 DS artefacts, every one of them a scene file
+matching the nine-scenes-by-twelve-kinds grid or a palette or a sprite sheet
+named in a table, and nothing the SNES emits without a DS counterpart. Two
+things were emitted and **not described**, and both fail on the device rather
+than here.
+
+- **`SceneAsset` did not say which optional tables a scene has.** Every scene
+  emits a cast, a collision map and a height map; spots, doors, a boss row, the
+  pair and the island's two days are per scene. On the host a loader can try to
+  open the file and treat absence as "none" — which is what the tests do. **On
+  the device it cannot**: there is no filesystem, a `.bin` is a linked symbol,
+  and a symbol that does not exist is a link error. `SceneTable` is that
+  description, and the generator now refuses to emit a table it has no flag for
+  rather than dropping it silently.
+
+- **`PALETTE_ASSETS` had no consumer anywhere — and could not have had one.**
+  It carried a name and a colour count, and `palFor()` returns a *sub-palette
+  number*: nothing said which file supplied which slot. `build_ds_palettes`'
+  docstring deferred that to §M4; §M4 settled the BG half — the ground is
+  reloaded into sub-palette 0 per scene — and left the OBJ half. **A handoff
+  neither milestone collected**, and it was the only table in `assets.h` with no
+  reference outside it, not even in a test.
+
+  The answer was never open. `main.s:270` lays `objPal` over OBJ sub-palettes
+  0–5 in the order SORA/HEART/SCENE/FX/SHADOW/DIVE — the same six numbers
+  `constants.h`'s `pal::` carries — and the three scene overrides name their
+  target as a CGRAM offset, `128+16` being sub-palette 1 and `128+32` being 2.
+  So the island lays ISLE over 1, the night NIGHT over 1 and SCENE_NIGHT over 2,
+  the town TOWN over 1 and ARMOR over 2. All eleven are now recorded with their
+  region, their slot and which scenes select them, and the generator refuses two
+  *always-up* palettes claiming one slot — an override sharing a slot is what an
+  override is, and only a simultaneous clash is a bug.
+
+- **One slot had to be chosen rather than read off the assembly, and choosing it
+  wrong would have been invisible.** The font is 4bpp on the DS and resident on
+  **both** screens — the dialogue box on the main one, the HUD on the sub — so
+  it needs a sub-palette free in both. On the main screen sub-palette 0 is the
+  ground's, reloaded on every scene load, so a font there would change colour
+  with the scenery. `UI_SUBPALETTE` is 15: the far end, leaving 1–14 contiguous
+  for a scene that one day wants a second resident ground palette.
+
 # §M3 — Movement, collision and the camera — **LANDED**
 
 The heart of the port, and it must be bit-exact.

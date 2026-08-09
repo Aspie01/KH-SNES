@@ -87,6 +87,33 @@ constexpr int dsTileFor(int snesTile) {
     return (((snesTile / 64) * 4) + ((snesTile % 64) / 4)) * OBJ_CEL_TILES;
 }
 
+// WHICH OPTIONAL TABLES A SCENE HAS.  Every scene emits a cast, a
+// collision map and a height map; the rest are per scene, and the
+// DEVICE cannot find out at run time -- there is no filesystem, a .bin
+// is a linked symbol, and a symbol that does not exist is a link error.
+// So the generator says, because it is the only thing that knows.
+enum class SceneTable : uint8_t {
+    None  = 0,
+    Spots = 1 << 0,     // where the Heartless come up
+    Doors = 1 << 1,     // <scene>doors.bin -- position and landing only;
+                        // the destination and the stage gate are scene
+                        // logic, see interact.h's TownDoor
+    Boss  = 1 << 2,     // the boss's own spawn row
+    Pair  = 1 << 3,     // Donald and Goofy
+    Day1  = 1 << 4,     // the island's two days are two casts
+    Day2  = 1 << 5,
+};
+constexpr uint8_t operator|(SceneTable a, SceneTable b) {
+    return uint8_t(uint8_t(a) | uint8_t(b));
+}
+// ...and the third flag in a chain, where the left side is already a set.
+constexpr uint8_t operator|(uint8_t a, SceneTable b) {
+    return uint8_t(a | uint8_t(b));
+}
+constexpr bool has(uint8_t set, SceneTable t) {
+    return (set & uint8_t(t)) != 0;
+}
+
 struct SceneAsset {
     const char* name;
     uint16_t tilesW;
@@ -95,39 +122,63 @@ struct SceneAsset {
     const char* groundFrom; // nullptr unless it borrows another scene's
     bool streams;           // too big for one background
     int8_t bgSize;          // BGxCNT size code, -1 if it streams
+    uint8_t tables;         // a set of SceneTable
 };
 
 constexpr SceneAsset SCENE_ASSETS[] = {
-    {"station1", 32, 16, 197, nullptr, false, 1},
-    {"station2", 32, 16, 197, nullptr, false, 1},
-    {"station3", 32, 16, 195, nullptr, false, 1},
-    {"island", 64, 32, 247, nullptr, true, -1},
-    {"night", 64, 32, 0, "island", true, -1},
-    {"fragment", 32, 16, 112, nullptr, false, 1},
-    {"town1", 48, 32, 85, nullptr, true, -1},
-    {"town2", 48, 32, 107, nullptr, true, -1},
-    {"town3", 48, 32, 85, nullptr, true, -1},
+    {"station1", 32, 16, 197, nullptr, false, 1, uint8_t(SceneTable::None)},
+    {"station2", 32, 16, 197, nullptr, false, 1, uint8_t(SceneTable::None)},
+    {"station3", 32, 16, 195, nullptr, false, 1, uint8_t(SceneTable::Boss)},
+    {"island", 64, 32, 247, nullptr, true, -1, uint8_t(SceneTable::Day1 | SceneTable::Day2 | SceneTable::Spots)},
+    {"night", 64, 32, 0, "island", true, -1, uint8_t(SceneTable::Spots)},
+    {"fragment", 32, 16, 112, nullptr, false, 1, uint8_t(SceneTable::Boss)},
+    {"town1", 48, 32, 85, nullptr, true, -1, uint8_t(SceneTable::Doors)},
+    {"town2", 48, 32, 107, nullptr, true, -1, uint8_t(SceneTable::Doors | SceneTable::Spots)},
+    {"town3", 48, 32, 85, nullptr, true, -1, uint8_t(SceneTable::Doors | SceneTable::Pair)},
 };
 
-struct PaletteAsset { const char* name; uint16_t entries; };
-constexpr PaletteAsset PALETTE_ASSETS[] = {
-    {"bgpal", 16},
-    {"nightpal", 16},
-    {"townpal", 16},
-    {"divepal", 16},
-    {"objpal", 16},
-    {"nightobjpal", 16},
-    {"townobjpal", 16},
-    {"islepal", 16},
-    {"sorapal", 16},
-    {"shadowpal", 16},
-    {"divobjpal", 16},
-    {"armorpal", 16},
-    {"fxpal", 16},
-    {"heartpal", 16},
-    {"nightscenepal", 16},
-    {"hudpal", 16},
+// WHERE A PALETTE GOES, which is not a free choice: the SNES's own CGRAM
+// writes decide it.  main.s:270 lays objPal over OBJ sub-palettes 0-5 in
+// the order SORA/HEART/SCENE/FX/SHADOW/DIVE -- the same six numbers
+// constants.h's pal:: carries -- and the three scene overrides name their
+// target as a CGRAM offset: 128+16 is OBJ sub-palette 1 and 128+32 is 2.
+//
+// Two palettes sharing a slot is not a clash, it is what an override IS.
+// What would be a clash is two that are up at the same time, and the
+// generator refuses that.
+enum class PalRegion : uint8_t { MainBg, MainObj, Ui };
+struct PaletteAsset {
+    const char* name;
+    uint16_t entries;
+    PalRegion region;
+    uint8_t slot;           // sub-palette within its region
+    const char* when;       // which scenes select it
 };
+constexpr PaletteAsset PALETTE_ASSETS[] = {
+    {"bgpal", 16, PalRegion::MainBg, 0, "the island, both days"},
+    {"nightpal", 16, PalRegion::MainBg, 0, "the night and the fragment"},
+    {"townpal", 16, PalRegion::MainBg, 0, "the three districts"},
+    {"divepal", 16, PalRegion::MainBg, 0, "the Stations of Awakening"},
+    {"sorapal", 16, PalRegion::MainObj, 0, "everywhere"},
+    {"heartpal", 16, PalRegion::MainObj, 1, "the stations and the fragment"},
+    {"objpal", 16, PalRegion::MainObj, 2, "everywhere but the night and town"},
+    {"fxpal", 16, PalRegion::MainObj, 3, "everywhere"},
+    {"shadowpal", 16, PalRegion::MainObj, 4, "everywhere"},
+    {"divobjpal", 16, PalRegion::MainObj, 5, "everywhere"},
+    {"islepal", 16, PalRegion::MainObj, 1, "the island, over the Heartless"},
+    {"nightscenepal", 16, PalRegion::MainObj, 1, "the night, over the Heartless"},
+    {"townobjpal", 16, PalRegion::MainObj, 1, "the town, over the Heartless"},
+    {"nightobjpal", 16, PalRegion::MainObj, 2, "the night, over the scenery"},
+    {"armorpal", 16, PalRegion::MainObj, 2, "the town, over the scenery"},
+    {"hudpal", 16, PalRegion::Ui, 15, "both screens; the font is resident on each"},
+};
+
+// The font is resident on BOTH screens -- the dialogue box on the main
+// one, the HUD on the sub -- so its sub-palette has to be free in both,
+// and on the main screen sub-palette 0 is the ground's.
+constexpr int UI_SUBPALETTE = 15;
+static_assert(UI_SUBPALETTE != 0,
+              "the ground reloads into sub-palette 0 on every scene; a font there would change colour with the scenery");
 
 struct SpriteAsset { const char* name; uint32_t bytes; const char* shape; };
 constexpr SpriteAsset SPRITE_ASSETS[] = {

@@ -2431,7 +2431,8 @@ def ds_scenes():
     )
 
 
-def build_ds_cast(stem: str, grid, world, palette, props=None) -> tuple[Cast, int]:
+def build_ds_cast(stem: str, grid, world, palette,
+                  props=None) -> tuple[Cast, int, list[str]]:
     """Emit one scene's cast tables, and a preview with every entry marked."""
     out = GEN / "ds"
     out.mkdir(parents=True, exist_ok=True)
@@ -2456,13 +2457,31 @@ def build_ds_cast(stem: str, grid, world, palette, props=None) -> tuple[Cast, in
     write_png(marked, list(palette) + CAST_MARKERS,
               SRC / f"ds_{stem}_cast.png")
 
+    # Which optional tables this scene turned out to have.  The DEVICE cannot
+    # discover that at run time -- there is no filesystem, a .bin is a linked
+    # symbol, and a symbol that does not exist is a link error -- so the header
+    # has to say, and the only place that knows is right here.
+    KNOWN = ("spots", "doors", "boss", "pair", "day1", "day2")
+    tables = list(cast.tables)
+    if cast.spots:
+        tables.append("spots")
+    if cast.doors:
+        tables.append("doors")
+    for name in tables:
+        if name not in KNOWN:
+            raise SystemExit(
+                f"{stem}: emitted {stem}{name}.bin, which include/gen/assets.h "
+                f"has no flag for.  Add it to KNOWN here and to SceneTable in "
+                f"emit_ds_asset_header -- a table nothing names is a table the "
+                f"device tier cannot link.")
+
     peak = len(prop_rows) + cast.peak
     extra = ", ".join(f"{len(v)} {k}" for k, v in cast.tables.items())
     print(f"     cast: {len(prop_rows)} props from the map + {len(cast.base)} "
           f"placed{f' + {extra}' if extra else ''}, peak {peak}"
           f"{f', {len(cast.spots)} spots' if cast.spots else ''}"
           f"{f', {len(cast.doors)} doors' if cast.doors else ''}")
-    return cast, peak
+    return cast, peak, sorted(tables)
 
 
 def verify_ds_roundtrip(scene, world) -> None:
@@ -2578,25 +2597,74 @@ def build_ds_palettes() -> list[tuple[str, int]]:
     """Every palette the DS needs, in the format it already had.
 
     Fifteen-bit BGR little-endian is byte-identical between the two machines, so
-    these are the SNES bytes unchanged.  Which slot each one occupies in palette
-    RAM is NOT decided here -- that is the VRAM map's business (§M4), and guessing
-    it now would be a number two files disagree about later.
+    these are the SNES bytes unchanged.
+
+    WHICH SUB-PALETTE EACH ONE GOES IN is recorded here now, and it is not a
+    guess: the SNES's own CGRAM writes say so.  `DMA_CGRAM 128, objPal, 256`
+    puts SORA/HEART/SCENE/FX/SHADOW/DIVE in OBJ sub-palettes 0-5 in that order
+    (main.s:270), and the three scene overrides name their target explicitly --
+    `128+16` is OBJ sub-palette 1 and `128+32` is 2, so the island lays ISLE over
+    1 (main.s:407), the night lays NIGHT over 1 and SCENE_NIGHT over 2
+    (main.s:443,468), and the town lays TOWN over 1 and ARMOR over 2
+    (main.s:541).  Those six numbers are the same six `pal::` carries in
+    constants.h, which is what makes palFor() mean anything at all.
+
+    This used to say the slots were §M4's business.  §M4 settled the BG side --
+    the ground is reloaded into sub-palette 0 per scene -- and left the OBJ side,
+    so PALETTE_ASSETS was emitted with no slot and had no consumer anywhere in
+    the port.  A handoff neither milestone collected.
     """
     out = GEN / "ds"
     out.mkdir(parents=True, exist_ok=True)
-    pals = (("bgpal", BG_GROUND, 16), ("nightpal", BG_NIGHT, 16),
-            ("townpal", BG_TOWN, 16), ("divepal", BG_DIVE, 16),
-            ("objpal", OBJ_SCENE, 16), ("nightobjpal", OBJ_SCENE_NIGHT, 16),
-            ("townobjpal", OBJ_TOWN, 16), ("islepal", OBJ_ISLE, 16),
-            ("sorapal", OBJ_SORA, 16), ("shadowpal", OBJ_SHADOW, 16),
-            ("divobjpal", OBJ_DIVE, 16), ("armorpal", OBJ_ARMOR, 16),
-            ("fxpal", OBJ_FX, 16), ("heartpal", OBJ_HEART, 16),
-            ("nightscenepal", OBJ_NIGHT, 16),
-            ("hudpal", HUD_PAL, 16))
+    # name, colours, region, sub-palette, and which scenes select it.
+    # "" for every scene; a list names the ones that override the default.
+    BG, OBJ, UI = "PalRegion::MainBg", "PalRegion::MainObj", "PalRegion::Ui"
+    pals = (
+        # The ground, all four of them into sub-palette 0, one at a time --
+        # dedupe_tilemap_ds hard-codes 0 in every map entry it writes.
+        ("bgpal", BG_GROUND, 16, BG, 0, "the island, both days"),
+        ("nightpal", BG_NIGHT, 16, BG, 0, "the night and the fragment"),
+        ("townpal", BG_TOWN, 16, BG, 0, "the three districts"),
+        ("divepal", BG_DIVE, 16, BG, 0, "the Stations of Awakening"),
+        # The object palettes, in the order objPal concatenates them.
+        ("sorapal", OBJ_SORA, 16, OBJ, 0, "everywhere"),
+        ("heartpal", OBJ_HEART, 16, OBJ, 1, "the stations and the fragment"),
+        ("objpal", OBJ_SCENE, 16, OBJ, 2, "everywhere but the night and town"),
+        ("fxpal", OBJ_FX, 16, OBJ, 3, "everywhere"),
+        ("shadowpal", OBJ_SHADOW, 16, OBJ, 4, "everywhere"),
+        ("divobjpal", OBJ_DIVE, 16, OBJ, 5, "everywhere"),
+        # ...and the three overrides, each over the slot it replaces.
+        ("islepal", OBJ_ISLE, 16, OBJ, 1, "the island, over the Heartless"),
+        ("nightscenepal", OBJ_NIGHT, 16, OBJ, 1, "the night, over the Heartless"),
+        ("townobjpal", OBJ_TOWN, 16, OBJ, 1, "the town, over the Heartless"),
+        ("nightobjpal", OBJ_SCENE_NIGHT, 16, OBJ, 2, "the night, over the scenery"),
+        ("armorpal", OBJ_ARMOR, 16, OBJ, 2, "the town, over the scenery"),
+        # The font.  IT CANNOT BE SUB-PALETTE 0: on the main screen that is the
+        # ground's, reloaded per scene, and the dialogue box draws over the top
+        # of it.  The far end is chosen so 1..14 stay contiguous for a scene that
+        # one day wants a second resident ground palette.
+        ("hudpal", HUD_PAL, 16, UI, 15, "both screens; the font is resident on "
+                                        "each"),
+    )
     made = []
-    for name, pal, count in pals:
+    seen = {}
+    for name, pal, count, region, slot, when in pals:
         write_bin(out / f"{name}.bin", palette_bytes(pal, count))
-        made.append((name, count))
+        made.append((name, count, region, slot, when))
+        seen.setdefault((region, slot), []).append(name)
+    # Two palettes may share a slot -- that is what an override IS -- but a slot
+    # claimed by two palettes that are up AT THE SAME TIME would be a picture
+    # nobody could explain.  The overrides are per scene and the defaults are
+    # not, so what is checked is that no slot is claimed twice by the "everywhere"
+    # set.  Anything stronger needs a scene axis these tuples do not carry.
+    for (region, slot), names in sorted(seen.items()):
+        always = [n for n, _, r, s, w in
+                  ((n, c, r, s, w) for n, c, r, s, w in made)
+                  if (r, s) == (region, slot) and w == "everywhere"]
+        if len(always) > 1:
+            raise SystemExit(f"{region} sub-palette {slot} is claimed by "
+                             f"{', '.join(always)}, and both are always up")
+        del names
     return made
 
 
@@ -2702,6 +2770,33 @@ def emit_ds_asset_header(scenes, sprites, palettes) -> None:
     w("    return (((snesTile / 64) * 4) + ((snesTile % 64) / 4)) * OBJ_CEL_TILES;")
     w("}")
     w("")
+    w("// WHICH OPTIONAL TABLES A SCENE HAS.  Every scene emits a cast, a")
+    w("// collision map and a height map; the rest are per scene, and the")
+    w("// DEVICE cannot find out at run time -- there is no filesystem, a .bin")
+    w("// is a linked symbol, and a symbol that does not exist is a link error.")
+    w("// So the generator says, because it is the only thing that knows.")
+    w("enum class SceneTable : uint8_t {")
+    w("    None  = 0,")
+    w("    Spots = 1 << 0,     // where the Heartless come up")
+    w("    Doors = 1 << 1,     // <scene>doors.bin -- position and landing only;")
+    w("                        // the destination and the stage gate are scene")
+    w("                        // logic, see interact.h's TownDoor")
+    w("    Boss  = 1 << 2,     // the boss's own spawn row")
+    w("    Pair  = 1 << 3,     // Donald and Goofy")
+    w("    Day1  = 1 << 4,     // the island's two days are two casts")
+    w("    Day2  = 1 << 5,")
+    w("};")
+    w("constexpr uint8_t operator|(SceneTable a, SceneTable b) {")
+    w("    return uint8_t(uint8_t(a) | uint8_t(b));")
+    w("}")
+    w("// ...and the third flag in a chain, where the left side is already a set.")
+    w("constexpr uint8_t operator|(uint8_t a, SceneTable b) {")
+    w("    return uint8_t(a | uint8_t(b));")
+    w("}")
+    w("constexpr bool has(uint8_t set, SceneTable t) {")
+    w("    return (set & uint8_t(t)) != 0;")
+    w("}")
+    w("")
     w("struct SceneAsset {")
     w("    const char* name;")
     w("    uint16_t tilesW;")
@@ -2710,20 +2805,50 @@ def emit_ds_asset_header(scenes, sprites, palettes) -> None:
     w("    const char* groundFrom; // nullptr unless it borrows another scene's")
     w("    bool streams;           // too big for one background")
     w("    int8_t bgSize;          // BGxCNT size code, -1 if it streams")
+    w("    uint8_t tables;         // a set of SceneTable")
     w("};")
     w("")
     w("constexpr SceneAsset SCENE_ASSETS[] = {")
-    for name, gw, gh, chars, shared, streams, bgsize in scenes:
+    FLAG = {"spots": "SceneTable::Spots", "doors": "SceneTable::Doors",
+            "boss": "SceneTable::Boss", "pair": "SceneTable::Pair",
+            "day1": "SceneTable::Day1", "day2": "SceneTable::Day2"}
+    for name, gw, gh, chars, shared, streams, bgsize, tables in scenes:
         share = f'"{shared}"' if shared else "nullptr"
+        flags = "uint8_t(%s)" % (" | ".join(FLAG[k] for k in tables)
+                                 or "SceneTable::None")
         w(f'    {{"{name}", {gw}, {gh}, {chars}, {share}, '
-          f'{"true" if streams else "false"}, {bgsize}}},')
+          f'{"true" if streams else "false"}, {bgsize}, {flags}}},')
     w("};")
     w("")
-    w("struct PaletteAsset { const char* name; uint16_t entries; };")
-    w("constexpr PaletteAsset PALETTE_ASSETS[] = {")
-    for name, count in palettes:
-        w(f'    {{"{name}", {count}}},')
+    w("// WHERE A PALETTE GOES, which is not a free choice: the SNES's own CGRAM")
+    w("// writes decide it.  main.s:270 lays objPal over OBJ sub-palettes 0-5 in")
+    w("// the order SORA/HEART/SCENE/FX/SHADOW/DIVE -- the same six numbers")
+    w("// constants.h's pal:: carries -- and the three scene overrides name their")
+    w("// target as a CGRAM offset: 128+16 is OBJ sub-palette 1 and 128+32 is 2.")
+    w("//")
+    w("// Two palettes sharing a slot is not a clash, it is what an override IS.")
+    w("// What would be a clash is two that are up at the same time, and the")
+    w("// generator refuses that.")
+    w("enum class PalRegion : uint8_t { MainBg, MainObj, Ui };")
+    w("struct PaletteAsset {")
+    w("    const char* name;")
+    w("    uint16_t entries;")
+    w("    PalRegion region;")
+    w("    uint8_t slot;           // sub-palette within its region")
+    w("    const char* when;       // which scenes select it")
     w("};")
+    w("constexpr PaletteAsset PALETTE_ASSETS[] = {")
+    for name, count, region, slot, when in palettes:
+        w(f'    {{"{name}", {count}, {region}, {slot}, "{when}"}},')
+    w("};")
+    w("")
+    w("// The font is resident on BOTH screens -- the dialogue box on the main")
+    w("// one, the HUD on the sub -- so its sub-palette has to be free in both,")
+    w("// and on the main screen sub-palette 0 is the ground's.")
+    w("constexpr int UI_SUBPALETTE = 15;")
+    w("static_assert(UI_SUBPALETTE != 0,")
+    w('              "the ground reloads into sub-palette 0 on every scene; a '
+      'font there would change colour with the scenery");')
     w("")
     w("struct SpriteAsset { const char* name; uint32_t bytes; const char* shape; };")
     w("constexpr SpriteAsset SPRITE_ASSETS[] = {")
@@ -2808,8 +2933,9 @@ def build_ds_scene(scene: DSScene):
         fit = ds_bg_fit(world.w // 8, world.h // 8)
         shape = (scene.name, grid.w, grid.h, 0, scene.ground, fit is None,
                  -1 if fit is None else fit[2])
-    build_ds_cast(scene.name, grid, world, scene.palette, scene.props)
-    return shape
+    _, _, tables = build_ds_cast(scene.name, grid, world, scene.palette,
+                                 scene.props)
+    return shape + (tables,)
 
 
 def main(argv=None) -> int:
