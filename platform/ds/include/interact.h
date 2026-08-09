@@ -105,6 +105,14 @@ StageStep diveInteract(DiveMachine& m, SceneView& view, int answer);
 // fish or a coconut palm, press A to talk or to look at the cave wall.
 StageStep islandInteract(IslandMachine& m, SceneView& view, Inventory& inv);
 
+// PlaceRacers: both of them onto the start line by Kairi.  OfferRace runs it
+// between arming the countdown and saying the challenge line, and nothing in
+// this port called it -- so the race began with Riku wherever he happened to be
+// sitting, which §M3b's race fixture noticed and worked around rather than
+// reported.  It clears their velocities too, so a racer caught mid-stride does
+// not slide off the line.
+void placeRacers(SceneView& view);
+
 // Sora's two legs of the race, which are tested where he IS STANDING rather
 // than where he went -- RaceRun runs after UpdateWorld, so a player who crossed
 // the line during the frame is credited on it.

@@ -232,14 +232,47 @@ void islandRaceCheck(IslandMachine& m, SceneView& view) {
     // The paopu tree first, then home, and only in that order: tagPaopu is a
     // no-op once the leg has turned, and reachHome refuses until it has.
     if (m.raceLeg() == 0) {
-        if (absW(a.x[p] - tileCentre(27)).raw() < TAG_X.raw()
-            && absW(a.y[p] - tileCentre(7)).raw() < TAG_Y.raw())
+        if (absW(a.x[p] - PAOPU_X).raw() < TAG_X.raw()
+            && absW(a.y[p] - PAOPU_Y).raw() < TAG_Y.raw())
             m.tagPaopu();
         return;
     }
-    if (absW(a.x[p] - tileCentre(12)).raw() < TAG_X.raw()
-        && absW(a.y[p] - tileCentre(12)).raw() < TAG_Y.raw())
+    if (absW(a.x[p] - FINISH_X).raw() < TAG_X.raw()
+        && absW(a.y[p] - FINISH_Y).raw() < TAG_Y.raw())
         m.reachHome();
+}
+
+// PlaceRacers, island.s:767.  Both of them onto the start line by Kairi, and
+// it is the OTHER routine the race needed that nothing called: OfferRace runs
+// it between arming the countdown and saying the challenge line, so a port that
+// only ported beginRace() starts the race with Riku wherever he happened to be
+// sitting.  §M3b's race fixture noticed exactly that and worked around it --
+// "he is running from where he SITS rather than from the start line".
+//
+// PutActor is inlined here because it is four assignments and a SetActorZ, and
+// the only thing interesting about it is which of them people forget: it clears
+// the VELOCITY too, so a racer caught mid-stride does not slide off the line.
+void placeRacers(SceneView& view) {
+    Actors& a = view.actors;
+    const int p = view.player;
+    if (p >= 0 && p < MAX_ACTORS) {
+        a.x[p] = START_SORA_X;
+        a.y[p] = START_SORA_Y;
+        a.vx[p] = World::fromRaw(0);
+        a.vy[p] = World::fromRaw(0);
+        setActorZ(a, p, view.ground);
+    }
+    // FIRST Riku in slot order, and there is only ever one -- the scan is the
+    // assembly's and it stops at the first, so a second would never be moved.
+    for (int i = 0; i < MAX_ACTORS; ++i) {
+        if (a.type[i] != ActType::Riku) continue;
+        a.x[i] = START_RIKU_X;
+        a.y[i] = START_RIKU_Y;
+        a.vx[i] = World::fromRaw(0);
+        a.vy[i] = World::fromRaw(0);
+        setActorZ(a, i, view.ground);
+        return;
+    }
 }
 
 // ---------------------------------------------------------------------------

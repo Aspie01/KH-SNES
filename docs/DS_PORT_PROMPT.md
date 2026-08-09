@@ -129,6 +129,7 @@ make -C platform/snes                       # must succeed
 sha256sum -c docs/oracle-baseline.sha256    # all 45 lines must say OK
 python3 tools/check_map.py                  # all 5 maps OK
 python3 tools/check_modes.py                # must say modes ok
+python3 tools/check_constants.py            # game.inc vs the DS, BY VALUE
 ```
 
 **And when the simulation changes**, `python3 tools/trace_check.py` — about a
@@ -230,7 +231,7 @@ line and the expression is sufficient and adds no dependency.
 
 ---
 
-# §M1 — The engine's data model — **Tier 1**
+# §M1 — The engine's data model — **LANDED**, and now checked by a tool
 
 Translate the actor system and the constants. No behaviour yet.
 
@@ -258,6 +259,48 @@ Derive everything from `platform/snes/src/game.inc` and `ram.s`. Deliverables:
 **Exit criteria.** Host build passes. A test asserts every type-table array
 length, every actor-type range boundary, and that `sizeof` the actor arrays
 totals what you expect. Gate 0 passes.
+
+## The audit: nothing was checking the table of numbers
+
+The brief was met — every constant transcribed, the SNES name in a comment
+beside each — and then **nothing checked it afterwards**, which is the only way
+a table of numbers ever fails. `tools/check_constants.py` is that check, and it
+now runs in Gate 0: it parses every `NAME = value` out of `game.inc`, resolves
+`$hex` and `CELL_X(n)`, and compares against the DS headers **by value**.
+
+Why by value. A *missing* constant is the cheap failure — the build breaks, or a
+reviewer notices. The expensive one is a constant that is **present and wrong**,
+44 where the assembly says 40, because that is a game which plays almost right
+and a trace that diverges four hundred frames later.
+
+It resolves 300 of `game.inc`'s 326 and excuses 24 **with a reason each**, and a
+stale excuse — one for a constant that no longer exists — is itself an error,
+because an exclusion list nobody prunes is how a checker quietly stops checking.
+It handles the four shapes the port uses: `enum class` families matched by
+enumerator, the two opaque-identifier namespaces (`sprite`, `pal`), the `NEED[]`
+array indexed by `Item`, and constants the DS **derives** rather than names —
+the Shadow's cels 1-3 are `Heart0 + 2n`, and the derivation is checked rather
+than waved through. The eight numbers that differ **on purpose** name their
+divergence and are checked against the DS's preserved-SNES-value alias
+(`SNES_SHADOW_MAX`, `SNES_DIVE_R`, `SNES_MAX_ACTORS`, …).
+
+## What it found
+
+**Eight constants had gone missing**, all of them world positions:
+`START_SORA_X/Y`, `START_RIKU_X/Y`, `PAOPU_X/Y`, `FINISH_X/Y`. They were not
+absent so much as *un-named* — I had written `tileCentre(27), tileCentre(7)` at
+the one place that used them, in §M5's interaction layer, the commit before
+this one. That is the failure this checker is for: not wrong, just anonymous,
+and the next person to move the paopu tree moves one of the two copies.
+
+**And the reason two of them had no home: `PlaceRacers` was never ported.**
+`OfferRace` runs it between arming the countdown and saying the challenge line,
+and nothing in this port called it — so the race began with Riku wherever he
+happened to be sitting. §M3b's race fixture had already *noticed*, and recorded
+it as a property of the fixture rather than as a defect: "he is running from
+where he SITS — tile (27,8) on the small island — rather than from the start
+line". It is ported now, velocity-clearing included, which is the half of
+`PutActor` people forget: a racer still carrying a step slides off the line.
 
 ---
 

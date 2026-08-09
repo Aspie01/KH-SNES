@@ -389,6 +389,25 @@ constexpr World TAG_X = World::fromRaw(448);        // TAG_X  used for BOTH race
 constexpr World TAG_Y = World::fromRaw(448);
 constexpr int RACE_WPS = 20;            // RACE_WPS
 
+// The four places the race is measured from and to.  They were literals in
+// interact.cpp until §M1's audit went looking for every constant game.inc has
+// and this port does not -- which is the one kind of missing number that reads
+// as finished code: `tileCentre(27), tileCentre(7)` is not wrong, it is just
+// anonymous, and the next person to move the paopu tree will move one of the
+// two copies.  §0.6: never invent a tuning number, and never un-name one.
+constexpr World START_SORA_X = tileCentre(11);      // START_SORA_X
+constexpr World START_SORA_Y = tileCentre(12);      // START_SORA_Y
+constexpr World START_RIKU_X = tileCentre(13);      // START_RIKU_X
+constexpr World START_RIKU_Y = tileCentre(12);      // START_RIKU_Y
+constexpr World PAOPU_X = tileCentre(27);           // PAOPU_X
+constexpr World PAOPU_Y = tileCentre(7);            // PAOPU_Y
+constexpr World FINISH_X = tileCentre(12);          // FINISH_X
+constexpr World FINISH_Y = tileCentre(12);          // FINISH_Y
+// The finish is Kairi's spot and the start line is one tile west of it, which
+// is why Sora's second leg is "back to where you started" and reads as one.
+static_assert(FINISH_X.raw() == START_SORA_X.raw() + 256, "one tile apart");
+static_assert(FINISH_Y.raw() == START_SORA_Y.raw(), "...and on the same row");
+
 // The night
 //
 // SHADOW_MAX was one number on the SNES because the night and the fragment ran

@@ -505,3 +505,45 @@ KH_TEST(interact_the_game_over_card_goes_up_once_and_then_the_scene_restarts) {
     CHECK(!w.dialogue.busy());
     CHECK(gameOverStep(state, v).action == SceneAction::RestartScene);
 }
+
+KH_TEST(interact_the_race_starts_on_the_start_line_and_not_where_they_were_sat) {
+    // PlaceRacers, island.s:767 -- the other routine the race needed that
+    // nothing called.  OfferRace runs it between arming the countdown and
+    // saying the challenge line, so a port that only had beginRace() started
+    // the race with Riku wherever he happened to be sitting.  §M3b's race
+    // fixture noticed exactly that and worked around it: "he is running from
+    // where he SITS -- tile (27,8) on the small island -- rather than from the
+    // start line".
+    Stub w;
+    const int riku = w.actors.spawn(ActType::Riku, tileCentre(27), tileCentre(8));
+    w.putPlayer(4, 4);
+    w.actors.vx[w.player] = World::fromRaw(24);      // caught mid-stride
+    w.actors.vy[riku] = World::fromRaw(-17);
+    SceneView v = w.view();
+
+    placeRacers(v);
+    CHECK_EQ(w.actors.x[w.player].raw(), START_SORA_X.raw());
+    CHECK_EQ(w.actors.y[w.player].raw(), START_SORA_Y.raw());
+    CHECK_EQ(w.actors.x[riku].raw(), START_RIKU_X.raw());
+    CHECK_EQ(w.actors.y[riku].raw(), START_RIKU_Y.raw());
+    // PutActor clears the velocity too, which is the half people forget: a
+    // racer still carrying a step slides off the line on the first frame.
+    CHECK_EQ(w.actors.vx[w.player].raw(), 0);
+    CHECK_EQ(w.actors.vy[w.player].raw(), 0);
+    CHECK_EQ(w.actors.vx[riku].raw(), 0);
+    CHECK_EQ(w.actors.vy[riku].raw(), 0);
+
+    // The start line is one tile west of the finish, which is Kairi's spot --
+    // that is what makes Sora's second leg read as "back where you started".
+    CHECK_EQ(FINISH_X.raw() - START_SORA_X.raw(), 256);
+    CHECK_EQ(FINISH_Y.raw(), START_SORA_Y.raw());
+    // ...and the two of them start one tile apart, not on top of each other.
+    CHECK_EQ(START_RIKU_X.raw() - START_SORA_X.raw(), 512);
+
+    // A scene with no Riku in it must not fall over, and must still place Sora.
+    Stub alone;
+    alone.putPlayer(4, 4);
+    SceneView v2 = alone.view();
+    placeRacers(v2);
+    CHECK_EQ(alone.actors.x[alone.player].raw(), START_SORA_X.raw());
+}
