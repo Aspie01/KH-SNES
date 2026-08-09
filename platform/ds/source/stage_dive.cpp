@@ -9,6 +9,8 @@ void DiveMachine::begin() {
     fade_ = 0;
     taken_ = ActType::None;
     given_ = ActType::None;
+    pendActor_ = -1;
+    pendWeapon_ = ActType::None;
 }
 
 // Shatter, and Shatter2: the same effect one station further down.

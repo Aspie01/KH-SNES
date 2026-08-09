@@ -35,6 +35,12 @@ enum class ScriptId : uint16_t {
     DiveWake,
     DiveVictory,
     DiveChosen,
+    DiveSwordTake,
+    DiveShieldTake,
+    DiveStaffTake,
+    DiveSwordDrop,
+    DiveShieldDrop,
+    DiveStaffDrop,
     // Island
     IslandKairiAsk,
     IslandKairiRemind,
@@ -224,6 +230,66 @@ constexpr uint8_t DiveChosen[] = {
     'T','H','E',' ','L','I','G','H','T',',',' ','T','H','E',' ','G','R','E','A','T','E','R',// THE LIGHT, THE GREATER
     SC_NL,
     'Y','O','U','R',' ','S','H','A','D','O','W',' ','B','E','C','O','M','E','S','.',// YOUR SHADOW BECOMES.
+    SC_END,
+};
+
+// descSwordTake, dive.s:1010 -- 74 bytes
+constexpr uint8_t DiveSwordTake[] = {
+    'T','H','E',' ','P','O','W','E','R',' ','O','F',' ','T','H','E',' ','W','A','R','R','I','O','R','.',// THE POWER OF THE WARRIOR.
+    SC_NL,
+    'I','N','V','I','N','C','I','B','L','E',' ','C','O','U','R','A','G','E','.',// INVINCIBLE COURAGE.
+    SC_NL,
+    'I','S',' ','T','H','I','S',' ','T','H','E',' ','P','O','W','E','R',' ','Y','O','U',' ','S','E','E','K','?',// IS THIS THE POWER YOU SEEK?
+    SC_END,
+};
+
+// descShieldTake, dive.s:1014 -- 80 bytes
+constexpr uint8_t DiveShieldTake[] = {
+    'T','H','E',' ','P','O','W','E','R',' ','O','F',' ','T','H','E',' ','G','U','A','R','D','I','A','N','.',// THE POWER OF THE GUARDIAN.
+    SC_NL,
+    'K','I','N','D','N','E','S','S',' ','T','O',' ','A','I','D',' ','F','R','I','E','N','D','S','.',// KINDNESS TO AID FRIENDS.
+    SC_NL,
+    'I','S',' ','T','H','I','S',' ','T','H','E',' ','P','O','W','E','R',' ','Y','O','U',' ','S','E','E','K','?',// IS THIS THE POWER YOU SEEK?
+    SC_END,
+};
+
+// descStaffTake, dive.s:1018 -- 69 bytes
+constexpr uint8_t DiveStaffTake[] = {
+    'T','H','E',' ','P','O','W','E','R',' ','O','F',' ','T','H','E',' ','M','Y','S','T','I','C','.',// THE POWER OF THE MYSTIC.
+    SC_NL,
+    'I','N','N','E','R',' ','S','T','R','E','N','G','T','H','.',              // INNER STRENGTH.
+    SC_NL,
+    'I','S',' ','T','H','I','S',' ','T','H','E',' ','P','O','W','E','R',' ','Y','O','U',' ','S','E','E','K','?',// IS THIS THE POWER YOU SEEK?
+    SC_END,
+};
+
+// descSwordDrop, dive.s:1023 -- 66 bytes
+constexpr uint8_t DiveSwordDrop[] = {
+    'T','H','E',' ','P','O','W','E','R',' ','O','F',' ','T','H','E',' ','W','A','R','R','I','O','R','.',// THE POWER OF THE WARRIOR.
+    SC_NL,
+    'I','N','V','I','N','C','I','B','L','E',' ','C','O','U','R','A','G','E','.',// INVINCIBLE COURAGE.
+    SC_NL,
+    'G','I','V','E',' ','U','P',' ','T','H','I','S',' ','P','O','W','E','R','?',// GIVE UP THIS POWER?
+    SC_END,
+};
+
+// descShieldDrop, dive.s:1027 -- 72 bytes
+constexpr uint8_t DiveShieldDrop[] = {
+    'T','H','E',' ','P','O','W','E','R',' ','O','F',' ','T','H','E',' ','G','U','A','R','D','I','A','N','.',// THE POWER OF THE GUARDIAN.
+    SC_NL,
+    'K','I','N','D','N','E','S','S',' ','T','O',' ','A','I','D',' ','F','R','I','E','N','D','S','.',// KINDNESS TO AID FRIENDS.
+    SC_NL,
+    'G','I','V','E',' ','U','P',' ','T','H','I','S',' ','P','O','W','E','R','?',// GIVE UP THIS POWER?
+    SC_END,
+};
+
+// descStaffDrop, dive.s:1031 -- 61 bytes
+constexpr uint8_t DiveStaffDrop[] = {
+    'T','H','E',' ','P','O','W','E','R',' ','O','F',' ','T','H','E',' ','M','Y','S','T','I','C','.',// THE POWER OF THE MYSTIC.
+    SC_NL,
+    'I','N','N','E','R',' ','S','T','R','E','N','G','T','H','.',              // INNER STRENGTH.
+    SC_NL,
+    'G','I','V','E',' ','U','P',' ','T','H','I','S',' ','P','O','W','E','R','?',// GIVE UP THIS POWER?
     SC_END,
 };
 
@@ -970,6 +1036,12 @@ constexpr Script SCRIPTS[] = {
     Script{script::DiveWake, sizeof script::DiveWake},
     Script{script::DiveVictory, sizeof script::DiveVictory},
     Script{script::DiveChosen, sizeof script::DiveChosen},
+    Script{script::DiveSwordTake, sizeof script::DiveSwordTake},
+    Script{script::DiveShieldTake, sizeof script::DiveShieldTake},
+    Script{script::DiveStaffTake, sizeof script::DiveStaffTake},
+    Script{script::DiveSwordDrop, sizeof script::DiveSwordDrop},
+    Script{script::DiveShieldDrop, sizeof script::DiveShieldDrop},
+    Script{script::DiveStaffDrop, sizeof script::DiveStaffDrop},
     Script{script::IslandKairiAsk, sizeof script::IslandKairiAsk},
     Script{script::IslandKairiRemind, sizeof script::IslandKairiRemind},
     Script{script::IslandKairiFinish, sizeof script::IslandKairiFinish},
@@ -1040,6 +1112,20 @@ constexpr Script scriptFor(ScriptId id) {
                ? SCRIPTS[static_cast<size_t>(id)]
                : Script{nullptr, 0};
 }
+
+// descDrop: the lines picked between by index.
+constexpr ScriptId DESCDROP[] = {
+    ScriptId::DiveSwordDrop,
+    ScriptId::DiveShieldDrop,
+    ScriptId::DiveStaffDrop,
+};
+
+// descTake: the lines picked between by index.
+constexpr ScriptId DESCTAKE[] = {
+    ScriptId::DiveSwordTake,
+    ScriptId::DiveShieldTake,
+    ScriptId::DiveStaffTake,
+};
 
 // gotLines: the lines picked between by index.
 constexpr ScriptId GOTLINES[] = {

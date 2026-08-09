@@ -66,7 +66,11 @@ KH_TEST(scripts_the_table_and_the_enum_agree) {
     CHECK(scriptFor(ScriptId::Count).empty());
     CHECK(scriptFor(ScriptId(9999)).empty());
 
-    CHECK_EQ(int(ScriptId::Count), 71);      // 70 scripts, plus None
+    // 76 scripts, plus None.  It was 70 until §M5's audit: the generator's
+    // label pattern only matched `script*`, and dive.s calls the six dream
+    // weapon descriptions descSwordTake, descSwordDrop and so on -- so they
+    // were never extracted, and the weapon choice had nothing to say.
+    CHECK_EQ(int(ScriptId::Count), 77);
 }
 
 KH_TEST(scripts_are_all_well_formed_for_the_interpreter) {
@@ -91,7 +95,9 @@ KH_TEST(scripts_are_all_well_formed_for_the_interpreter) {
         if (pages) ++withPages;
     }
     // The figures tools/build_scripts.py reports, asserted from the other side.
-    CHECK_EQ(totalBytes, 5352);
+    // 5352 before the six descriptions were found; they carry 422 characters
+    // between them, and every one was unreachable on both machines.
+    CHECK_EQ(totalBytes, 5774);
     CHECK_EQ(pageBreaks, 79);
     CHECK_EQ(withPages, 54);
 }

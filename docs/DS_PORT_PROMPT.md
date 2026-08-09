@@ -652,6 +652,81 @@ Two traps that cost time here:
 every transition with synthetic input and asserts the frame count of each beat
 against the specification. No renderer required — these are logic tests.
 
+## The audit, run again against the four scene files
+
+The same walk that found `UpdateSoraFrame` missing from §M3b, applied to
+`dive.s`, `island.s`, `night.s` and `town.s`: every `.proc`, one at a time.
+
+The stage machines are complete. **What was missing was the caller.** §M5's own
+rule — a machine "reads the world, advances its stage and its timers … and
+returns an ACTION for the caller to perform" — was met on one side only:
+`IslandMachine::talkToKairi`, `talkToRiku`, `openDoor`, `arriveAtThird`,
+`tagPaopu`, `reachHome` and `DiveMachine::choose` were all public **with nothing
+calling them**, and `Item`, `NEED[]` and `itemOf()` were data with no consumer.
+The island's quest was unreachable end to end: you could not pick up a log, so
+the raft never got finished, so the race never started except by poking WRAM.
+It is the hole §M6 found in §M3 — `tryMoveActor` with no caller — one layer up.
+
+**`platform/ds/include/interact.h` and `source/interact.cpp`** are that caller:
+`CheckPickups`, `Collect`, `SwingAt`, `FindTalker`, `FindProp`, `LookAt`,
+`TalkTo`, `TalkKairi`, `HaveAll`, `SoraNear` (island.s), `CheckDoors`,
+`TalkTown` (town.s), `TalkTarget` (night.s), `FindWeapon`, `AskAbout`,
+`HandleAnswer` (dive.s), and `GameOverUpdate`, which runs *instead of* all of
+them. It keeps §M5's rule: nothing in it opens a box or loads a scene — every
+entry point returns a `StageStep` and the caller performs it, which is what lets
+all of it be tested with no renderer. 15 cases.
+
+## Six scripts that were never extracted
+
+`tools/build_scripts.py` matched labels against `^script\w+`. `dive.s` names the
+six dream-weapon descriptions `descSwordTake`, `descSwordDrop` and so on — so
+**they were never in the generated header at all**, and the weapon choice had
+nothing to say. Its two index tables were missed for a second, independent
+reason: `descTakeLo`/`descTakeHi` are split low/high `.byte` arrays with the
+label and the data on one line, and the extractor only knew `.word` tables whose
+label sat on its own.
+
+Both are fixed and the count is now **76 scripts, 5774 bytes, verified byte for
+byte against the ROM** — up from 70 and 5352. That check is what makes the
+recovery trustworthy: the generator does not transcribe, it parses and then
+compares against the artefact.
+
+## Things the audit confirmed rather than changed
+
+- **`FindProp` is the one search that does not take the first hit.** Three
+  drawings hang within arm's reach of each other on the cave wall, so it takes
+  whichever is closest by `|dx| + |dy|` — and an equal distance keeps the earlier
+  slot, because the comparison is `bcs`.
+- **`CheckPickups` tests the deck as well as the distance.** Reaching up onto the
+  treehouse from the grass below it does not count.
+- **The two days ask for different lists**, and they do not overlap: day one is
+  timber, day two is provisions. Checking all eight on both days would make day
+  one unfinishable.
+- **Kairi's line is chosen from the state *before* the machine changes it.**
+  `talkToKairi` is what turns `Idle` into `Active`, so a caller that read the
+  state afterwards would hand over the list and then say "still something
+  missing" about it.
+- **Talking wins the frame over a door under the player's feet.** `TownUpdate`
+  re-tests `TextBusy` between the two, which is what stops a district change
+  happening under an open box.
+- **`GameOverUpdate` is two passes and not one**: the card, then the retry.
+
+## What is still open, and why it is a data question
+
+`CheckDoors` needs four things per door — where it is, where it lands, **which
+district it leads to**, and **which stage the town must have reached**. The
+SNES's `doorTable` row is seven bytes and carries all four. The DS's
+`<scene>doors.bin` row is four and carries the first two, because `scene.h`
+decided that "which district it leads to is scene logic and the table
+deliberately does not say".
+
+That decision stands, so `townInteract` takes a `TownDoor[]` — position,
+destination, landing, gate — and the mechanism is complete and tested. **What
+does not exist yet is anything that builds that array for the DS's own maps**,
+which have two doors in the First District where the SNES had one. Filling it in
+is a content decision about maps this milestone did not draw, and it belongs
+with whoever draws them.
+
 ---
 
 # §M6 — The trace oracle — **LANDED**

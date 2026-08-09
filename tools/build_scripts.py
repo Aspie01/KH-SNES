@@ -36,11 +36,23 @@ SOURCES = (
 # text.inc: anything below 32 is a code, not a character.
 CODES = {"SC_END": 0x00, "SC_NL": 0x01, "SC_PAGE": 0x02}
 
-LABEL = re.compile(r"^(script\w+):\s*$")
+# TWO PREFIXES, and the second one was missing for a long time.  dive.s names
+# the six dream-weapon descriptions descSwordTake, descSwordDrop and so on
+# rather than script*, so a pattern that only matched `script` left them out of
+# the generated header entirely -- six scripts, 468 characters, no error
+# anywhere, and the weapon choice with nothing to say.
+LABEL = re.compile(r"^((?:script|desc)\w+):\s*$")
 BYTE = re.compile(r"^\s*\.byte\s+(.*?)\s*(?:;.*)?$")
 # A .word table of script pointers -- the lines Kairi picks between, and so on.
 TABLE = re.compile(r"^(\w+Lines):\s*$")
 WORD = re.compile(r"^\s*\.word\s+(.*?)\s*(?:;.*)?$")
+# ...and the OTHER shape of the same idea.  dive.s splits its two weapon tables
+# into low and high byte arrays -- `descTakeLo: .byte <descSwordTake, ...` --
+# because AskAbout indexes them a byte at a time.  The Lo row names every entry,
+# so it is the one worth reading; the Hi row is the same labels again.
+# The label and the .byte are on ONE line here, unlike every other table in
+# the sources -- which is the second reason these two were never read.
+SPLIT_TABLE = re.compile(r"^(\w+)Lo:\s*\.byte\s+(.*?)\s*(?:;.*)?$")
 
 
 def parse_operands(text: str, where: str) -> list[int]:
@@ -97,7 +109,7 @@ def scripts_in(path: Path, prefix: str):
 
 def enum_name(label: str, prefix: str) -> str:
     """scriptKairiAsk2 -> KairiAsk2, with the scene prefix added by the caller."""
-    stem = label[len("script"):]
+    stem = label[6:] if label.startswith("script") else label[4:]
     return stem[0].upper() + stem[1:]
 
 
@@ -122,6 +134,21 @@ def tables_in(path: Path):
                     raise SystemExit(f"{path.name}:{k + 1}: {tok!r} is not a script")
                 entries.append(s.group(0))
             k += 1
+        if entries:
+            out[m.group(1)] = entries
+
+    # The split-byte tables, read off the Lo row.
+    for n, line in enumerate(lines):
+        m = SPLIT_TABLE.match(line)
+        if not m:
+            continue
+        entries = []
+        for tok in m.group(2).split(","):
+            s = re.search(r"<((?:script|desc)\w+)", tok.strip())
+            if not s:
+                entries = []
+                break
+            entries.append(s.group(1))
         if entries:
             out[m.group(1)] = entries
     return out
@@ -150,7 +177,7 @@ def dbg_addresses() -> dict[tuple[str, str], int]:
                                    text, re.M)}
     out: dict[tuple[str, str], int] = {}
     for m in re.finditer(
-            r'name="(script\w+)",[^\n]*?scope=(\d+),[^\n]*?val=0x([0-9A-Fa-f]+)',
+            r'name="((?:script|desc)\w+)",[^\n]*?scope=(\d+),[^\n]*?val=0x([0-9A-Fa-f]+)',
             text):
         name, scope, val = m.group(1), int(m.group(2)), int(m.group(3), 16)
         mod = mods.get(scopes.get(scope, -1), "")

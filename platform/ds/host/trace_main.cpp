@@ -319,6 +319,7 @@ const char* actionName(SceneAction a) {
         case SceneAction::RespawnNightCast: return "RespawnNightCast";
         case SceneAction::RespawnFragment: return "RespawnFragment";
         case SceneAction::RespawnDistrict: return "RespawnDistrict";
+        case SceneAction::RestartScene: return "RestartScene";
     }
     return "?";
 }

@@ -127,6 +127,7 @@ enum class SceneAction : uint8_t {
     RespawnNightCast,   // re-run the night's whole table, on the island
     RespawnFragment,    // ...or the fragment's, and raise Darkside again
     RespawnDistrict,    // ...or whichever of the three districts is loaded
+    RestartScene,       // out of HP and the card dismissed: put the scene back
 };
 
 struct StageStep {
@@ -192,6 +193,15 @@ public:
 
     void setStage(DiveStage s) { stage_ = s; }
     void choose(ActType taken, ActType given) { taken_ = taken; given_ = given; }
+    // pendActor / pendWeapon: which weapon the open prompt is about.  They are
+    // machine state rather than the caller's because the prompt outlives the
+    // frame that opened it -- the answer arrives whenever the player gives one.
+    void setPending(int slot, ActType weapon) {
+        pendActor_ = int16_t(slot);
+        pendWeapon_ = weapon;
+    }
+    int pendingActor() const { return pendActor_; }
+    ActType pendingWeapon() const { return pendWeapon_; }
     void armShatter() { shatter_ = SHATTER_LEN; }
     // A death rewinds to the checkpoint for whichever station is loaded, which
     // is a per-scene stage and not a single one.  The caller re-spawns the cast.
@@ -206,6 +216,8 @@ private:
     int shatter_ = 0;
     int fall_ = 0;
     int fade_ = 0;
+    int16_t pendActor_ = -1;
+    ActType pendWeapon_ = ActType::None;
     ActType taken_ = ActType::None;
     ActType given_ = ActType::None;
 };
