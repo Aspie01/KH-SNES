@@ -660,3 +660,158 @@ KH_TEST(world_the_armour_closes_horizontally_and_stops_two_tiles_short) {
     CHECK(gap.raw() <= GA_STOP.raw());
     CHECK_EQ(actors.vx[armor].raw(), 0);                // and is not jittering
 }
+
+// ---------------------------------------------------------------------------
+// Riku's race, against the oracle.  Reached with a two-stage poke:
+//
+//     tools/snes_trace.py --frames 700 --input <two A presses>
+//         --poke sceneId=3 --poke deadFlag=2
+//         --poke 30:questState=6 --poke 30:rikuWp=0 --no-strict
+//
+// The first pair restarts onto the island so InitWorld builds the cast; the
+// second pair, thirty frames later, starts the race on top of that.  He is
+// therefore running from where he SITS -- tile (27,8) on the small island --
+// rather than from the start line, which is why this takes longer than the 615
+// frames finding 58 computes from START_RIKU.  That is fine and in fact better:
+// it exercises the waypoint walk from an arbitrary position.
+// ---------------------------------------------------------------------------
+KH_TEST(world_riku_runs_the_course_exactly_as_the_snes_did) {
+    Actors actors;
+    actors.clear();
+    const int sora = actors.spawn(ActType::Sora, tileCentre(11), tileCentre(12));
+    const int riku = actors.spawn(ActType::Riku, World::fromRaw(7040),
+                                  World::fromRaw(2176));
+    CHECK(riku > 0);
+
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    // NO GROUND AT ALL, deliberately.  Riku never calls tryMoveActor, so an
+    // invalid SceneGround cannot affect him -- and if a future change made him
+    // collide, this test would stop matching immediately.  Audit finding 9.
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    // updateRiku is driven directly here, not through updateWorld: he is the one
+    // actor whose behaviour depends on nothing in SceneView at all -- not the
+    // ground, not the player, not the RNG -- and calling him directly says so.
+    (void)dlg; (void)pad; (void)ground; (void)rng; (void)fx; (void)sora;
+    w.raceRunning = true;
+    w.rikuWp = 0;
+
+    // The oracle's positions.  Frames are relative to the race starting, so the
+    // trace's frame 30 is this loop's frame 0.
+    struct At { int frame; int x; int y; };
+    const At ORACLE_RIKU[] = {
+        {0, 7023, 2193},        // -17 / +17, the diagonal, on the very first frame
+        {1, 7006, 2210},
+        {30, 6513, 2703},
+        {60, 6003, 3200},       // arrived on waypoint 0's row and turned
+        {61, 5986, 3200},       // ...now purely eastward-of-west along it
+        {90, 5493, 3200},
+        {164, 4269, 3200},
+    };
+
+    // The oracle samples AFTER a frame's work, so trace frame 30 is one update
+    // in.  Update first, then compare -- getting this phase wrong is the easiest
+    // way to make a fixture that is off by one everywhere and looks like a
+    // velocity bug.
+    int checked = 0;
+    for (int u = 1; u <= 165; ++u) {
+        updateRiku(w, actors, riku);
+        for (const At& e : ORACLE_RIKU) {
+            if (e.frame + 1 != u) continue;
+            CHECK_EQ(actors.x[riku].raw(), e.x);
+            CHECK_EQ(actors.y[riku].raw(), e.y);
+            ++checked;
+        }
+    }
+    CHECK_EQ(checked, int(sizeof ORACLE_RIKU / sizeof *ORACLE_RIKU));
+    // He got past the first marker and is working along the course.
+    CHECK(w.rikuWp > 0);
+    CHECK(w.rikuWp < uint8_t(RACE_WPS));
+}
+
+KH_TEST(world_riku_stands_still_unless_the_race_is_running) {
+    // He is the only actor whose update is gated on a QUEST state rather than on
+    // his own, which is why WorldState carries the mirror at all.
+    Actors actors;
+    actors.clear();
+    const int sora = actors.spawn(ActType::Sora, tileCentre(11), tileCentre(12));
+    const int riku = actors.spawn(ActType::Riku, tileCentre(13), tileCentre(12));
+    Dialogue dlg;
+    Pad pad;
+    Rng rng;
+    SceneGround ground;
+    WorldState w;
+    ScreenFx fx;
+    SceneView view{actors, dlg, pad, ground, rng};
+    view.player = sora;
+
+    const World x0 = actors.x[riku], y0 = actors.y[riku];
+    for (int f = 0; f < 120; ++f) updateWorld(w, view, fx);
+    CHECK_EQ(actors.x[riku].raw(), x0.raw());
+    CHECK_EQ(actors.y[riku].raw(), y0.raw());
+
+    // ...and once he is home he stops dead rather than looping.
+    w.raceRunning = true;
+    w.rikuWp = uint8_t(RACE_WPS);
+    for (int f = 0; f < 120; ++f) updateWorld(w, view, fx);
+    CHECK_EQ(actors.x[riku].raw(), x0.raw());
+    CHECK_EQ(actors.y[riku].raw(), y0.raw());
+}
+
+KH_TEST(world_a_fish_drifts_on_a_64_frame_cycle_and_never_collides) {
+    // The one actor with no lifetime and a timer that COUNTS UP.  Two bits do
+    // all the work: the low three pick the cel, bit 5 picks the direction -- so a
+    // 64-frame there-and-back costs no state beyond the timer it already had.
+    Actors actors;
+    actors.clear();
+    const int fish = actors.spawn(ActType::Fish, tileCentre(8), tileCentre(6));
+    CHECK(fish >= 0);
+    actors.timer[fish] = 0;
+    const World x0 = actors.x[fish], y0 = actors.y[fish];
+
+    // The timer is INCREMENTED FIRST and then tested, so the turn happens ON the
+    // thirty-second frame rather than after it: frames 1-31 go east and frame 32
+    // has already come back one.  Thirty-one out and one back is +30, not +32,
+    // and a test that assumed the tidier number is what caught this.
+    for (int f = 0; f < 32; ++f) updateFish(actors, fish);
+    CHECK_EQ(actors.x[fish].raw(), x0.raw() + 30 * FISH_SWIM.raw());
+    CHECK_EQ(actors.y[fish].raw(), y0.raw());       // and never any vertical drift
+    CHECK(has(actors.flags[fish], ActFlags::HFlip));     // turned, at bit 5
+
+    // Frames 33-63 continue west and 64 turns back east, so the cycle closes
+    // exactly: 31 east, 32 west, 1 east.
+    for (int f = 0; f < 32; ++f) updateFish(actors, fish);
+    CHECK_EQ(actors.x[fish].raw(), x0.raw());
+    CHECK(!has(actors.flags[fish], ActFlags::HFlip));
+
+    // A full cycle is 64 frames and it returns to the start every time, which is
+    // what keeps a fish inside the shallows without any collision at all.
+    for (int cycle = 0; cycle < 4; ++cycle)
+        for (int f = 0; f < 64; ++f) updateFish(actors, fish);
+    CHECK_EQ(actors.x[fish].raw(), x0.raw());
+    CHECK_EQ(int(actors.type[fish]), int(ActType::Fish));   // and never expires
+}
+
+KH_TEST(world_a_mote_rises_on_its_own_velocity_and_deletes_itself) {
+    Actors actors;
+    actors.clear();
+    const int mote = actors.spawn(ActType::Mote, tileCentre(16), tileCentre(11));
+    actors.timer[mote] = uint8_t(MOTE_LIFE);
+    actors.vx[mote] = World::fromRaw(0);
+    actors.vy[mote] = World::fromRaw(int16_t(-MOTE_RISE.raw()));   // upward
+    const World y0 = actors.y[mote];
+
+    for (int f = 0; f < MOTE_LIFE; ++f) {
+        updateMote(actors, mote);
+        CHECK_EQ(int(actors.type[mote]), int(ActType::Mote));
+    }
+    // MOTE_RISE a frame for MOTE_LIFE frames: 96 * 40 = 3840, or 240 px.
+    CHECK_EQ(actors.y[mote].raw(), y0.raw() - MOTE_LIFE * MOTE_RISE.raw());
+    // The frame that reads zero is the one that frees the slot -- so a mote
+    // costs MOTE_LIFE frames of motion and one more to disappear.
+    updateMote(actors, mote);
+    CHECK_EQ(int(actors.type[mote]), int(ActType::None));
+}

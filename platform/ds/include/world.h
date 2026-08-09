@@ -48,6 +48,14 @@ struct WorldState {
     // NightMachine because UpdateHeartless and DoAttackHit both read it and
     // neither has a scene machine to hand.
     bool keyGot = true;
+    // The race, mirrored from IslandMachine the way the SNES mirrored nothing:
+    // there `questState` and `rikuWp` are globals that UpdateRiku and RaceRun
+    // both reach.  IslandMachine::setRikuWaypoint() already existed for this --
+    // the seam was anticipated -- and the device tier synchronises the two once a
+    // frame.  Two owners of one number would be a drift hazard; the machine is
+    // the owner and this is the copy UpdateRiku advances.
+    bool raceRunning = false;   // questState == Q_RACE_RUN
+    uint8_t rikuWp = 0;         // rikuWp; RACE_WPS means home
     uint8_t heartTile = 0;  // the Shadow's cel base; the night uses its own
     uint8_t bossHP = 0;     // mirrored out of the actor table for the gauge
 
@@ -80,6 +88,20 @@ void animateWalk(Actors& a, int slot);
 void updateSora(WorldState& w, SceneView& view, ScreenFx& fx, int slot);
 void updateHeartless(WorldState& w, SceneView& view, int slot);
 void updateSlash(Actors& a, int slot);
+
+// A fish drifts, it does not race: half of a 64-frame cycle each way, turned to
+// match, and it never collides with anything.
+void updateFish(Actors& a, int slot);
+
+// One speck of light rising past Sora during a fall.  Pure ballistics on its own
+// velocity, no ground, no collision -- and it deletes itself.
+void updateMote(Actors& a, int slot);
+
+// Riku runs the course and nothing else.  He IGNORES TERRAIN COMPLETELY: no
+// tryMoveActor, no setActorZ, so he walks through the boulder and his sprite lift
+// stays at whatever the start line was (audit finding 9).  Sora is fully
+// collided, which is the whole asymmetry of the race.
+void updateRiku(WorldState& w, Actors& a, int slot);
 
 // Darkside.  It never walks: it rests, then either brings a fist down on where
 // you were standing 44 frames ago, or fires three orbs -- and answers standing

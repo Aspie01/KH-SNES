@@ -364,12 +364,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--input", type=Path, default=None,
                     help="button script, `keys:frames` a line")
     ap.add_argument("-o", "--out", type=Path, default=None)
-    ap.add_argument("--poke", action="append", default=[], metavar="SYM=VAL",
-                    help="write a WRAM byte after reset, by linker-map symbol. "
+    ap.add_argument("--poke", action="append", default=[],
+                    metavar="[FRAME:]SYM=VAL",
+                    help="write a WRAM byte, by linker-map symbol, before the "
+                         "given frame runs (default 1, i.e. just after reset). "
                          "The point is to reach a scene without playing to it: "
                          "`--poke sceneId=2 --poke deadFlag=2` makes the ROM run "
                          "its OWN retry path into the Darkside fight, so the "
-                         "setup is the game's code and not a hand-built state.")
+                         "setup is the game's code and not a hand-built state. "
+                         "A later frame lets a poke land AFTER that setup has "
+                         "run, which is how the race is reached: restart onto "
+                         "the island first, then start the race.")
     ap.add_argument("--no-strict", action="store_true",
                     help="do not stop when the CPU is still working at VBlank")
     args = ap.parse_args(argv)
@@ -385,16 +390,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         out.write(header("snes"))
         for n in range(args.frames):
-            if n == 1 and args.poke:
-                # After reset has run and before the second frame: the world is
-                # built, so a poke lands on a live game rather than on zeroes.
-                for spec in args.poke:
-                    name, _, val = spec.partition("=")
-                    if name not in syms:
-                        raise SystemExit(f"--poke {name}: not a symbol in kh.map")
-                    m.bus.wram[syms[name]] = int(val, 0) & 0xFF
-                    print(f"poked {name} (${syms[name]:04X}) = {int(val, 0)}",
-                          file=sys.stderr)
+            for spec in args.poke:
+                head, _, val = spec.partition("=")
+                frame, _, name = head.rpartition(":")
+                when = int(frame) if frame else 1
+                if when != n:
+                    continue
+                if name not in syms:
+                    raise SystemExit(f"--poke {name}: not a symbol in kh.map")
+                m.bus.wram[syms[name]] = int(val, 0) & 0xFF
+                print(f"frame {n}: poked {name} (${syms[name]:04X}) = "
+                      f"{int(val, 0)}", file=sys.stderr)
             try:
                 m.run_frame(pads[n], sampler, out)
             except Unmapped as e:

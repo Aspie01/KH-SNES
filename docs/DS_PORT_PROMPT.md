@@ -700,7 +700,7 @@ per-divergence suppression counts the differ prints rather than trusting them.
 
 ---
 
-# §M3b — The actor simulation — **both bosses LANDED**
+# §M3b — The actor simulation — **COMPLETE**
 
 This milestone did not exist. §M6 found the hole: §M3 delivered the movement
 *primitive* and §M5 the scene-level machines, and nothing delivered the code in
@@ -791,11 +791,30 @@ shift right, which is why `grid.h`'s `asr1()` floors.
 
 That longer run also re-measured the scene-load overrun at **113.5%** of a frame.
 
-## What is still on the SNES side only
+## The last three, and the whole of `UpdateWorld`
 
-`UpdateFish`, `UpdateMote` and `UpdateRiku`. None of the three fights: a fish
-drifts in the shallows, a mote rises past Sora during a fall, and Riku moves only
-during the race, along a waypoint list, ignoring terrain entirely (finding 9).
+`updateFish`, `updateMote` and `updateRiku`, with the `raceWp` table carried
+across verbatim — it was the one spawn table finding 58 named that had not been.
+
+**Riku is checked against the oracle**, reached with a two-stage poke: restart
+onto the island so `InitWorld` builds the cast, then start the race thirty frames
+later on top of it. He therefore runs from where he *sits*, tile (27,8), not from
+the start line — which exercises the waypoint walk from an arbitrary position and
+took 165 frames of fixture to pin down. **A single Q12.4 unit off his step fails
+8 checks.** He is driven with **no `SceneGround` at all**, deliberately: he never
+calls `tryMoveActor`, so if a future change made him collide the test would stop
+matching at once (finding 9).
+
+The fish caught me out in a way worth recording: its timer is **incremented then
+tested**, so the turn happens *on* frame 32 rather than after it. Thirty-one out
+and one back is +30, not the +32 I first asserted. A 64-frame cycle still closes
+exactly — 31 east, 32 west, 1 east.
+
+**`updateWorld` is now complete.** Every actor type `world.s` and `town.s` give
+behaviour to has it here: Sora, the Shadows, both bosses, the slash, the orb, the
+fish, the mote and Riku. Everything else — props, pickups, islanders, gauntlets,
+the dark column — is inert in the assembly too, and is inert here by having no
+case rather than by being skipped.
 
 The dispatcher is written so their absence is **inert rather than wrong**: an
 actor whose type has no case is simply not updated, which is exactly what the

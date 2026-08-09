@@ -735,6 +735,98 @@ void updateArmor(WorldState& w, SceneView& view, ScreenFx& fx, int slot) {
     placeHands(a, slot);
 }
 
+
+// ---------------------------------------------------------------------------
+// The three that do not fight
+// ---------------------------------------------------------------------------
+
+void updateFish(Actors& a, int slot) {
+    // The timer COUNTS UP here, which is the opposite of every other actor, and
+    // it is never reset -- a fish is the one thing in the game with no lifetime.
+    // Two of its bits do all the work: bit 0-2 for the cel and bit 5 for which
+    // way it is drifting, so a 64-frame cycle costs no state at all.
+    ++a.timer[slot];
+    if ((a.timer[slot] & 0x07) == 0) {
+        a.anim[slot] = uint8_t(a.anim[slot] ^ 1);
+        a.tile[slot] = uint8_t(a.anim[slot] * 2 + sprite::Fish);
+    }
+    const bool west = (a.timer[slot] & 0x20) != 0;
+    a.flags[slot] = west ? (a.flags[slot] | ActFlags::HFlip)
+                         : without(a.flags[slot], ActFlags::HFlip);
+    // Horizontal only, written straight into the position: no velocity fields,
+    // no collision.  A fish in the shallows has nothing to bump into.
+    a.x[slot] = a.x[slot] + (west ? World::fromRaw(int16_t(-FISH_SWIM.raw()))
+                                  : FISH_SWIM);
+}
+
+void updateMote(Actors& a, int slot) {
+    if (a.timer[slot] == 0) {
+        a.type[slot] = ActType::None;
+        return;
+    }
+    --a.timer[slot];
+    if (a.animT[slot] == 0) {
+        a.animT[slot] = 3;
+        a.anim[slot] = uint8_t(a.anim[slot] ^ 1);
+        a.tile[slot] = uint8_t(a.anim[slot] * 2 + sprite::Streak);
+    } else {
+        --a.animT[slot];
+    }
+    // Its own velocity, straight onto its position.  The fall switches BG1 off
+    // and there is no ground to collide with anyway.
+    a.x[slot] = a.x[slot] + a.vx[slot];
+    a.y[slot] = a.y[slot] + a.vy[slot];
+}
+
+// raceWp, island.s:1177-1198, verbatim: east along the beach, over the
+// footbridge, up the spit, across the big bridge, round the paopu tree and back.
+// Riku runs these in order; Sora may take any line he likes, which is the whole
+// design of the race -- and the reason it has more than four seconds of slack.
+namespace {
+constexpr uint8_t RACE_WP[RACE_WPS][2] = {
+    {16, 12}, {18, 12}, {20, 12}, {20, 10}, {20,  8},
+    {22,  8}, {25,  8}, {28,  8}, {28,  6}, {26,  6},
+    {25,  8}, {22,  8}, {20,  8}, {20, 10}, {20, 12},
+    {18, 12}, {16, 12}, {14, 12}, {13, 12}, {12, 12},
+};
+}  // namespace
+
+void updateRiku(WorldState& w, Actors& a, int slot) {
+    if (!w.raceRunning) return;             // he moves during the race and never
+    if (w.rikuWp >= RACE_WPS) return;       // ...and stops dead once home
+
+    const World tx = tileCentre(RACE_WP[w.rikuWp][0]);
+    const World ty = tileCentre(RACE_WP[w.rikuWp][1]);
+
+    // He leans toward the marker, and the sprite is flipped from the SIGN of the
+    // gap rather than from a facing -- he has no actDir worth the name.
+    const World dx = tx - a.x[slot];
+    const World dy = ty - a.y[slot];
+    a.flags[slot] = dx.raw() < 0 ? (a.flags[slot] | ActFlags::HFlip)
+                                 : without(a.flags[slot], ActFlags::HFlip);
+
+    // Close the gap by at most one step PER AXIS, which makes his diagonals
+    // faster than his cardinals -- RIKU_VX and RIKU_VY are both 17 and neither
+    // is scaled.  Sora's are, so on a diagonal Riku actually outruns him.
+    const int16_t vx = dx.raw() < -RIKU_VX.raw() ? int16_t(-RIKU_VX.raw())
+                     : dx.raw() >  RIKU_VX.raw() ? int16_t(RIKU_VX.raw())
+                     : int16_t(dx.raw());
+    const int16_t vy = dy.raw() < -RIKU_VY.raw() ? int16_t(-RIKU_VY.raw())
+                     : dy.raw() >  RIKU_VY.raw() ? int16_t(RIKU_VY.raw())
+                     : int16_t(dy.raw());
+    // WRITTEN STRAIGHT ONTO THE POSITION.  No tryMoveActor and no setActorZ, so
+    // he walks through the boulder and his sprite lift is frozen at whatever the
+    // start line was.  Audit finding 9; every marker sits on a walkable tile by
+    // construction, so steering him would cost more than it is worth.
+    a.x[slot] = a.x[slot] + World::fromRaw(vx);
+    a.y[slot] = a.y[slot] + World::fromRaw(vy);
+
+    if (absW(tx - a.x[slot]).raw() < RIKU_NEAR.raw()
+        && absW(ty - a.y[slot]).raw() < RIKU_NEAR.raw()) {
+        ++w.rikuWp;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The dispatcher
 // ---------------------------------------------------------------------------
@@ -758,6 +850,9 @@ void updateWorld(WorldState& w, SceneView& view, ScreenFx& fx) {
             case ActType::Darkside: updateDarkside(w, view, i);     break;
             case ActType::Orb:     updateOrb(w, view, i);           break;
             case ActType::Armor:   updateArmor(w, view, fx, i);     break;
+            case ActType::Fish:    updateFish(a, i);                break;
+            case ActType::Mote:    updateMote(a, i);                break;
+            case ActType::Riku:    updateRiku(w, a, i);             break;
             // Darkside, Armor, Orb, Mote, Fish and Riku have behaviour in
             // world.s and island.s and are NOT here yet -- see the note below.
             // Everything else is inert by having no case, which is the same
@@ -769,10 +864,11 @@ void updateWorld(WorldState& w, SceneView& view, ScreenFx& fx) {
 
 // WHAT IS NOT HERE, AND WHY IT IS SAFE TO SAY SO.
 //
-// UpdateFish, UpdateMote and UpdateRiku are still on the SNES side only.  All
-// three are small and none of them fights: a fish drifts in the shallows, a mote
-// rises past Sora during a fall, and Riku only moves during the race, along a
-// waypoint list, ignoring terrain entirely (audit finding 9).
+// NOTHING.  Every actor type world.s and town.s give behaviour to now has it
+// here: Sora, the Shadows, both bosses, the slash, the orb, the fish, the mote
+// and Riku.  Everything else -- the props, the pickups, the islanders, the
+// gauntlets, the dark column -- is inert in the assembly too, and is inert here
+// by having no case rather than by being skipped.
 //
 // The dispatcher above is written so their absence is INERT rather than wrong:
 // an actor of a type with no case is simply not updated, which is exactly what
