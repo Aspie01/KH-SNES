@@ -441,6 +441,91 @@ KH_TEST(vram_the_ofs_field_is_checked_against_the_hardware_not_assumed_zero) {
     CHECK_EQ(slotAssignedTo(Use::SubObjExtPal), -1);    // nothing is assigned it
 }
 
+KH_TEST(vram_the_nine_bytes_the_device_tier_writes) {
+    // The header's opening says the device tier "turns these numbers into
+    // VRAMCNT and BGxCNT writes and adds nothing of its own".  That was a
+    // promise the file did not keep: it carried a bank, a use, an MST and an
+    // OFS, and left the composition to the tier with no way to check it.
+    //
+    // Bit 0-2 MST, bit 3-4 OFS, bit 7 enable.  Every one of these is the frozen
+    // allocation and nothing else.
+    CHECK_EQ(vramcnt(Bank::A), 0x83);       // texture, slot 0
+    CHECK_EQ(vramcnt(Bank::B), 0x81);       // main BG
+    CHECK_EQ(vramcnt(Bank::C), 0x80);       // LCDC, held
+    CHECK_EQ(vramcnt(Bank::D), 0x80);       // LCDC, held
+    CHECK_EQ(vramcnt(Bank::E), 0x82);       // main OBJ
+    CHECK_EQ(vramcnt(Bank::F), 0x83);       // texture palette, slot 0
+    CHECK_EQ(vramcnt(Bank::G), 0x80);       // LCDC, held
+    CHECK_EQ(vramcnt(Bank::H), 0x81);       // sub BG
+    CHECK_EQ(vramcnt(Bank::I), 0x82);       // sub OBJ
+
+    // Every bank is ENABLED -- LCDC is a mode, not an off switch, and a bank
+    // left disabled is not scratch, it is absent.
+    for (unsigned b = 0; b < unsigned(Bank::Count); ++b)
+        CHECK((vramcnt(Bank(b)) & VRAMCNT_ENABLE) != 0);
+
+    // ...and each byte decomposes back into the row it came from, so this is a
+    // round trip and not nine remembered constants.
+    for (const Assignment& a : ASSIGNMENTS) {
+        const uint8_t v = vramcnt(a.bank);
+        CHECK_EQ(int(v & 0x07), mstFor(a.bank, a.use));
+        CHECK_EQ(int((v >> VRAMCNT_OFS_SHIFT) & 0x03), int(a.ofs));
+        // Bits 5 and 6 are "not used" and must be written as zero.
+        CHECK_EQ(v & 0x60, 0);
+    }
+}
+
+KH_TEST(vram_the_control_registers_are_not_nine_consecutive_bytes) {
+    // 0x04000247 is WRAMCNT, sitting between VRAMCNT_G and VRAMCNT_H.  A loop
+    // that writes nine bytes from 0x04000240 does not merely misplace bank H --
+    // it writes H's control byte into WRAMCNT and repartitions the 32 KiB the
+    // ARM9 and the ARM7 share.
+    CHECK_EQ(vramcntAddr(Bank::A), 0x04000240u);
+    CHECK_EQ(vramcntAddr(Bank::G), 0x04000246u);
+    CHECK_EQ(WRAMCNT_ADDR, 0x04000247u);
+    CHECK_EQ(vramcntAddr(Bank::H), 0x04000248u);
+    CHECK_EQ(vramcntAddr(Bank::I), 0x04000249u);
+    CHECK(vramcntAddressesSkipWramcnt());
+    for (unsigned b = 0; b < unsigned(Bank::Count); ++b)
+        CHECK(vramcntAddr(Bank(b)) != WRAMCNT_ADDR);
+
+    // What the naive loop would actually do, spelled out, because the number is
+    // the argument: at index 7 it writes bank H's byte to WRAMCNT.
+    CHECK_EQ(0x04000240u + 7u, WRAMCNT_ADDR);
+    // WRAMCNT bits 0-1 are the allocation: 0 gives the ARM9 all 32K, 1 gives it
+    // the second 16K only, 2 the first, 3 none.  H's byte is 0x81, so bits 0-1
+    // are 1 -- the ARM9 loses the first 16 KiB to the ARM7 while it is using it.
+    // Not the worst of the four, which is why it corrupts instead of halting.
+    CHECK_EQ(vramcnt(Bank::H) & 0x03, 1);
+}
+
+KH_TEST(vram_an_mst_has_to_fit_the_field_its_bank_actually_has) {
+    // "Bit2 not used by VRAM-A,B,H,I" -- four banks have a TWO-bit MST field.
+    // MST 4 is sub BG on C and sub OBJ on D, and on a two-bit bank a 4 loses
+    // bit 2 and selects mode 0 instead, which is LCDC: the layer that wanted
+    // the bank draws nothing and the bank answers somewhere else entirely.
+    CHECK_EQ(mstBits(Bank::A), 2);
+    CHECK_EQ(mstBits(Bank::B), 2);
+    CHECK_EQ(mstBits(Bank::H), 2);
+    CHECK_EQ(mstBits(Bank::I), 2);
+    for (Bank b : {Bank::C, Bank::D, Bank::E, Bank::F, Bank::G})
+        CHECK_EQ(mstBits(b), 3);
+    CHECK(everyMstFitsItsField());
+    for (const Assignment& a : ASSIGNMENTS)
+        CHECK(mstFor(a.bank, a.use) < (1 << mstBits(a.bank)));
+
+    // The pairing that makes this a real constraint rather than a formality:
+    // the two MST-4 uses live only on C and D, which are the three-bit banks.
+    CHECK_EQ(mstFor(Bank::C, Use::SubBg), 4);
+    CHECK_EQ(mstFor(Bank::D, Use::SubObj), 4);
+    CHECK_EQ(mstBits(Bank::C), 3);
+    CHECK_EQ(mstBits(Bank::D), 3);
+    // ...and H and I reach the same two windows at MSTs that DO fit two bits,
+    // which is why this allocation is expressible at all.
+    CHECK_EQ(mstFor(Bank::H, Use::SubBg), 1);
+    CHECK_EQ(mstFor(Bank::I, Use::SubObj), 2);
+}
+
 KH_TEST(vram_the_scene_palette_is_reloaded_rather_than_partitioned) {
     // Sixteen sub-palettes, nine OBJ and seven BG, all inside the sixteen a
     // standard region holds -- so nothing overflows.  But the pipeline hard-codes

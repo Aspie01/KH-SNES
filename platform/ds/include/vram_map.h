@@ -512,6 +512,124 @@ constexpr int slotAssignedTo(Use u) {
 }
 
 // ---------------------------------------------------------------------------
+// THE BYTES THE HARDWARE ACTUALLY TAKES
+//
+// The top of this file says "the device tier turns these numbers into VRAMCNT
+// and BGxCNT writes and adds nothing of its own."  That was a promise the file
+// did not keep: it gave the INGREDIENTS -- a bank, a use, an MST, an OFS -- and
+// left the composition to the tier that has no way to check it.  The very first
+// thing §M7 does is write nine bytes, every one of them fully determined by the
+// table above, and not one of them was written down.
+//
+// GBATEK, "DS Video Stuff - VRAM Control", VRAMCNT_A..I:
+//
+//   Bit   Expl.
+//   0-2   VRAM MST              ;Bit2 not used by VRAM-A,B,H,I
+//   3-4   VRAM Offset (0-3)     ;Offset not used by VRAM-E,H,I
+//   5-6   Not used
+//   7     VRAM Enable (0=Disable, 1=Enable)
+// ---------------------------------------------------------------------------
+constexpr int VRAMCNT_MST_SHIFT = 0;
+constexpr int VRAMCNT_OFS_SHIFT = 3;
+constexpr uint8_t VRAMCNT_ENABLE = 0x80;
+
+// "Bit2 not used by VRAM-A,B,H,I" -- so those four have a TWO-bit MST field and
+// the rest have three.  It matters: MST 4 is sub BG on C and sub OBJ on D, and
+// on a two-bit bank the 4 simply does not fit.  Nothing here needs a 4 on one of
+// those banks, and the assertion below is what keeps that true.
+constexpr int mstBits(Bank b) {
+    return (b == Bank::A || b == Bank::B || b == Bank::H || b == Bank::I) ? 2 : 3;
+}
+
+// The byte, for one bank, composed from its row of ASSIGNMENTS.
+constexpr uint8_t vramcnt(Bank b) {
+    for (const Assignment& a : ASSIGNMENTS)
+        if (a.bank == b)
+            return uint8_t(uint8_t(mstFor(a.bank, a.use) << VRAMCNT_MST_SHIFT)
+                           | uint8_t(a.ofs << VRAMCNT_OFS_SHIFT)
+                           | VRAMCNT_ENABLE);
+    return 0;       // unreachable: everyBankAssignedOnce()
+}
+
+// ...AND THE REGISTER ADDRESSES, WHICH ARE NOT NINE CONSECUTIVE BYTES.
+//
+//   4000240h VRAMCNT_A   4000243h VRAMCNT_D   4000246h VRAMCNT_G
+//   4000241h VRAMCNT_B   4000244h VRAMCNT_E   4000247h **WRAMCNT**
+//   4000242h VRAMCNT_C   4000245h VRAMCNT_F   4000248h VRAMCNT_H
+//                                             4000249h VRAMCNT_I
+//
+// 4000247h IS WRAMCNT, the register that splits the 32 KiB of shared work RAM
+// between the ARM9 and the ARM7.  A loop that writes nine bytes from 4000240h
+// therefore does not merely misplace bank H -- it hands H's control byte to
+// WRAMCNT and repartitions the memory the two processors share.
+//
+//   WRAMCNT bits 0-1, Shared WRAM Bank Allocation (GBATEK):
+//     0  ARM9 = 32K,     ARM7 = 0K
+//     1  ARM9 = 2nd 16K, ARM7 = 1st 16K
+//     2  ARM9 = 1st 16K, ARM7 = 2nd 16K
+//     3  ARM9 = 0K,      ARM7 = 32K
+//
+// Our H byte is 0x81, so bits 0-1 are 1: the ARM9 keeps only the second 16 KiB
+// and the first is reassigned to the ARM7, mid-initialisation, while the ARM9
+// is using it.  Not the worst of the four values -- a byte ending in 3 would
+// take all of it -- and that is precisely what makes it bad, because half a
+// region disappearing corrupts rather than halts.
+//
+// It is the most destructive one-line mistake available in the DS's
+// initialisation, it is written as the natural loop, and this is the file that
+// exists to stop it.
+constexpr uint32_t VRAMCNT_ADDR[] = {
+    0x04000240, 0x04000241, 0x04000242, 0x04000243,   // A B C D
+    0x04000244,                                       // E
+    0x04000245, 0x04000246,                           // F G
+    0x04000248,                                       // H -- 247h is WRAMCNT
+    0x04000249,                                       // I
+};
+static_assert(sizeof VRAMCNT_ADDR / sizeof *VRAMCNT_ADDR == unsigned(Bank::Count));
+constexpr uint32_t WRAMCNT_ADDR = 0x04000247;
+constexpr uint32_t vramcntAddr(Bank b) { return VRAMCNT_ADDR[unsigned(b)]; }
+
+constexpr bool vramcntAddressesSkipWramcnt() {
+    for (uint32_t a : VRAMCNT_ADDR)
+        if (a == WRAMCNT_ADDR) return false;
+    // ...and they are otherwise ascending and distinct, so the gap is the only
+    // discontinuity rather than one of several.
+    for (unsigned i = 1; i < unsigned(Bank::Count); ++i)
+        if (VRAMCNT_ADDR[i] <= VRAMCNT_ADDR[i - 1]) return false;
+    return true;
+}
+static_assert(vramcntAddressesSkipWramcnt(),
+              "a VRAMCNT address collides with WRAMCNT, which does not misplace "
+              "a bank -- it repartitions the work RAM the two CPUs share");
+static_assert(VRAMCNT_ADDR[unsigned(Bank::G)] + 1 == WRAMCNT_ADDR
+                  && WRAMCNT_ADDR + 1 == VRAMCNT_ADDR[unsigned(Bank::H)],
+              "WRAMCNT sits between G and H; that is the whole hazard and it "
+              "must stay stated rather than implied by the numbers");
+
+constexpr bool everyMstFitsItsField() {
+    for (const Assignment& a : ASSIGNMENTS)
+        if (mstFor(a.bank, a.use) >= (1 << mstBits(a.bank))) return false;
+    return true;
+}
+static_assert(everyMstFitsItsField(),
+              "an MST is wider than its bank's field: A, B, H and I have two "
+              "bits, so a 4 on one of them writes a zero into bit 2 and selects "
+              "a different mode entirely");
+
+// The nine bytes, spelled out.  Not because a reader could not compute them, but
+// because these are what §M7 writes and a value that only exists as an
+// expression is a value nobody has ever looked at.
+static_assert(vramcnt(Bank::A) == 0x83, "A: texture, MST 3, slot 0");
+static_assert(vramcnt(Bank::B) == 0x81, "B: main BG, MST 1, offset 0");
+static_assert(vramcnt(Bank::C) == 0x80, "C: LCDC, MST 0");
+static_assert(vramcnt(Bank::D) == 0x80, "D: LCDC, MST 0");
+static_assert(vramcnt(Bank::E) == 0x82, "E: main OBJ, MST 2");
+static_assert(vramcnt(Bank::F) == 0x83, "F: texture palette, MST 3, slot 0");
+static_assert(vramcnt(Bank::G) == 0x80, "G: LCDC, MST 0");
+static_assert(vramcnt(Bank::H) == 0x81, "H: sub BG, MST 1");
+static_assert(vramcnt(Bank::I) == 0x82, "I: sub OBJ, MST 2");
+
+// ---------------------------------------------------------------------------
 // MAIN BG WINDOW -- bank B, 128 KiB at 0x06000000.
 //
 // EVERYTHING HERE STAYS UNDER 62 KiB, and that is a decision rather than an

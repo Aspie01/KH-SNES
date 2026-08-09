@@ -11,14 +11,30 @@ so that they are not relitigated, plus the constraints that will actually bite.
 **`../../docs/DS_PORT_PROMPT.md` is the agent brief** — the standing constraints
 plus one prompt per milestone, with mechanically checkable exit criteria.
 
-**The toolchain is not installed in the development container and cannot be
-installed there:** no devkitPro on disk, not in apt, `apt.devkitpro.org` returns
-403 to that egress IP, no Docker daemon for the `devkitpro/devkitarm` image, and
-no NDS emulator. apt's `gcc-arm-none-eabi` is a Cortex-M/R toolchain and is not a
-substitute for ARMv5TE. The port is therefore split into a **host tier** — the
-whole simulation, built with the system `g++` and tested against the oracle — and
-a **device tier** that only builds where devkitPro is present. The host tier is
-most of the port and all of the risk; see the brief.
+**The toolchain is not installed in the development container.** Run
+`python3 ../../tools/check_device.py` — the block is a program, not this
+paragraph, and it exits 0 the day a toolchain appears.
+
+It reports what is missing and why each piece is needed. As of the §M7 pass:
+no devkitPro on disk and none in apt; `apt.devkitpro.org` returns **403**, which
+is an egress *policy* denial and is to be reported rather than routed around;
+and a Docker **client** exists in the image but there is no daemon at
+`/var/run/docker.sock`, so the `devkitpro/devkitarm` image cannot be run. apt's
+`gcc-arm-none-eabi` is a Cortex-M/R toolchain: it will accept `-march=armv5te`
+but ships no matching multilib, so it compiles and does not link — and a
+compiler alone is not enough anyway, because a `.nds` needs libnds's crt0,
+linker scripts, specs and headers plus `ndstool`. An emulator is *not* required
+to build; `desmume` is one `apt-get` away in Ubuntu universe if one is wanted.
+
+That last pair of sentences is why this is a program now. Two of the six claims
+this paragraph used to make had gone stale — the Docker one and the emulator one
+— without changing the answer, which is the most dangerous way for a stated
+block to be wrong: right for the wrong reasons, until the day it is not.
+
+The port is therefore split into a **host tier** — the whole simulation, built
+with the system `g++` and tested against the oracle — and a **device tier** that
+only builds where devkitPro is present. The host tier is most of the port and
+all of the risk; see the brief.
 
 **Read `../../docs/BEHAVIOUR.md` first.** It is the specification — every frame
 count, range and state machine from the SNES build, extracted before any of that

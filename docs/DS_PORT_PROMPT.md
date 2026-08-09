@@ -1628,14 +1628,86 @@ with the frame and field of each.
 
 ---
 
-# §M7 — The device tier — **Tier 2, blocked here**
+# §M7 — The device tier — **Tier 2, still blocked, and now verifiably so**
 
-Requires devkitPro. Verify first; if absent, report blocked and stop.
+Requires devkitPro. **Verify with `python3 tools/check_device.py`**, which exits
+0 only when a device build is actually possible; if it exits 1, report blocked
+and stop.
 
-In order: two-screen init consuming `vram_map.h` → 2D tilemap ground renderer
-implementing `GroundRenderer` → sprites and the Y-sort → the bottom screen (HUD,
-command menu, minimap) → touch input → the 3D quad backend as a second
-`GroundRenderer`.
+## The verification, run
+
+The block was six sentences of prose in `platform/ds/README.md`. Re-running them
+one at a time found **two had gone stale** — the image has acquired a Docker
+client since, and `desmume` turns out to be one `apt-get` away in Ubuntu
+universe. Neither changes the answer, and that is exactly what makes a stale
+claim about a block dangerous: right for the wrong reasons, until the day it is
+not, and nobody re-reads prose. So the block is a program.
+
+| | |
+| --- | --- |
+| devkitPro | absent; `$DEVKITPRO` unset and nothing in the usual places |
+| devkitARM | absent. apt's `gcc-arm-none-eabi` accepts `-march=armv5te` and ships **no matching multilib**, so it compiles and does not link |
+| libnds | absent — and this is the piece people forget, because a `.nds` is not a bare ELF: it needs libnds's crt0, linker scripts, specs and headers |
+| ndstool | absent |
+| `apt.devkitpro.org` | **HTTP 403** through the egress proxy — an organisation *policy* denial. `/root/.ccr/README.md` is explicit: report the blocked host, do not route around it |
+| Docker | a **client** is installed; there is no daemon at `/var/run/docker.sock`, and the error it prints reads like a permissions problem rather than an absent daemon |
+| an emulator | absent, and **not required to build** |
+
+Four of four required components are missing. §M7 is blocked, the host tier is
+unaffected, and `check_device.py` also proves its *positive* path — given a
+complete toolchain it reports "not blocked" and exits 0, and given apt's
+`arm-none-eabi-gcc` it rejects it by name rather than accepting a compiler that
+cannot link.
+
+## What was deliverable without a toolchain, and was
+
+`vram_map.h` opens by saying "the device tier turns these numbers into VRAMCNT
+and BGxCNT writes and **adds nothing of its own**." That was a promise the file
+did not keep. It carried the ingredients — a bank, a use, an MST, an OFS — and
+left the composition to the one tier that has no way to check it. The first
+thing §M7 does is write nine bytes, every one fully determined by the frozen
+table, and not one of them was written down.
+
+They are now: `vramcnt(Bank)` composes `MST | OFS<<3 | enable<<7`, and the nine
+results are asserted individually so they are values somebody has looked at
+rather than an expression nobody has evaluated — `A=0x83 B=0x81 C=0x80 D=0x80
+E=0x82 F=0x83 G=0x80 H=0x81 I=0x82`.
+
+**And the register addresses are not nine consecutive bytes.** `0x04000247` is
+**WRAMCNT**, sitting between `VRAMCNT_G` and `VRAMCNT_H`. A loop writing nine
+bytes from `0x04000240` does not merely misplace bank H — it writes H's control
+byte into WRAMCNT and repartitions the 32 KiB the two processors share. Bank H's
+byte is `0x81`, so bits 0–1 are 1: the ARM9 keeps only the *second* 16 KiB and
+the first is handed to the ARM7 mid-initialisation, while the ARM9 is using it.
+Not the worst of the four allocations — a byte ending in 3 would take all of it
+— and that is precisely what makes it bad, because half a region disappearing
+corrupts rather than halts. It is the most destructive one-line mistake
+available in DS initialisation, it is written as the natural loop, and this is
+the file that exists to stop it. `VRAMCNT_ADDR[]` has the gap and
+`vramcntAddressesSkipWramcnt()` asserts it.
+
+**One more constraint fell out of composing the byte.** "Bit2 not used by
+VRAM-A,B,H,I" means those four have a **two-bit** MST field. MST 4 — sub BG on
+C, sub OBJ on D — does not fit in two bits, and on such a bank the 4 loses bit 2
+and selects mode 0, which is LCDC: the layer that wanted the bank draws nothing.
+`everyMstFitsItsField()` asserts it, and the breakage that proves it is the
+file's own warning made real — `mstFor`'s `case Use::SubBg: return b == Bank::C
+? 4 : 1;` simplified to `return 4;`, which is the "a single *sub = 4* rule would
+half work" mistake the comment beside it has always described. It now fails to
+compile.
+
+Five deliberate breakages, all fired: a VRAMCNT loop walking over WRAMCNT, the
+addresses made consecutive, that `sub = 4` simplification, the enable bit
+dropped, and bank F moved to palette slot 1 without its offset following.
+
+## What §M7 still has to do, when a toolchain exists
+
+Unchanged, and in order: two-screen init consuming `vram_map.h` → 2D tilemap
+ground renderer implementing `GroundRenderer` → sprites and the Y-sort → the
+bottom screen (HUD, command menu, minimap) → touch input → the 3D quad backend
+as a second `GroundRenderer`. The `GroundRenderer` seam and its
+`NullGroundRenderer` are already in `include/grid.h`, and the init's nine bytes
+are now data it reads rather than nine bytes it types.
 
 On the 3D backend: the limits are **2048 polygons and 6144 vertices per frame**.
 A quad is one polygon, so a whole 64×64 ground is 4096 quads — 2× over. But the
