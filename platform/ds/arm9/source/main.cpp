@@ -330,7 +330,17 @@ void panelClear() {
     for (int i = 0; i < BOX_ENTRIES; ++i) g_menuMap[i] = boxCell(CH_CLEAR);
 }
 
+// THE PANEL STARTS BELOW THE HUD, and the first version did not.  hud.h owns
+// rows 0, 1 and 2 -- Sora's gauge, the boss's or Kairi's checklist, and day
+// two's second line -- and the panel wrote row 0 as well.  Both drew: the HUD
+// is BG0 at priority 0 and the panel BG1 at priority 1, so the scene name
+// showed through wherever the HUD left a transparent cell, and the bottom
+// screen read "STHP" -- "ST" from STATION 1 and "HP" from the gauge.  Two
+// correct renderers, one row, nobody's fault but the layout's.
+constexpr int PANEL_TOP = HUD_ROW_QUEST2 + 2;
+
 void panelText(int row, const char* s) {
+    row += PANEL_TOP;
     if (row < 0 || row >= 32) return;
     int k = 0;
     for (int c = 0; c < 32; ++c) {
@@ -345,6 +355,24 @@ void panelText(int row, const char* s) {
     // blank, so a message with a character the font does not have comes out with
     // a hole rather than with garbage.  text.h says so; this is why the panel
     // can print arbitrary strings safely.
+}
+
+// Decimal into a caller's buffer, and back again as a cursor.  There is no
+// stdio worth linking for this: the panel prints through glyphOf(), which knows
+// digits, and a build that pulled in snprintf to say "OAM 37" would be adding a
+// kilobyte of formatter to a diagnostic.
+char* putNum(char* out, char* end, long v) {
+    if (v < 0) { if (out < end) *out++ = '-'; v = -v; }
+    char tmp[12];
+    int n = 0;
+    do { tmp[n++] = char('0' + v % 10); v /= 10; } while (v && n < 11);
+    while (n && out < end) *out++ = tmp[--n];
+    return out;
+}
+
+char* putStr(char* out, char* end, const char* s) {
+    while (*s && out < end) *out++ = *s++;
+    return out;
 }
 
 const char* const SCENE_NAMES[int(SceneId::Count)] = {
@@ -599,6 +627,60 @@ int main() {
             panelText(2, "SCENE ERROR");
         }
         panelText(6, "L R SCENE   SELECT RESTART");
+
+        // -------------------------------------------------------------------
+        // WHAT THE RENDERERS ACTUALLY DID, on the screen that works.
+        //
+        // The top screen came up as nothing but the backdrop colour: BG0 drawing
+        // blank characters everywhere.  Two very different faults look like
+        // that -- the map was never computed, or it was computed and the write
+        // did not reach VRAM -- and no amount of reading the source separates
+        // them.  So the last two lines read VRAM BACK.  If `at(0,0)` and `VMAP`
+        // disagree, the streamer is right and the store is lost; if they agree
+        // and both are zero, the map is empty and the streamer is the problem.
+        //
+        // Scaffolding, like the boot colours.  It goes when the picture arrives.
+        // -------------------------------------------------------------------
+        char line[33];
+        char* const e = line + 32;
+        char* p = putStr(line, e, "GND ");
+        p = putStr(p, e, ground.error() ? ground.error() : "OK");
+        *p = '\0';
+        panelText(8, line);
+
+        p = putStr(line, e, "MAP ");
+        p = putNum(p, e, game.charMap().wChars);
+        p = putStr(p, e, "X");
+        p = putNum(p, e, game.charMap().hChars);
+        p = putStr(p, e, " E0 ");
+        p = putNum(p, e, game.charMap().at(0, 0));
+        *p = '\0';
+        panelText(9, line);
+
+        p = putStr(line, e, "OAM ");
+        p = putNum(p, e, ob.used);
+        p = putStr(p, e, " CEL ");
+        p = putNum(p, e, game.soraCel());
+        p = putStr(p, e, " P ");
+        p = putNum(p, e, game.player());
+        *p = '\0';
+        panelText(10, line);
+
+        p = putStr(line, e, "CAM ");
+        p = putNum(p, e, game.camera().x);
+        p = putStr(p, e, " ");
+        p = putNum(p, e, game.camera().y);
+        *p = '\0';
+        panelText(11, line);
+
+        p = putStr(line, e, "VMAP ");
+        p = putNum(p, e, *reinterpret_cast<volatile uint16_t*>(
+                             address(GROUND_MAP, Use::MainBg)));
+        p = putStr(p, e, " VCHR ");
+        p = putNum(p, e, *reinterpret_cast<volatile uint16_t*>(
+                             address(GROUND_CHR, Use::MainBg) + 64));
+        *p = '\0';
+        panelText(12, line);
 
         applyFx(io, dispcntMainValue(), game.fx());
 
