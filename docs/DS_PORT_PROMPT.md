@@ -2215,6 +2215,53 @@ code, and both are worth recording:
   takes a fully-walkable 64×32 ground **and** an array bigger than the budget to
   tell them apart — which is now a case, and the probe fires.
 
+## §M7 — IT RUNS
+
+`make -C platform/ds` produces `platform/ds/kh.nds`, and it boots and plays in
+melonDS: the ground draws, Sora is on screen, the HUD and the pad work, and L/R
+step through the nine scenes. Everything below this section was written before
+any of it had been compiled; it is left as it was, and this is what changed.
+
+**Use melonDS.** DeSmuME's last release predates libnds 2.0's Calico startup and
+shows two white screens with no diagnostic — indistinguishable from a broken
+build, and it cost several rounds before the emulator was suspected rather than
+the code.
+
+**Everything that went wrong between "it compiles" and "it plays" is on the
+record**, because most of it was not the port:
+
+* the build was being run from Git Bash while `make` came from devkitPro's MSYS2
+  — two `msys-2.0.dll`s in one process tree, which surfaced as four
+  unrelated-looking failures and four wrong workarounds before the cause. One
+  check in `platform/ds/Makefile` now refuses it by name.
+* libnds is **2.0 on Calico**: no user ARM7, `ds_rules` builds the cartridge,
+  the `bin2o` rule belongs to the template rather than `ds_rules`, and `ARCH`
+  no longer carries `-mthumb-interwork`. The whole build layout had been written
+  from memory against 1.x.
+* an incomplete libnds install, whose headers were missing `irqInit` entirely.
+
+**Two real code findings**, both of a kind the host suite structurally cannot
+see:
+
+* `vram_map.h`'s `OAM_SUB` collides with libnds's `#define OAM_SUB
+  ((u16*)(MM_OBJRAM+0x400))`. The preprocessor rewrites the token before
+  `kh::vram::` means anything, so a `constexpr uint32_t` became a pointer cast.
+  Only `arm9/source/main.cpp` includes both vocabularies, so it undefines it
+  there.
+* **`TilemapGround::writeColumn` wrote VRAM through a non-`volatile` pointer.**
+  Four thousand stores into memory the program never reads: the optimiser
+  discarded them, and the top screen showed nothing but its backdrop. This is
+  the one class of bug the whole host tier cannot reach — the tests read the
+  window back, so a volatile store and a plain one are indistinguishable there.
+  Any new direct VRAM write must be volatile.
+
+**What found them** was three colour marks and five lines of text, not
+inspection. White on both screens meant `main()` was never entered, which
+eliminated four hundred lines in one run; a probe on an unused layer separated
+"engine A is broken" from "the ground path is broken"; and reading VRAM back
+distinguished "never computed" from "computed and lost". The scaffolding is
+still in `arm9/source/main.cpp` and is cheap enough to keep.
+
 ## §M7 — the build, and what it does and does not do
 
 **There is a device build now.** `make -C platform/ds` produces

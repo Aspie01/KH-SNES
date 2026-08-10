@@ -23,6 +23,26 @@ relitigated, plus the constraints that will actually bite.
 **`../../docs/DS_PORT_PROMPT.md` is the agent brief** — the standing constraints
 plus one prompt per milestone, with mechanically checkable exit criteria.
 
+## It runs
+
+`platform/ds/kh.nds` boots and plays in **melonDS**. The Third District draws,
+Sora is on screen, the HUD and the controls work, and L/R walk the nine scenes.
+
+**Use melonDS, not DeSmuME.** DeSmuME's last release predates libnds 2.0's
+Calico startup and never gets past the ROM header — it shows two white screens
+and no diagnostic, which is indistinguishable from a broken build and cost
+several rounds to identify.
+
+**The bug that kept the top screen blank is worth knowing about**, because the
+shape of it will recur. `TilemapGround::writeColumn` wrote four thousand map
+entries into VRAM through a plain `uint16_t*`, and nothing in the program ever
+reads that memory back — so the optimiser was entitled to discard every store,
+and did. The display controller is not a reader GCC knows about. Everything else
+in the port reaches video memory either by `dmaCopy` or through
+`device/mmio.h`'s volatile stores, which is why the bottom screen worked
+perfectly while the top screen showed only its backdrop colour. **Any new path
+that writes VRAM directly must be `volatile`.**
+
 ## Building it
 
 Two prerequisites, and they are needed by different lines below:

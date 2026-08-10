@@ -309,7 +309,6 @@ uint16_t g_oamShadow[vram::OAM_ENTRIES * 4];    // four halfwords an entry
 uint16_t g_hudMap[HUD_ENTRIES];
 uint16_t g_boxMap[BOX_ENTRIES];
 uint16_t g_menuMap[BOX_ENTRIES];                // the diagnostics panel
-uint16_t g_overlayMap[BOX_ENTRIES];             // the top screen's probe, below
 OamEntry g_oam[OAM_SLOTS];
 SpriteSlot g_slots[OAM_SLOTS];
 
@@ -380,37 +379,6 @@ const char* const SCENE_NAMES[int(SceneId::Count)] = {
     "STATION 1", "STATION 2", "STATION 3", "DESTINY ISLANDS", "THE NIGHT",
     "THE FRAGMENT", "FIRST DISTRICT", "SECOND DISTRICT", "THIRD DISTRICT",
 };
-
-// ---------------------------------------------------------------------------
-// A PROBE ON THE TOP SCREEN, ON A LAYER THE GROUND DOES NOT USE.
-//
-// The top screen comes up as one flat colour: BG0 drawing nothing.  The bottom
-// screen works, and that already proves a great deal -- CPU stores into VRAM
-// (the font), palette RAM, dmaCopy, and both engines leaving forced blank.  It
-// proves none of it for ENGINE A, which is a different set of banks, bases and
-// registers, and that is exactly the gap the symptom lives in.
-//
-// So this writes a word onto BG1 of the main engine.  BG1 is the overlay layer,
-// nothing else uses it, and it reads its characters from UI_CHR -- the font
-// uploadResident() already put in bank B -- and its palette from main BG slot
-// 15, which is also already up.  So it shares the ground's ENGINE and BANK and
-// shares none of the ground's code.
-//
-//   text appears    engine A is fine; bank B takes CPU writes and DMA alike,
-//                   and the fault is in the ground path -- the character
-//                   upload, the streamer, or the map
-//   nothing         engine A is not displaying at all, and the ground was never
-//                   the question: the bank, the layer bits or DISPCNT are
-//
-// One screenshot, two hypotheses, no more guessing at which.  Scaffolding, like
-// the boot colours, and it goes with them.
-// ---------------------------------------------------------------------------
-void overlayProbe() {
-    for (int i = 0; i < BOX_ENTRIES; ++i) g_overlayMap[i] = boxCell(CH_CLEAR);
-    const char* const s = "TOP SCREEN OK";
-    for (int c = 0; s[c] && c < BOX_COLS; ++c)
-        g_overlayMap[c] = boxCell(glyphOf(s[c]));
-}
 
 // ---------------------------------------------------------------------------
 // The pad
@@ -522,9 +490,11 @@ void packOamShadow() {
 // exactly that and nothing else.  Three stores, no library, no dependency on
 // anything that could itself be the thing that is broken.
 //
-// DELETE THIS ONCE IT BOOTS.  It is scaffolding, not a feature; the frame loop
-// overwrites DISPCNT on its first pass, so a working build shows the colours
-// only as a flicker.
+// IT STAYS, HAVING EARNED IT.  White told us the fault was before main() -- which
+// eliminated every line of setup in one run and pointed at the emulator instead
+// of the code.  The frame loop overwrites DISPCNT on its first pass, so a
+// working build shows these only as a flicker, and the day the boot breaks again
+// they cost nothing and name the stage.
 // ---------------------------------------------------------------------------
 constexpr uint16_t rgb15(int r, int g, int b) {
     return uint16_t(r | (g << 5) | (b << 10));
@@ -649,7 +619,6 @@ int main() {
 
         buildHud(g_hudMap, game.actors(), game.hudState());
         buildBox(g_boxMap, game.dialogue());
-        overlayProbe();
 
         panelClear();
         panelText(0, SCENE_NAMES[int(game.scene())]);
@@ -664,15 +633,14 @@ int main() {
         // -------------------------------------------------------------------
         // WHAT THE RENDERERS ACTUALLY DID, on the screen that works.
         //
-        // The top screen came up as nothing but the backdrop colour: BG0 drawing
-        // blank characters everywhere.  Two very different faults look like
-        // that -- the map was never computed, or it was computed and the write
-        // did not reach VRAM -- and no amount of reading the source separates
-        // them.  So the last two lines read VRAM BACK.  If `at(0,0)` and `VMAP`
-        // disagree, the streamer is right and the store is lost; if they agree
-        // and both are zero, the map is empty and the streamer is the problem.
+        // The bottom screen is otherwise empty -- the command menu and the
+        // minimap are undesigned -- so this costs nothing and answers the
+        // questions that come up most while playing: did the scene load, is the
+        // streamer happy, how many sprites got slots, where is the camera.
         //
-        // Scaffolding, like the boot colours.  It goes when the picture arrives.
+        // The VRAM read-back that lived here is gone: it existed to decide
+        // whether the ground map was reaching video memory, and it did its job.
+        // The answer was no, and TilemapGround::writeColumn is volatile now.
         // -------------------------------------------------------------------
         char line[33];
         char* const e = line + 32;
@@ -690,30 +658,42 @@ int main() {
         *p = '\0';
         panelText(9, line);
 
+        // THE WHOLE OamBuild, not just `used`, because the first reading of it
+        // raised a question it could not answer: one slot for a frame with Sora
+        // plainly on screen, when Sora carries ActFlags::Shadow and should cost
+        // two.  Both explanations are ordinary -- the shadow was culled, or the
+        // other twelve actors were -- and `culled` against `sorted` separates
+        // them.  Z is there because it is the mechanism: a shadow sits on the
+        // ground while the sprite is lifted eight pixels a height step, so a
+        // tall enough deck pushes the shadow off the bottom edge legitimately.
         p = putStr(line, e, "OAM ");
         p = putNum(p, e, ob.used);
-        p = putStr(p, e, " CEL ");
+        p = putStr(p, e, "/");
+        p = putNum(p, e, ob.actorsSorted);
+        p = putStr(p, e, " CULL ");
+        p = putNum(p, e, ob.culled);
+        p = putStr(p, e, " Z ");
+        p = putNum(p, e, game.player() >= 0
+                             ? game.actors().z[game.player()] : -1);
+        *p = '\0';
+        panelText(10, line);
+
+        p = putStr(line, e, "CEL ");
         p = putNum(p, e, game.soraCel());
         p = putStr(p, e, " P ");
         p = putNum(p, e, game.player());
+        p = putStr(p, e, " DROP ");
+        p = putNum(p, e, ob.droppedToCeiling);
         *p = '\0';
-        panelText(10, line);
+        panelText(11, line);
 
         p = putStr(line, e, "CAM ");
         p = putNum(p, e, game.camera().x);
         p = putStr(p, e, " ");
         p = putNum(p, e, game.camera().y);
         *p = '\0';
-        panelText(11, line);
-
-        p = putStr(line, e, "VMAP ");
-        p = putNum(p, e, *reinterpret_cast<volatile uint16_t*>(
-                             address(GROUND_MAP, Use::MainBg)));
-        p = putStr(p, e, " VCHR ");
-        p = putNum(p, e, *reinterpret_cast<volatile uint16_t*>(
-                             address(GROUND_CHR, Use::MainBg) + 64));
-        *p = '\0';
         panelText(12, line);
+
 
         applyFx(io, dispcntMainValue(), game.fx());
 
@@ -731,8 +711,5 @@ int main() {
         dmaCopy(g_menuMap,
                 reinterpret_cast<void*>(address(MENU_MAP, Use::SubBg)),
                 sizeof g_menuMap);
-        dmaCopy(g_overlayMap,
-                reinterpret_cast<void*>(address(OVERLAY_MAP, Use::MainBg)),
-                sizeof g_overlayMap);
     }
 }
