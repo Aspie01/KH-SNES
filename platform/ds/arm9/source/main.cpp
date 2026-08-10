@@ -23,6 +23,38 @@
 
 #include <nds.h>
 
+// ---------------------------------------------------------------------------
+// LIBNDS IS A C LIBRARY AND ITS NAMES ARE MACROS, WHICH NAMESPACES CANNOT STOP.
+//
+// nds/arm9/video.h:129 has
+//
+//     #define OAM_SUB ((u16*)(MM_OBJRAM+0x400))
+//
+// and vram_map.h:184 has
+//
+//     constexpr uint32_t OAM_SUB = 0x07000400;
+//
+// Both name the same address and they are not in conflict about anything except
+// spelling -- but the preprocessor rewrites the token before the compiler ever
+// sees `kh::vram::`, so the declaration becomes a pointer cast in a `constexpr
+// uint32_t`, and the static_assert two lines below it becomes a comparison
+// between a pointer and an integer.  Four errors, none of which mentions a
+// macro until you read the notes.
+//
+// THIS IS THE ONLY FILE THAT CAN HIT IT, and that is worth stating because it
+// bounds the fix.  device/*.cpp include vram_map.h and never include nds.h --
+// the host suite compiles them, and it has no libnds -- so the two vocabularies
+// meet here and nowhere else.  Undefining is therefore local, and it costs
+// nothing: this file uses vram_map.h's addresses throughout and libnds's
+// pointer macros not at all.
+//
+// If a second file ever needs both, this block becomes a small header rather
+// than a copy.  If a NEW collision appears, it will appear exactly like this
+// one did -- loudly, at compile time, naming the line in our header -- which is
+// the right way for it to arrive.
+// ---------------------------------------------------------------------------
+#undef OAM_SUB
+
 #include <cstring>
 
 #include "boot.h"

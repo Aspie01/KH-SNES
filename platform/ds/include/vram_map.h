@@ -180,6 +180,16 @@ constexpr uint32_t PAL_REGION_BYTES = 512;      // 256 entries, 16 sub-palettes
 // GBATEK, "DS Memory Map": 07000000h-070003FFh is engine A's OAM and
 // 07000400h-070007FFh is engine B's, 1 KiB each, 128 entries of 8 bytes.
 // ---------------------------------------------------------------------------
+// CAREFUL: OAM_SUB IS ALSO A LIBNDS MACRO.  nds/arm9/video.h:129 has
+//     #define OAM_SUB ((u16*)(MM_OBJRAM+0x400))
+// -- the same address, spelled as a pointer.  The preprocessor rewrites the
+// token before `kh::vram::` means anything, so a translation unit that includes
+// both nds.h and this header sees the line below turn into a pointer cast
+// inside a constexpr uint32_t.  Only platform/ds/arm9/source/main.cpp includes
+// both, and it undefines the macro with a note; nothing else in the tree can
+// reach libnds at all.  Renaming would be the other fix and is not taken: this
+// file is frozen to additions, and every address in it is cited elsewhere by
+// name.
 constexpr uint32_t OAM_MAIN = 0x07000000;
 constexpr uint32_t OAM_SUB = 0x07000400;
 constexpr uint32_t OAM_BYTES = 1024;
