@@ -62,6 +62,35 @@ export DEVKITARM
 SUBMAKE := $(MAKE) --no-print-directory \
            DEVKITPRO='$(DEVKITPRO)' DEVKITARM='$(DEVKITARM)' MAKE='$(MAKE)'
 
+# WHERE THE COMPILER PUTS ITS TEMPORARY FILES.
+#
+# devkitARM is a native Windows gcc.  It asks Windows for a temp directory, and
+# Windows answers C:\WINDOWS\ when TMP and TEMP are both unset -- a directory no
+# ordinary user may write to.  The build then dies with
+#
+#     Cannot create temporary file in C:\WINDOWS\: Permission denied
+#
+# on the first source file, which reads like a broken toolchain and is nothing of
+# the sort.  Reported from a devkitPro MSYS2 shell where those variables were not
+# set; it is the fourth thing on that install to arrive at a child process empty.
+#
+# So the build says where, rather than asking.  $(CURDIR) is the build directory
+# in the pass that compiles, which is guaranteed to exist and be writable because
+# make just made it.  gcc's temporaries are deleted as it goes.
+#
+# THE PATH HAS TO BE IN WINDOWS FORM.  A native gcc handed /home/... would take
+# it as \home\... on whatever the current drive is.  cygpath -m gives the drive
+# letter with forward slashes, which Windows accepts and which survives being
+# pasted into a command line.  On a real Unix there is no cygpath and no problem,
+# and the plain path is right.
+KH_TMPDIR := $(CURDIR)
+ifneq ($(shell command -v cygpath >/dev/null 2>&1 && echo yes),)
+KH_TMPDIR := $(shell cygpath -m '$(CURDIR)')
+endif
+export TMPDIR := $(KH_TMPDIR)
+export TMP    := $(KH_TMPDIR)
+export TEMP   := $(KH_TMPDIR)
+
 TARGET   := $(notdir $(CURDIR))
 BUILD    := build
 SOURCES  := source ../source ../device
