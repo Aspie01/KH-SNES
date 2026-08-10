@@ -116,11 +116,31 @@ export INCLUDE  := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
                    -I$(CURDIR)/$(BUILD)
 export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
+
+# EVERYTHING THE SECOND PASS NEEDS, NAMED ON ITS COMMAND LINE.
+#
+# devkitPro's template hands these over by `export`, i.e. through the
+# environment, and on one devkitPro MSYS2 install the environment does not
+# survive make spawning make: the second pass came back with "No targets.
+# Stop.", which is what make says when it can find no default goal -- because
+# $(OUTPUT) had arrived EMPTY and the only rule in that pass reads
+# `$(OUTPUT).elf : $(OFILES)`, whose target then begins with a dot and is
+# therefore skipped when choosing one.  A cryptic message for a lost variable.
+#
+# It is the same failure that made an exported DEVKITARM invisible and then lost
+# the command-line copy one level down, so the same answer: say it out loud on
+# the recursion, where nothing can drop it.  The `export`s above stay too --
+# they cost nothing and they are what works everywhere else.
+HANDOVER := OUTPUT='$(OUTPUT)' DEPSDIR='$(DEPSDIR)' VPATH='$(VPATH)' \
+            OFILES='$(OFILES)' OFILES_BIN='$(OFILES_BIN)' \
+            OFILES_SOURCES='$(OFILES_SOURCES)' HFILES='$(HFILES)' \
+            INCLUDE='$(INCLUDE)' LIBPATHS='$(LIBPATHS)' LD='$(LD)'
+
 .PHONY: $(BUILD) clean
 
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
-	@$(SUBMAKE) -C $(BUILD) -f $(CURDIR)/Makefile
+	@$(SUBMAKE) -C $(BUILD) -f $(CURDIR)/Makefile $(HANDOVER)
 
 clean:
 	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).map
@@ -128,6 +148,17 @@ clean:
 #---------------------------------------------------------------------------
 else
 #---------------------------------------------------------------------------
+
+# ...and if it arrives empty anyway, say SO rather than "No targets".
+#
+# This pass defines exactly one rule, and its target is built from $(OUTPUT).
+# With OUTPUT empty that target is ".elf", make skips dot-leading targets when
+# picking a default goal, and the whole build stops with a message that names
+# nothing.  Two lines to turn that into the actual problem.
+ifeq ($(strip $(OUTPUT)),)
+$(error the second pass received no OUTPUT.  The first pass hands it over on the \
+recursion AND by export, so both routes failed -- see the HANDOVER note above)
+endif
 
 DEPENDS := $(OFILES:.o=.d)
 
