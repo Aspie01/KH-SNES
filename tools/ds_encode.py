@@ -53,6 +53,63 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+
+def _pillow_or_explain() -> None:
+    """Turn a bare ModuleNotFoundError into the thing to actually do.
+
+    tools/pixel.py imports PIL, this file imports pixel, and build_assets.py
+    imports this file -- so a machine without Pillow gets a three-frame
+    traceback ending in `No module named 'PIL'` and no hint that the answer
+    depends on WHICH python3 ran.  On Windows it usually does: devkitPro's MSYS2
+    is where make must run, and it is the one python that cannot have Pillow.
+
+    pixel.py is frozen (see docs/DS_PORT_PROMPT.md) and build_assets.py takes
+    additions only, so the check lives here, on the import path both of them go
+    through, and it is a function rather than a bare try at module scope.
+    """
+    try:
+        import PIL                                     # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+
+    import platform
+    where = platform.system()
+    lines = [
+        "",
+        "Pillow is not installed for this python.",
+        "",
+        "  tools/pixel.py draws every asset as an indexed PNG and imports PIL,",
+        "  so nothing is emitted without it:",
+        "",
+        "      pip install Pillow            # or: sudo apt install python3-pil",
+        "",
+    ]
+    if where.startswith(("MSYS", "MINGW", "CYGWIN")):
+        lines += [
+            f"  BUT THIS PYTHON IS {where}'s -- {sys.executable} -- which on this",
+            "  project means devkitPro's MSYS2, and there is no Pillow to install",
+            "  there: its pacman python has no pip and the trimmed devkitPro",
+            "  package set has no python-pillow.  Do not go looking for one.",
+            "",
+            "  Nothing in the pipeline needs that shell.  Only `make` does.  Run",
+            "  these two with the ordinary Windows Python -- Git Bash, PowerShell",
+            "  or cmd, pointed at this same folder:",
+            "",
+            "      python tools/build_assets.py",
+            "      python tools/check_link.py",
+            "",
+            "  and then `make -C platform/ds` back here.  Both scripts resolve",
+            "  their own paths from __file__, so the two shells build one tree.",
+            "  See platform/ds/README.md, 'The Python lines are not bound by",
+            "  any of this'.",
+            "",
+        ]
+    raise SystemExit("\n".join(lines))
+
+
+_pillow_or_explain()
+
 from pixel import Canvas                                    # noqa: E402
 
 # A DS text background's map entry.

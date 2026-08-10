@@ -84,6 +84,12 @@ python3 tools/check_link.py       # every symbol the ARM9 declares is on disk
 make -C platform/ds               # -> platform/ds/kh.nds
 ```
 
+**On Windows that is two shells, not one**, and the block above is the Linux and
+macOS form. The `make` line needs devkitPro's MSYS2 and the two Python lines
+cannot run there — see *The Python lines are not bound by any of this* below for
+the Windows version of the same four commands. `ds_encode.py` says so too, if
+you find out by running it.
+
 **The pipeline is not optional and skipping it used to look like a code bug.**
 `assets/gen/` is gitignored, so a pull never brings the `.bin` tables; and
 `arm9/Makefile` finds them with a wildcard that runs when make *parses* the
