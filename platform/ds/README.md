@@ -71,6 +71,14 @@ make -C platform/ds
 `which make` should print `/usr/bin/make` in that shell. A `/c/...` path means
 you are in the wrong one.
 
+**Only `make` needs that shell.** Git, Python and an editor can be anywhere
+pointed at the same directory, and it is often easier that way: devkitPro's
+MSYS2 has no credential helper, so `git pull` over HTTPS fails there with
+`Password authentication is not supported`, while Git Bash has Windows
+Credential Manager already wired up. Pulling in one shell and building in the
+other is not a workaround — the two tools genuinely do not care about each
+other.
+
 **One working tree.** The pipeline writes `assets/gen/ds/*.bin` and the link
 step reads those exact files, so running them against different checkouts
 produces a build that cannot find assets that plainly exist. A WSL clone under
