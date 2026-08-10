@@ -44,15 +44,21 @@ python3 tools/check_link.py       # every symbol the ARM9 declares is on disk
 make -C platform/ds               # -> platform/ds/kh.nds
 ```
 
-**Pick one environment and stay in it.** The three lines above have to run in
-the same place: `make` reads `$DEVKITARM`, and the `.bin` files the first line
-writes are the ones the third links in. A Windows devkitPro install sets
-`DEVKITPRO`/`DEVKITARM` for PowerShell and for its own MSYS2 shell, and a WSL
-Ubuntu install sets them for WSL — neither is visible to the other, and a clone
-under `/home/…` in WSL is a different working tree from one under
-`C:\Users\…`. On Windows, devkitPro's MSYS2 shell is where `make` lives and it
-ships no Python, so either `pacman -S python3` there or install devkitPro inside
-WSL (`apt` route, `tools/check_device.py` prints it) and do everything there.
+**One working tree, not necessarily one shell.** What the three lines share is
+the *directory*: the first writes `assets/gen/ds/*.bin` and the third links
+those exact files in, so running the pipeline against one checkout and `make`
+against another produces a build that cannot find assets that plainly exist.
+On Windows that is the trap worth naming, because a WSL clone under `/home/…`
+and a Windows clone under `C:\Users\…` look identical and are two trees;
+`assets/gen/` is gitignored, so the `.bin` files never travel between them.
+
+Which *shell* runs which line matters less, and only for one reason: `make`
+needs `$DEVKITARM`, so it has to run somewhere that has it. A Windows devkitPro
+sets it for PowerShell and for its own MSYS2/Git Bash; a WSL install sets it for
+WSL. The Python lines need only Python and Pillow and can run anywhere pointed
+at the same folder. Simplest is to have both in one shell: devkitPro's MSYS2
+ships no Python, so `pacman -S python3 python-pillow` there and everything is in
+one place.
 
 The `.nds` runs on melonDS, DeSmuME or a flashcart. It boots straight into the
 first Station of Awakening; **L and R step through the nine scenes and SELECT
