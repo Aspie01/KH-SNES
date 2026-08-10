@@ -197,6 +197,23 @@ make -C platform/ds              # devkitPro's MSYS2
 Windows Python inherits the real Win32 working directory and both scripts
 resolve their own location from `__file__`, so relative paths work unchanged.
 
+**Or do it all in the one shell**, since a Windows `python.exe` runs perfectly
+well from MSYS2 — it is the *make* that is picky, not the python. Ask the
+pipeline where that python is: run it in MSYS2, let it refuse, and read the
+answer off the refusal.
+
+```sh
+python3 tools/build_assets.py    # devkitPro's MSYS2; refuses, and names the one that works
+/c/Users/<you>/AppData/Local/Programs/Python/Python313/python.exe tools/build_assets.py
+```
+
+`tools/ds_encode.py` finds the candidates (the `py` launcher, a non-MSYS2
+`python` on `PATH`, then the installer's per-user and all-users prefixes), *runs*
+each one to see which can `import PIL`, and prints the first that can as a
+command to paste. It names none rather than the wrong one, so if the second line
+above is missing from the refusal, there is no Pillow anywhere on the box and
+`pip install Pillow` in the Windows shell is the actual first step.
+
 The `.nds` runs on melonDS, DeSmuME or a flashcart. It boots straight into the
 first Station of Awakening; **L and R step through the eleven scenes and SELECT
 restarts the loaded one**, because there is no save system and a person testing

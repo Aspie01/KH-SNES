@@ -54,6 +54,70 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+def _windows_pythons() -> list[str]:
+    """Every python.exe on a Windows box that is NOT the MSYS2 one.
+
+    Ordered by how likely it is to be the one with Pillow: the py launcher
+    first, because it exists precisely to answer this question, then a
+    `python` on PATH that does not live under the MSYS2 root, then the two
+    install prefixes the Windows installer offers (per-user and all-users).
+
+    Returns [] on anything but Windows-under-a-POSIX-shell, so the caller gets
+    the short message on Linux and macOS without a filesystem walk.
+    """
+    import glob
+    import os
+    import shutil
+
+    found: list[str] = []
+    for name in ("py", "python"):
+        exe = shutil.which(name)
+        # /usr/bin/python3 IS the MSYS2 one; suggesting it back would be a loop.
+        if exe and not exe.startswith(("/usr/", "/bin/", "/opt/")):
+            found.append(exe)
+
+    roots = ["/c/Users/*/AppData/Local/Programs/Python/Python3*",
+             "/c/Program Files/Python3*",
+             "/c/Program Files (x86)/Python3*",
+             "/c/Python3*"]
+    local = os.environ.get("LOCALAPPDATA", "")
+    if local:                                   # the real one, if MSYS2 kept it
+        roots.insert(0, local.replace("\\", "/") + "/Programs/Python/Python3*")
+    for root in roots:
+        found += sorted(glob.glob(root + "/python.exe"), reverse=True)
+
+    seen, unique = set(), []
+    for exe in found:
+        if exe not in seen:
+            seen.add(exe)
+            unique.append(exe)
+    return unique
+
+
+def _first_with_pillow(candidates: list[str]) -> str:
+    """The first candidate that can `import PIL`, or "" if none can.
+
+    Asked rather than assumed: a machine can easily have three Pythons and
+    Pillow in one of them, and naming the wrong one is worse than naming none.
+    Bounded to eight, because this runs on an error path and a slow answer to
+    "you are stuck" is its own problem.
+    """
+    import subprocess
+
+    for exe in candidates[:8]:
+        try:
+            done = subprocess.run(
+                [exe, "-c", "import PIL"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=20,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.returncode == 0:
+            return exe
+    return ""
+
+
 def _pillow_or_explain() -> None:
     """Turn a bare ModuleNotFoundError into the thing to actually do.
 
@@ -92,17 +156,40 @@ def _pillow_or_explain() -> None:
             "  there: its pacman python has no pip and the trimmed devkitPro",
             "  package set has no python-pillow.  Do not go looking for one.",
             "",
-            "  Nothing in the pipeline needs that shell.  Only `make` does.  Run",
-            "  these two with the ordinary Windows Python -- Git Bash, PowerShell",
-            "  or cmd, pointed at this same folder:",
+            "  Nothing in the pipeline needs that shell.  Only `make` does.",
             "",
-            "      python tools/build_assets.py",
-            "      python tools/check_link.py",
-            "",
-            "  and then `make -C platform/ds` back here.  Both scripts resolve",
-            "  their own paths from __file__, so the two shells build one tree.",
-            "  See platform/ds/README.md, 'The Python lines are not bound by",
-            "  any of this'.",
+        ]
+        winpy = _first_with_pillow(_windows_pythons())
+        if winpy:
+            lines += [
+                "  THIS MACHINE ALREADY HAS A PYTHON THAT CAN.  Run these two",
+                "  with it, from this same directory and without leaving this",
+                "  shell -- it is a Windows .exe and MSYS2 can run it:",
+                "",
+                f"      {winpy} tools/build_assets.py",
+                f"      {winpy} tools/check_link.py",
+                "",
+                "  then `make -C platform/ds` as usual.",
+                "",
+            ]
+        else:
+            lines += [
+                "  Run these two with the ordinary Windows Python -- Git Bash,",
+                "  PowerShell or cmd, pointed at this same folder:",
+                "",
+                "      python tools/build_assets.py",
+                "      python tools/check_link.py",
+                "",
+                "  and then `make -C platform/ds` back here.  (Nothing that looks",
+                "  like a Windows Python with Pillow was found from here, so this",
+                "  is the general form; `pip install Pillow` in that shell if it",
+                "  is missing there too.)",
+                "",
+            ]
+        lines += [
+            "  Both scripts resolve their own paths from __file__, so two shells",
+            "  build one tree.  See platform/ds/README.md, 'The Python lines are",
+            "  not bound by any of this'.",
             "",
         ]
     raise SystemExit("\n".join(lines))

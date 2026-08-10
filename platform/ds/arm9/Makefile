@@ -139,6 +139,11 @@ $(abspath $(DATA)) holds no .bin files, so there is nothing for the ARM9 to
       python3 tools/check_link.py       # every symbol main.cpp declares is there
       make -C platform/ds
 
+  ON WINDOWS THE FIRST TWO ARE NOT THIS SHELL'S python3.  devkitPro's MSYS2 is
+  where make has to run and is the one python that cannot have Pillow, so the
+  pipeline needs the Windows one.  Run the first line here anyway: it refuses,
+  and names the python on this machine that can, as a command to paste.
+
   If you HAVE run it and this still fires, you ran it in a different tree from
   the one make is in.  The path above is the directory make is looking at;
   compare it with the one your shell prints for pwd.  devkitPro's MSYS2 and Git
