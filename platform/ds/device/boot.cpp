@@ -191,6 +191,12 @@ bool Game::begin(SceneId first) {
             if (first == SceneId::Dive2) dive_.setStage(DiveStage::S2Intro);
             if (first == SceneId::Dive3) dive_.setStage(DiveStage::S3Intro);
             break;
+        // THE SECRET PLACE IS THE ISLAND, one room further in.  Same machine,
+        // same quest state, same Dive gate: the chamber is not a world of its
+        // own, it is a place on Destiny Islands with a doorway in front of it,
+        // and a scene that ran its own machine would be a scene whose day never
+        // advanced while the player was inside it.
+        case SceneId::Cave:
         case SceneId::Island:
             island_.begin();
             // ...and the gate.  SceneUpdate runs IslandUpdate only when
@@ -259,6 +265,7 @@ StageStep Game::machineStep() {
         case SceneId::Dive2:
         case SceneId::Dive3:
             return dive_.update(v, fx_);
+        case SceneId::Cave:
         case SceneId::Island: {
             // The race is the one place two owners hold one number.  The machine
             // owns rikuWp and WorldState carries the copy the actor layer
@@ -305,7 +312,21 @@ StageStep Game::interactStep() {
             if (answer != 0) dialogue_.clearResult();
             return s;
         }
+        case SceneId::Cave:
         case SceneId::Island:
+            // THE CAVE RUNS THE ISLAND'S INTERACTIONS, and there is nothing
+            // room-specific to add yet: the chamber's mushroom is picked up by
+            // walking into it and the three drawings are examined by pressing A,
+            // which is what islandInteract already does for both.
+            //
+            // WHAT IS MISSING IS THE DOORWAY, and neither map carries one -- see
+            // assets/ds/cave_cast.txt.  tools/build_doors.py would (rightly)
+            // refuse a 'd' tile it could not check, because its whole model is
+            // "a scene with doors is a district of Traverse Town": a SCENE_*
+            // constant in the frozen assembly, a TownStage gate, a door in
+            // DOOR_ROW.  A hole in a cliff is none of those.  So the tiles and
+            // the wiring arrive together, and until then the room is reached with
+            // the L/R bring-up controls.
             return islandInteract(island_, v, inv_);
         case SceneId::Night:
         case SceneId::Fragment:

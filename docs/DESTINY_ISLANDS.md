@@ -58,6 +58,50 @@ Each of these needs something the combat slice does not have:
 Shadow Heartless do **not** belong in the two days. They arrive on the night
 the island falls, which is a later state of the same map -- see below.
 
+## The Secret Place is a room (DS only)
+
+On the SNES the chamber is a six-tile pocket in the island's cliff, walled to the
+north and west and entered by wading round the waterfall. **On the DS it is its
+own scene** — `SceneId::Cave`, `assets/ds/cave.txt` — which is what the PS2 does
+with it: you go in through an opening in the rock and the chamber is a separate
+load. The island map keeps the passage mouth, and `tools/check_map.py` is frozen
+with `DS_ROUTES` pinning "the cave passage" and "the plunge pool" inside it, so
+that pocket cannot be paved over whatever happens to the room behind it.
+
+Two things about the map are worth knowing before editing it:
+
+- **The walls are the dark, not rock.** `#` is a cliff at +3: the painter draws it
+  24 pixels above its own cell with a lit face filling the gap, which is right for
+  a headland from overhead and wrong for the inside of a hill. The first draft
+  walled the chamber in `#` and came out as a lit stone plateau with a hole in it.
+  `*` is palette index 0 — the backdrop — so it is blocked, flat, one character
+  and no palette entry. The one exception is the back wall, which is `#` so the
+  three drawings have a face to hang on.
+- **Nothing raised may sit south of walkable floor.** A raised tile covers what is
+  *north* of it, so rock below the floor paints over the floor. A host test walks
+  the whole room asserting it.
+
+It uses `BG_NIGHT` rather than the island's daylight palette, and that is the
+right palette rather than a borrowed one: a cave is lit by its opening, so index 0
+is near-black and the sand and rock ramps come out dim. It also means
+`cavepal.bin` is byte-identical to `nightpal.bin`.
+
+**There is no doorway yet, and that is the checker's decision.**
+`tools/build_doors.py` discovers its subjects as "every scene that has doors" and
+then requires each to be a district of Traverse Town — a `SCENE_*` in the frozen
+assembly, a row in `town_doors.txt`, a `TownStage` gate, a door in `DOOR_ROW`. A
+hole in a cliff is none of those. Authoring a `d` tile before that tool can check
+it would leave precisely the state it exists to prevent: a doorway drawn into the
+art with nothing behind it. So the room is reached with the L/R bring-up controls
+until the tiles and the wiring arrive together — which wants a `RoomDoor` type
+with no `TownStage` in it, a `SceneAction` to carry the transition, and the
+existing reciprocal-landing derivation pointed at the new pair.
+
+**The night has not moved in.** `SceneId::Night` is still the island's own map
+after dark and `assets/ds/night_cast.txt` still stands Kairi and a Door in the
+pocket, so the night's `OpenTheDoor` beat still has a Door to act on. Moving it
+needs a second scene sharing this ground, the way `night` shares the island's.
+
 ## Raised ground
 
 `assets/island.txt` gives every terrain code a height in eight-pixel steps, and

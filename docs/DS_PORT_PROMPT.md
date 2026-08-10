@@ -2373,6 +2373,52 @@ pins that with two. A case the shipped data cannot produce; the ROM is still the
 specification, and an untested loop is one somebody simplifies on the grounds
 that it looks equivalent.
 
+## Destiny Islands — the rooms
+
+The PS2 play island is several loaded areas and the demake had collapsed them into
+one 64×32 map. The first one split back out is the **Secret Place**:
+`SceneId::Cave`, appended at 9 because `tools/check_constants.py` pins 0–8 by value
+against the frozen assembly's `SCENE_*` and `main.cpp` indexes `SCENE_ASSETS` by
+the enum.
+
+**What adding a scene actually touches**, found by grepping rather than by
+guessing, and every one of these is a real edit:
+
+| | |
+| --- | --- |
+| `tools/build_assets.py` | a `ds_scenes()` row, appended |
+| `constants.h` | the enumerator and `Count` |
+| `main.cpp` | six `KH_BIN` symbols, a `buildSceneTable` block, a `SCENE_NAMES` entry, an OBJ-palette arm |
+| `boot.cpp` | three switches on `SceneId`, all three caught by `-Werror=switch` |
+| `test_assets.cpp` | a hard-coded `9u` scene count, a `fits == 4`, and a `WANTS` table of per-scene flags |
+| `test_ground.cpp` | `fixed == 4` |
+| `test_scene.cpp` | the island's cast row count and its actor tallies |
+| `docs/WORLD_SIZES.md` | the island's figures, recomputed by `check_worldsizes.py` |
+
+**The compiler catches three and nothing catches the rest.** The `SceneId`
+switches are exhaustive so `-Werror=switch` names them; the seven count-sensitive
+assertions live nowhere near the change and are only found by running the suite.
+`test_assets.cpp`'s literal is now `SceneId::Count` instead of `9u`, so that one
+cannot come back.
+
+**`check_worldsizes.py` is stricter than it looks**: every digit run in
+`WORLD_SIZES.md` must be recomputed by the tool or excused with a reason. A prose
+sentence explaining why a figure changed *fails the gate* if it contains the
+figure. That is a good rule and worth knowing before writing the sentence.
+
+**What is deliberately not done**, and is recorded in the tree rather than left
+looking finished:
+
+- **No doorway.** `build_doors.py` models every door-carrying scene as a district
+  of Traverse Town: a `SCENE_*` constant, a `town_doors.txt` row, a `TownStage`
+  gate, a door in `DOOR_ROW`. The island pair is none of those. Authoring a `d`
+  tile it could not check would leave exactly the state that tool exists to
+  prevent, so the tiles and the wiring arrive together. Declared in
+  `assets/ds/cave_cast.txt`, `assets/ds/cave.txt`, `boot.cpp` and
+  `docs/DESTINY_ISLANDS.md`.
+- **The night has not moved in.** `night_cast.txt` is untouched, so
+  `OpenTheDoor` still has a Door.
+
 ## §M7 — the build, and what it does and does not do
 
 **There is a device build now.** `make -C platform/ds` produces

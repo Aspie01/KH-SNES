@@ -391,11 +391,22 @@ enum class ArmorState : uint8_t {
 // ---------------------------------------------------------------------------
 // Scenes and their stage machines
 // ---------------------------------------------------------------------------
+// THE FIRST NINE ARE THE ORACLE'S AND CANNOT MOVE.  tools/check_constants.py
+// pairs every SCENE_* in platform/snes/src/game.inc against the enumerator of the
+// same name and checks the VALUE, so 0..8 are fixed by the frozen assembly.
+// Anything the DS adds goes on the END -- and SCENE_ASSETS in gen/assets.h is
+// indexed by this enum (main.cpp:159), so tools/build_assets.py's ds_scenes()
+// list has to grow in the same order and at the same end.
 enum class SceneId : uint8_t {
     Dive = 0, Dive2 = 1, Dive3 = 2,
     Island = 3, Night = 4, Fragment = 5,
     Town1 = 6, Town2 = 7, Town3 = 8,
-    Count = 9,
+    // ...and the DS's own rooms, which the SNES has no constant for.  The Secret
+    // Place is a separate load in the PS2 game and is one here: the island map
+    // keeps the passage mouth in the cliff and a doorway at its far end leads
+    // into the chamber with the drawings and the Door.
+    Cave = 9,
+    Count = 10,
 };
 
 enum class DiveStage : uint8_t {

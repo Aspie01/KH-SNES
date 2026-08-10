@@ -1,0 +1,59 @@
+# The Secret Place -- Nintendo DS cast.  Tile coordinates into cave.txt.
+#
+# Props are NOT listed here: they are derived from the tile they stand on, and a
+# cave has none of them.  Everything below is authored because nothing in the
+# map implies it.
+#
+# Rows are  Type  i  j  [variant]
+#
+#   [base]   placed on entry, and again after a death
+#   [day2]   food and water -- never present at the same time as [day1]
+#   [doors]  i j land_i land_j -- the doorway and the tile you use it from
+#
+# WHAT IS NOT HERE, AND WHY.  The night's Kairi.  SceneId::Night is still the
+# ISLAND's map with a night palette, and assets/ds/night_cast.txt still stands her
+# and the Door in the island's own cave pocket at (8,6) -- untouched, so the
+# night's OpenTheDoor beat still has a Door to act on and nothing regresses.
+# Moving the night into this room is its own piece of work: it needs a second
+# scene sharing this ground, the way `night` shares the island's, and the night
+# machine needs to be told that N_KAIRI happens through a doorway.  Until then
+# the days come in here and the night does not.
+
+[base]
+Sora        21 12         # just inside the doorway, where the door puts him down
+
+# --- the back wall ---------------------------------------------------------
+# On the topmost walkable row, so AF_FLAT lands them on the face of the rock
+# behind rather than on top of it -- the same arrangement the island's pocket
+# used at (7..9, 5).  Two tiles apart rather than adjacent: FindProp is a
+# nearest-wins scan and the chamber is wide enough to afford the spacing.
+Faces        7  4
+Door         9  4         # no handle, no keyhole
+Scribble    11  4
+
+[day2]
+# "one inside the Secret Place" -- docs/DESTINY_ISLANDS.md's third mushroom,
+# which used to sit at (7,6) on the island map and now sits in the room it was
+# always described as being in.
+Mush         5 10
+
+# NO [doors] SECTION YET, AND THAT IS THE CHECKER'S DECISION RATHER THAN AN
+# OMISSION.
+#
+# tools/build_doors.py discovers its subjects as "every scene that has doors" and
+# then requires each one to be a district of Traverse Town: a SCENE_* constant in
+# the frozen assembly, a row in assets/ds/town_doors.txt, a TownStage gate, and a
+# door in DOOR_ROW.  The Secret Place is none of those -- there is no SCENE_CAVE,
+# its doorway is a hole in a cliff rather than a building front, and it is not
+# gated on anything at all.
+#
+# So authoring a 'd' tile now would leave exactly the state that tool exists to
+# prevent: a doorway drawn into the art with nothing behind it, which a reader
+# cannot distinguish from one that is meant to be dead.  The tiles and the wiring
+# arrive together, in the increment that teaches build_doors.py the difference
+# between a district and a room -- which also wants a RoomDoor type with no
+# TownStage in it, a SceneAction to carry the transition, and the existing
+# reciprocal-landing derivation pointed at the new pair.
+#
+# Until then the chamber is reached with the L/R bring-up controls, everything in
+# it is authored and checked, and there is no half-built door in the tree.

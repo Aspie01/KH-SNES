@@ -319,7 +319,7 @@ KH_TEST(assets_every_scene_that_fits_records_its_bgxcnt_size) {
             ++fits;
         }
     }
-    CHECK_EQ(fits, 4);       // three stations and the fragment
+    CHECK_EQ(fits, 5);       // three stations, the fragment, the Secret Place
     CHECK_EQ(streams, 5);    // the island, the night, and three districts
 }
 
@@ -358,7 +358,8 @@ KH_TEST(assets_the_scene_table_says_which_ones_stream) {
         CHECK(s->streams);
     }
     // Nine scenes, which is every one that has a cast file.
-    CHECK_EQ(sizeof SCENE_ASSETS / sizeof SCENE_ASSETS[0], 9u);
+    CHECK_EQ(sizeof SCENE_ASSETS / sizeof SCENE_ASSETS[0],
+             static_cast<size_t>(SceneId::Count));
 }
 
 KH_TEST(assets_one_dimensional_sprite_mapping_renumbers_the_objects) {
@@ -464,6 +465,10 @@ KH_TEST(assets_a_scene_says_which_optional_tables_it_has) {
         {"town1", uint8_t(SceneTable::Doors)},
         {"town2", SceneTable::Doors | SceneTable::Spots},
         {"town3", SceneTable::Doors | SceneTable::Pair},
+        // The Secret Place: the third mushroom, and nothing else.  No spots --
+        // the Heartless do not come into the chamber -- and no doors yet; see
+        // assets/ds/cave_cast.txt for whose decision that is.
+        {"cave", uint8_t(SceneTable::Day2)},
     };
     const int n = int(sizeof SCENE_ASSETS / sizeof *SCENE_ASSETS);
     CHECK_EQ(n, int(sizeof WANTS / sizeof *WANTS));

@@ -1,0 +1,54 @@
+# The Secret Place -- Nintendo DS.  32 x 16 tiles = 512 x 256 pixels.
+#
+# The waterfall cave, split out of the island map into a room of its own.  In the
+# PS2 game this is a separate load: you squeeze through a gap in the rock beside
+# the fall, follow a low passage, and it opens into the chamber with the drawings
+# and the Door.  The island map keeps the PASSAGE MOUTH -- the cave floor at
+# (6..11, 5..6) that tools/check_map.py's frozen DS_ROUTES pins as "the cave
+# passage" -- and the doorway at its far end leads here.
+#
+# # cliff +3     C cave floor   * the dark (blocked, backdrop colour)
+#
+# NO 'd' DOORWAY YET.  The way in and out is authored in the same increment that
+# teaches tools/build_doors.py the difference between a district and a room; see
+# assets/ds/cave_cast.txt.  Until then the chamber is reached with L/R.
+#
+# THE WALLS ARE THE DARK AND NOT ROCK, and that is the whole difference between
+# a cave and a quarry.  '#' is a cliff at +3: the painter draws it 24 pixels
+# above its own cell with a lit face filling the gap, which is exactly right for
+# a headland seen from overhead and exactly wrong for the inside of a hill -- the
+# first draft of this map walled the chamber in '#' and came out as a lit stone
+# plateau with a hole in it.  '*' is palette index 0, the backdrop: blocked,
+# height zero, one character, no palette entry.  A cave whose walls are simply
+# absent is what a top-down cave has always been.
+#
+# The one exception is the BACK WALL, rows 1-2, which is '#' so that the three
+# drawings have a rock face to be drawn on.  They are AF_FLAT -- height zero, so
+# they land on the face of the tile behind them rather than on top of it -- and a
+# flat sprite against the void would be a drawing hanging in mid-air.  Every '#'
+# here has two rows of blocked ground north of it, which is what +3 requires, and
+# there is no '#' anywhere SOUTH of walkable floor: a raised tile covers 8*h
+# pixels of whatever is north, so rock below the floor would paint over the floor.
+#
+# The shape is the PS2's, which describes it as "a short tunnel curving into a
+# round chamber with the mysterious closed wooden door at the back": in from the
+# south-east, north up a short neck, west along a low corridor, and the chamber
+# opens out at the far end.  Coming in, the drawings are the last thing you see
+# and the Door is among them.
+#
+********************************
+********************************
+***#############****************
+***#############****************
+***CCCCCCCCCCCCC****************
+***CCCCCCCCCCCCC****************
+***CCCCCCCCCCCCC****************
+***CCCCCCCCCCCCC****************
+***CCCCCCCCCCCCCCCCCCCC*********
+***CCCCCCCCCCCCCCCCCCCC*********
+***CCCCCCCCCCCCC****CCC*********
+****CCCCCCCCCCC*****CCCC********
+******CCCCCC********CCCC********
+********************************
+********************************
+********************************

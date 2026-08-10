@@ -2428,6 +2428,23 @@ def ds_scenes():
         DSScene("town1", "town1.txt", "ds", BG_TOWN),
         DSScene("town2", "town2.txt", "ds", BG_TOWN),
         DSScene("town3", "town3.txt", "ds", BG_TOWN),
+        # The Secret Place, split out of the island map into a room of its own --
+        # which is what the PS2 does with it.  APPENDED, and that is not a matter
+        # of taste: main.cpp indexes SCENE_ASSETS by SceneId and
+        # tools/check_constants.py pins SceneId 0..8 by value against the frozen
+        # assembly's SCENE_* constants, so a new scene can only go on the end.
+        #
+        # BG_NIGHT AND NOT BG_GROUND, and it is the right palette rather than a
+        # borrowed one.  A cave is lit by its own opening: index 0 is #080a1a --
+        # so the '*' void reads as darkness instead of as sea -- and the sand and
+        # rock ramps come out dim grey-brown.  The island's daylight palette put a
+        # bright blue backdrop behind the walls and made the chamber look like a
+        # hole in a beach.  It also means cavepal.bin is byte-identical to
+        # nightpal.bin, which check_link.py already reports as a shared palette
+        # rather than an orphan.
+        DSScene("cave", "cave.txt", "ds", BG_NIGHT,
+                note="the chamber behind the waterfall: the drawings, and the "
+                     "Door with no handle"),
     )
 
 

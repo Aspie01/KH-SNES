@@ -393,5 +393,5 @@ KH_TEST(ground_every_streaming_scene_in_the_pipeline_actually_fits) {
         CHECK(g.error() == nullptr);
     }
     CHECK_EQ(streaming, 5);         // island, night, town1, town2, town3
-    CHECK_EQ(fixed, 4);             // three stations and the fragment
+    CHECK_EQ(fixed, 5);             // three stations, fragment, Secret Place
 }

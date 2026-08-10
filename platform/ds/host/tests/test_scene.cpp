@@ -7,6 +7,7 @@
 // that is what to do.
 
 #include "check.h"
+#include "gen/assets.h"
 #include "hostblob.h"
 
 using namespace kh;
@@ -82,7 +83,10 @@ KH_TEST(scene_spawns_the_whole_island_cast) {
         CHECK(false);
         return;
     }
-    CHECK_EQ(cast.size, size_t(78 * CAST_STRIDE + 1));      // + the terminator
+    // 75, down from 78: Faces, the Door and the Scribble moved into
+    // assets/ds/cave_cast.txt when the Secret Place became a room.  69 props
+    // derived from the map plus 6 placed people.
+    CHECK_EQ(cast.size, size_t(75 * CAST_STRIDE + 1));      // + the terminator
 
     SceneGround g;
     g.set(coll, hmap, DS_ISLAND_W, DS_ISLAND_H);
@@ -92,7 +96,7 @@ KH_TEST(scene_spawns_the_whole_island_cast) {
     uint8_t variant[MAX_ACTORS] = {};
     SpawnResult r = spawnCast(a, cast, g, variant);
     CHECK(r.complete());                                    // nothing dropped
-    CHECK_EQ(r.spawned, 78);
+    CHECK_EQ(r.spawned, 75);
     CHECK_EQ(r.refused, 0);
 
     // The pipeline emits props in map order and then the placed cast, so slot 0
@@ -106,7 +110,13 @@ KH_TEST(scene_spawns_the_whole_island_cast) {
     CHECK_EQ(a.count(ActType::Rock), 16);
     CHECK_EQ(a.count(ActType::Kairi), 1);
     CHECK_EQ(a.count(ActType::Riku), 1);
-    CHECK_EQ(a.count(ActType::Faces), 1);
+    // THE DRAWINGS ARE NOT ON THE ISLAND ANY MORE.  They are in the chamber, and
+    // scene_the_secret_places_cast_is_the_back_wall below is where they are
+    // asserted -- so this is not a check deleted, it is a check that moved with
+    // the content it was about.
+    CHECK_EQ(a.count(ActType::Faces), 0);
+    CHECK_EQ(a.count(ActType::Door), 0);
+    CHECK_EQ(a.count(ActType::Scribble), 0);
 
     // Positions are tile centres, exactly as TileToWorld then a shift by 4.
     int sora = -1;
@@ -275,13 +285,13 @@ KH_TEST(scene_a_full_pool_refuses_visibly) {
 
     Actors a;
     a.clear();
-    // Fill all but ten slots, then load a 78-row table into what is left.
+    // Fill all but ten slots, then load a 75-row table into what is left.
     for (int i = 0; i < MAX_ACTORS - 10; ++i)
         a.spawn(ActType::Rock, World(), World());
     SpawnResult r = spawnCast(a, cast, g);
     CHECK(!r.complete());
     CHECK_EQ(r.spawned, 10);
-    CHECK_EQ(r.refused, 68);
+    CHECK_EQ(r.refused, 65);
     CHECK(!r.malformed);
 
     // A table with no terminator is malformed, and says so.
@@ -291,4 +301,132 @@ KH_TEST(scene_a_full_pool_refuses_visibly) {
     SpawnResult t = spawnCast(b, Blob{truncated, sizeof truncated}, g);
     CHECK(t.malformed);
     CHECK_EQ(t.spawned, 2);                     // what it managed before the end
+}
+
+// ===========================================================================
+// The Secret Place -- the first room split out of a map
+// ===========================================================================
+
+KH_TEST(scene_the_secret_place_is_a_room_of_its_own) {
+    // The chamber behind the waterfall used to be a six-tile pocket in the
+    // island's cliff.  It is a scene now, which is what the PS2 does with it.
+    //
+    // EXTENTS COME OUT OF SCENE_ASSETS rather than being typed here.  The island
+    // has DS_ISLAND_W in constants.h because three other things need it; a second
+    // hand-written pair for every new room is how two numbers for one fact start.
+    const SceneAsset& s = SCENE_ASSETS[static_cast<int>(SceneId::Cave)];
+    CHECK_EQ(int(s.tilesW), 32);
+    CHECK_EQ(int(s.tilesH), 16);
+    CHECK(!s.streams);                  // 64x32 characters fits one background
+    CHECK_EQ(s.bgSize, 1);
+    CHECK(s.groundFrom == nullptr);      // its own ground, not the island's
+
+    Blob coll = khhost::load("cavecoll.bin", buf1, sizeof buf1);
+    Blob hmap = khhost::load("caveheight.bin", buf2, sizeof buf2);
+    if (!have(coll, "cavecoll.bin") || !have(hmap, "caveheight.bin")) {
+        CHECK(false);
+        return;
+    }
+    const int W = int(s.tilesW);
+    CHECK_EQ(coll.size, size_t(s.tilesW) * size_t(s.tilesH));
+    CHECK_EQ(hmap.size, coll.size);
+
+    // Known walkable: the middle of the chamber, and the corridor that reaches
+    // it.  Known blocked: the void outside, and the rock back wall.
+    CHECK(coll.data[7 * W + 8] != 0);           // (8,7), the chamber floor
+    CHECK(coll.data[9 * W + 20] != 0);          // (20,9), the corridor
+    CHECK(coll.data[0 * W + 0] == 0);           // (0,0), the dark
+    CHECK(coll.data[3 * W + 8] == 0);           // (8,3), the rock wall
+
+    // THE FLOOR IS FLAT AND THE WALL IS +3, which is what makes the wall a wall:
+    // the painter draws a raised tile 8*h pixels above its own cell with a face
+    // filling the gap, and that face is what the drawings are hung on.
+    CHECK_EQ(hmap.data[7 * W + 8], 0);
+    CHECK_EQ(hmap.data[9 * W + 20], 0);
+    CHECK_EQ(hmap.data[3 * W + 8], 3);
+
+    // ...and NOTHING raised sits south of walkable floor anywhere in the room.  A
+    // raised tile covers what is NORTH of it, so rock below the floor would paint
+    // over the floor -- the failure the first draft of this map had, and the
+    // reason its walls are the dark rather than more rock.
+    for (int j = 0; j + 1 < int(s.tilesH); ++j) {
+        for (int i = 0; i < W; ++i) {
+            if (hmap.data[(j + 1) * W + i] == 0) continue;   // not raised
+            CHECK(coll.data[j * W + i] == 0);                // so nothing walks there
+        }
+    }
+}
+
+KH_TEST(scene_the_secret_places_cast_is_the_back_wall) {
+    // Where scene_ground_reads_the_islands_cast's Faces check went.  The three
+    // drawings left the island when the chamber became a room, and this is the
+    // other half of that move -- so the assertion did not disappear, it followed
+    // the content.
+    const SceneAsset& s = SCENE_ASSETS[static_cast<int>(SceneId::Cave)];
+    Blob coll = khhost::load("cavecoll.bin", buf1, sizeof buf1);
+    Blob hmap = khhost::load("caveheight.bin", buf2, sizeof buf2);
+    Blob cast = khhost::load("cavecast.bin", buf3, sizeof buf3);
+    if (!have(cast, "cavecast.bin") || !have(coll, "cavecoll.bin")) {
+        CHECK(false);
+        return;
+    }
+
+    SceneGround g;
+    g.set(coll, hmap, int(s.tilesW), int(s.tilesH));
+    Actors a;
+    a.clear();
+    SpawnResult r = spawnCast(a, cast, g);
+    CHECK(r.complete());
+    CHECK_EQ(r.refused, 0);
+    // Four: Sora and the three drawings.  No props -- a cave has no palms.
+    CHECK_EQ(r.spawned, 4);
+    CHECK_EQ(a.count(ActType::Sora), 1);
+    CHECK_EQ(a.count(ActType::Faces), 1);
+    CHECK_EQ(a.count(ActType::Door), 1);
+    CHECK_EQ(a.count(ActType::Scribble), 1);
+
+    // ON THE TOPMOST WALKABLE ROW, WITH ROCK DIRECTLY NORTH.  That is not
+    // decoration: all three are AF_FLAT, which keeps them at height zero so they
+    // land on the FACE of the tile behind rather than on top of it.  A flat
+    // sprite with the void behind it would be a drawing hanging in mid-air.
+    const int W = int(s.tilesW);
+    for (int k = 0; k < MAX_ACTORS; ++k) {
+        const ActType t = a.type[k];
+        if (t != ActType::Faces && t != ActType::Door && t != ActType::Scribble)
+            continue;
+        CHECK(has(flagsFor(t), ActFlags::Flat));
+        CHECK_EQ(a.z[k], 0);
+        const int i = tileOf(a.x[k]);
+        const int j = tileOf(a.y[k]);
+        CHECK(coll.data[j * W + i] != 0);                   // standing on floor
+        CHECK(j > 0);
+        CHECK(coll.data[(j - 1) * W + i] == 0);             // rock behind it
+        CHECK_EQ(hmap.data[(j - 1) * W + i], 3);            // ...and it is a cliff
+    }
+
+    // The Door is the middle one, which is what "the Door is among them" means:
+    // between the two drawings rather than off to one side.
+    int faces = -1, door = -1, scrib = -1;
+    for (int k = 0; k < MAX_ACTORS; ++k) {
+        if (a.type[k] == ActType::Faces) faces = k;
+        if (a.type[k] == ActType::Door) door = k;
+        if (a.type[k] == ActType::Scribble) scrib = k;
+    }
+    CHECK(faces >= 0 && door >= 0 && scrib >= 0);
+    CHECK(tileOf(a.x[faces]) < tileOf(a.x[door]));
+    CHECK(tileOf(a.x[door]) < tileOf(a.x[scrib]));
+    // Two tiles apart, not adjacent: FindProp is a nearest-wins scan and the
+    // chamber is wide enough to afford unambiguous spacing.
+    CHECK_EQ(tileOf(a.x[door]) - tileOf(a.x[faces]), 2);
+    CHECK_EQ(tileOf(a.x[scrib]) - tileOf(a.x[door]), 2);
+}
+
+KH_TEST(scene_the_third_mushroom_is_in_the_room_it_was_always_described_as_in) {
+    // docs/DESTINY_ISLANDS.md, day two: "one inside the Secret Place".  It used
+    // to sit at (7,6) on the island map, which was the floor of the pocket; it is
+    // in the chamber now, and it is the whole of the cave's day-two table.
+    Blob day2 = khhost::load("caveday2.bin", buf1, sizeof buf1);
+    if (!have(day2, "caveday2.bin")) { CHECK(false); return; }
+    CHECK_EQ(day2.size, size_t(1 * CAST_STRIDE + 1));
+    CHECK_EQ(day2.data[0], uint8_t(ActType::Mush));
 }

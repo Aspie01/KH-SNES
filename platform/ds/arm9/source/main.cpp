@@ -121,6 +121,11 @@ KH_BIN(town2doors);    KH_BIN(town2spots);
 KH_BIN(town3coll);     KH_BIN(town3height);    KH_BIN(town3map);
 KH_BIN(town3chr);      KH_BIN(town3pal);       KH_BIN(town3cast);
 KH_BIN(town3doors);    KH_BIN(town3pair);
+// The Secret Place.  No doors table on either side yet -- assets/ds/cave_cast.txt
+// records why, and it is tools/build_doors.py's decision rather than an omission.
+KH_BIN(cavecoll);      KH_BIN(caveheight);     KH_BIN(cavemap);
+KH_BIN(cavechr);       KH_BIN(cavepal);        KH_BIN(cavecast);
+KH_BIN(caveday2);
 
 // Sprites, the font, and the object palettes.  Resident or scene-selected; the
 // arrangement is gen/assets.h's SPRITE_ASSETS and PALETTE_ASSETS and not a
@@ -164,7 +169,7 @@ void buildSceneTable() {
     const int st3 = int(SceneId::Dive3), isl = int(SceneId::Island);
     const int ngt = int(SceneId::Night), frg = int(SceneId::Fragment);
     const int t1 = int(SceneId::Town1), t2 = int(SceneId::Town2);
-    const int t3 = int(SceneId::Town3);
+    const int t3 = int(SceneId::Town3), cav = int(SceneId::Cave);
 
     b[st1].collision = KH_BLOB(station1coll);
     b[st1].height = KH_BLOB(station1height);
@@ -244,6 +249,18 @@ void buildSceneTable() {
     a[t3].chars = KH_BLOB(town3chr);
     a[t3].palette = KH_BLOB(town3pal);
 
+    // THE SECRET PLACE.  Its own map, its own characters and a palette that is
+    // byte-identical to the night's -- a cave is lit by its opening, so BG_NIGHT
+    // is the right palette rather than a borrowed one.  No spots: the Heartless
+    // do not come in here.
+    b[cav].collision = KH_BLOB(cavecoll);
+    b[cav].height = KH_BLOB(caveheight);
+    b[cav].chars = KH_BLOB(cavemap);
+    b[cav].cast = KH_BLOB(cavecast);
+    b[cav].day2 = KH_BLOB(caveday2);
+    a[cav].chars = KH_BLOB(cavechr);
+    a[cav].palette = KH_BLOB(cavepal);
+
     // The object pages and the two overridden sub-palettes, from
     // gen/assets.h's `when` column.  Sub-palette 1 is the Heartless and
     // sub-palette 2 the scenery, and an override is not a clash: it is what an
@@ -251,10 +268,14 @@ void buildSceneTable() {
     for (int i = 0; i < int(SceneId::Count); ++i) {
         const bool town = i == t1 || i == t2 || i == t3;
         a[i].objPage1 = town ? KH_BLOB(objtownchr) : KH_BLOB(obj2chr);
-        a[i].heartPalette = town      ? KH_BLOB(townobjpal)
-                          : i == isl  ? KH_BLOB(islepal)
-                          : i == ngt  ? KH_BLOB(nightscenepal)
-                                      : KH_BLOB(heartpal);
+        // The cave IS the island, so it takes the island's islanders' palette:
+        // nothing of theirs is in the chamber during the two days, but the night
+        // will put Kairi in it, and a room that had to change palette to admit
+        // her would be a room the night could not walk into.
+        a[i].heartPalette = town                    ? KH_BLOB(townobjpal)
+                          : i == isl || i == cav    ? KH_BLOB(islepal)
+                          : i == ngt                ? KH_BLOB(nightscenepal)
+                                                    : KH_BLOB(heartpal);
         a[i].scenePalette = town     ? KH_BLOB(armorpal)
                           : i == ngt ? KH_BLOB(nightobjpal)
                                      : KH_BLOB(objpal);
@@ -378,6 +399,7 @@ char* putStr(char* out, char* end, const char* s) {
 const char* const SCENE_NAMES[int(SceneId::Count)] = {
     "STATION 1", "STATION 2", "STATION 3", "DESTINY ISLANDS", "THE NIGHT",
     "THE FRAGMENT", "FIRST DISTRICT", "SECOND DISTRICT", "THIRD DISTRICT",
+    "THE SECRET PLACE",
 };
 
 // ---------------------------------------------------------------------------

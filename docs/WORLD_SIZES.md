@@ -83,7 +83,7 @@ Two structural notes about the districts, both learned by getting them wrong:
   that last one had hidden the only exit.
 - **A district hangs off its door row, and there are six door tiles in all.**
   The island tolerates a mistake in a corner; a district does not, because the
-  whole map is reached through row 4 — `DOOR_ROW`, `constants.h:522` — and
+  whole map is reached through row 4 — `DOOR_ROW`, `constants.h:533` — and
   every other column of that row is wall. Checked, not assumed, against
   `build_assets.TERRAIN`: row 4 of each of the three maps is unbroken +3
   building except at town1 (16,4) and (24,4), town2 (5,4), (24,4) and (28,4),
@@ -208,7 +208,7 @@ What that bought:
 | | Props | Placed | Spots | Peak actors |
 | --- | --- | --- | --- | --- |
 | SNES island | 8 | 9 | 10 | 25 |
-| **DS island** | **69** | 9 | 10 | **90** |
+| **DS island** | **69** | 6 | 10 | **86** |
 | SNES night | 8 | 6 | 10 | 20 |
 | **DS night** | **69** | 6 | **35** | **75** |
 | SNES fragment | 1 | 1 | – | 8 |
@@ -216,6 +216,12 @@ What that bought:
 | SNES district (1/2/3) | 2 / 2 / 2 | 3 / 0 / 2 | – / 8 / – | 6 / 5 / 7 |
 | **DS district (1/2/3)** | **13 / 13 / 12** | 8 / 1 / 1 | – / **12** / – | 21 / 14 / 15 |
 | station 1 / 2 / 3 | – | 7 / 4 / 2 | – | 7 / 4 / 2 |
+
+The island's placed count fell when the Secret Place became a room of its own:
+Faces, the Door and the Scribble went into it, and its mushroom with them. The
+chamber is not in this table because nothing here recomputes its figures yet —
+`tools/check_worldsizes.py` would refuse a number it could not derive, which is
+the rule that keeps every other number on this page honest.
 
 Every scene now has a cast. The stations are the only ones with **no props at
 all** — a disc of stained glass has no prop tiles — so they are also the only

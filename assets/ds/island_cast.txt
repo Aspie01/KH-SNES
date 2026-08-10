@@ -27,11 +27,20 @@ Tidus       10  9         # up on the lookout deck
 Selphie     30 18         # the east lawn
 Wakka       20 21         # down by the dock
 
-# --- the back wall of the Secret Place -----------------------------------
-# Reached by wading round the waterfall, not walked into from the lawn.
-Faces        7  5
-Door         8  5
-Scribble     9  5
+# --- the Secret Place is a ROOM NOW, and its cast went with it -------------
+# Faces, the Door and the Scribble used to stand here at (7..9, 5), on the floor
+# of the pocket in the cliff.  They are in assets/ds/cave_cast.txt.
+#
+# What is left behind is the PASSAGE MOUTH -- the cave floor at (6..11, 5..6),
+# entered by wading round the waterfall from the plunge pool -- and the doorway at
+# its far west end, which is the [doors] row at the bottom of this file.  That
+# pocket is not decoration: tools/check_map.py is frozen and its DS_ROUTES pins
+# "the cave passage" at (11,6) and "the plunge pool" at (11,8), so those tiles
+# must stay walkable and reachable whatever happens to the room behind them.
+#
+# assets/ds/night_cast.txt is UNTOUCHED and still stands Kairi and a Door in this
+# pocket for SceneId::Night, which is still the island's own map after dark.  The
+# night has not moved into the room yet; see cave_cast.txt for what that needs.
 
 [day1]
 Log         21 22         # by the dock
@@ -45,7 +54,6 @@ Fish        42 19         # the east shallows
 Fish        23 26         # off the south end of the dock
 Mush         8 11         # the west grass, under the headland
 Mush        35 17         # the east grass
-Mush         7  6         # the floor of the Secret Place, below the drawings
 Egg         25  8         # the nest in the treetop
 Bottle      12  7         # under the fall
 
