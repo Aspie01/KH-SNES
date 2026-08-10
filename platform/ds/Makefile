@@ -64,6 +64,47 @@ endif
 TARGET  := kh
 NDSTOOL := $(DEVKITPRO)/tools/bin/ndstool
 
+# ---------------------------------------------------------------------------
+# $(MAKE) CAN BE A PATH THAT MAKE'S OWN SHELL CANNOT EXECUTE.
+#
+# On devkitPro's MSYS2, /opt/devkitpro is a mount onto C:\devkitPro.  Make
+# resolves the path to ITSELF back through that mount and $(MAKE) comes out as
+#
+#     /opt/devkitpro/msys2/usr/bin/make
+#
+# which the bash it then spawns reports as "No such file or directory" -- on a
+# binary `which` finds perfectly well at /c/devkitPro/msys2/usr/bin/make, the
+# same file by a different route.  Every recursion dies at the first sub-make
+# with error 127, and the message accuses a file that exists.  Measured on a
+# real install; it is why this block is here rather than in a bug report.
+#
+# TESTED, NOT ASSUMED.  The fallback fires only when $(MAKE) actually cannot
+# run: if it contains a slash and `--version` fails through the same shell the
+# recursion will use, the bare name is used instead, which PATH resolves -- and
+# PATH is how make was invoked in the first place.  A caller who set MAKE
+# deliberately to something that WORKS is left alone, which is the property that
+# makes this safe to do unconditionally.
+# ---------------------------------------------------------------------------
+# `override`, because a plain assignment loses to a command-line MAKE= and this
+# has to win even then: the guard only fires when the value cannot run, and a
+# value that cannot run is not a preference worth respecting.  Written without
+# it first, which printed the note and then went on using the broken path --
+# visible only by running it with a deliberately bad MAKE.
+ifneq ($(findstring /,$(MAKE)),)
+ifeq ($(shell '$(MAKE)' --version >/dev/null 2>&1 && echo ok),)
+KH_UNRUNNABLE_MAKE := $(MAKE)
+override MAKE := $(notdir $(MAKE))
+$(info note: $(KH_UNRUNNABLE_MAKE) cannot be executed by this shell; recursing \
+as '$(MAKE)' through PATH instead -- see the note in platform/ds/Makefile)
+endif
+endif
+
+# ...and the corrected value travels DOWN.  The sub-makefiles recurse again into
+# their own build directories, so fixing it only here would move the failure one
+# level deeper rather than removing it.  A command-line assignment is the form
+# that propagates: it goes into MAKEFLAGS and survives every further level.
+SUBMAKE := $(MAKE) --no-print-directory MAKE='$(MAKE)'
+
 .PHONY: all arm7 arm9 clean
 
 all: $(TARGET).nds
@@ -72,10 +113,10 @@ all: $(TARGET).nds
 # directories they build in -- without this make finds the directory, decides it
 # is up to date, and never descends.
 arm7:
-	@$(MAKE) --no-print-directory -C arm7
+	@$(SUBMAKE) -C arm7
 
 arm9:
-	@$(MAKE) --no-print-directory -C arm9
+	@$(SUBMAKE) -C arm9
 
 # No banner and no icon.  `-b` takes a bitmap and a three-line title, and
 # inventing box art for something that is not being distributed is inventing
@@ -85,6 +126,6 @@ $(TARGET).nds: arm7 arm9
 	@echo "built $@"
 
 clean:
-	@$(MAKE) --no-print-directory -C arm7 clean
-	@$(MAKE) --no-print-directory -C arm9 clean
+	@$(SUBMAKE) -C arm7 clean
+	@$(SUBMAKE) -C arm9 clean
 	@rm -f $(TARGET).nds
