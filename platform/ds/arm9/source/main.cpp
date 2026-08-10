@@ -434,21 +434,84 @@ void packOamShadow() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// THE BOOT'S ONLY VOICE, and it uses no libnds at all.
+//
+// A DS that shows WHITE on both screens is not drawing badly -- GBATEK: DISPCNT
+// display mode 0 "screen becomes white" -- so white means the display was never
+// configured, which means execution never reached the end of initScreens().
+// That is a useful thing to know and an impossible one to see: there is no
+// console, no stdout, and the first version of this file could fail anywhere in
+// four hundred lines of setup and look identical either way.
+//
+// So each stage of the bring-up paints the backdrop a colour before starting
+// the next one.  Whatever colour is on screen when it stops names the stage
+// that did not finish:
+//
+//     white     nothing ran; the fault is before main(), in startup or in a
+//               static constructor
+//     RED       main() entered, the scene table did not finish building
+//     YELLOW    scene table built, initScreens() did not finish
+//     BLUE      screens up, the resident asset upload did not finish
+//     MAGENTA   assets up, game.begin() did not finish
+//     anything  the frame loop is running and has taken the display over
+//     else
+//
+// It needs nothing but two addresses vram_map.h already transcribes: palette
+// entry zero is the backdrop, and display mode 1 with no layers enabled shows
+// exactly that and nothing else.  Three stores, no library, no dependency on
+// anything that could itself be the thing that is broken.
+//
+// DELETE THIS ONCE IT BOOTS.  It is scaffolding, not a feature; the frame loop
+// overwrites DISPCNT on its first pass, so a working build shows the colours
+// only as a flicker.
+// ---------------------------------------------------------------------------
+constexpr uint16_t rgb15(int r, int g, int b) {
+    return uint16_t(r | (g << 5) | (b << 10));
+}
+
+void mark(uint16_t colour) {
+    *reinterpret_cast<volatile uint16_t*>(kh::vram::PAL_MAIN_BG) = colour;
+    *reinterpret_cast<volatile uint32_t*>(DISPCNT_MAIN) = 1u << 16;   // graphics, no BG
+}
+
+constexpr uint16_t MARK_ENTERED  = rgb15(31, 0, 0);     // red
+constexpr uint16_t MARK_TABLE    = rgb15(31, 31, 0);    // yellow
+constexpr uint16_t MARK_SCREENS  = rgb15(0, 0, 31);     // blue
+constexpr uint16_t MARK_ASSETS   = rgb15(31, 0, 31);    // magenta
+
+// ---------------------------------------------------------------------------
+// THE GAME IS STATIC, AND THAT IS NOT A STYLE CHOICE.
+//
+// Game holds the actor pool -- 128 slots across sixteen parallel arrays -- plus
+// the dialogue page, the spot and door tables and four stage machines: four or
+// five kilobytes.  The ARM9's stack lives in DTCM, which is sixteen kilobytes
+// in total and shared with the interrupt stack, so putting that object in
+// main()'s frame spends a third of it in one declaration and the overflow would
+// present as exactly the symptom being chased here.  Static memory is plentiful
+// and this object lives for the whole run anyway.
+// ---------------------------------------------------------------------------
+Game g_game(sceneSource);
+
 }  // namespace
 
 int main() {
+    mark(MARK_ENTERED);
     buildSceneTable();
+    mark(MARK_TABLE);
 
     Mmio io;
     initScreens(io);
+    mark(MARK_SCREENS);
     uploadResident();
+    mark(MARK_ASSETS);
 
     using namespace kh::vram;
-    TilemapGround ground(
+    static TilemapGround ground(
         reinterpret_cast<uint16_t*>(address(GROUND_MAP, Use::MainBg)), io,
         int(MAIN_GROUND_LAYER));
-    TouchState touch;
-    Game game(sceneSource);
+    static TouchState touch;
+    Game& game = g_game;
 
     // Straight into the first Station of Awakening, which is where the game
     // starts.  A failure here is a failure of the asset link step, so it says so
