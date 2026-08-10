@@ -10,6 +10,7 @@
 // says so.
 
 #include "check.h"
+#include "perform.h"
 #include "stage.h"
 
 using namespace kh;
@@ -523,6 +524,218 @@ KH_TEST(stage_night_riku_and_kairi_become_columns_after_dark_hold) {
     }
     CHECK_EQ(frames, DARK_HOLD + 1);            // 96 held, then the transition
     CHECK(m.stage() == NightStage::Key);
+}
+
+// ===========================================================================
+// The night's three actor beats -- the routines, not the machine
+//
+// THESE HAD NO TEST AND NO ORACLE, WHICH IS WHY THEY ARE HERE.  perform.h's
+// other four routines are carried entirely by tools/trace_check.py: the armour,
+// the sweep, the fall and the motes are all on a scenario's timeline, so a
+// mistake in one shows up as a diff against the ROM.  The columns and the door
+// are not.  The `night` scenario pokes nightStage no further than N_SEEK -- it
+// measures the storm and the Shadow draws -- so nothing in eight scenarios ever
+// reaches N_RIKU, and until these cases existed the three routines could have
+// done anything at all.
+//
+// What IS oracle-visible, once a scenario does reach them, is the state: the
+// trace's actor=idx/type/x/y columns carry the type change AND the slot, which
+// is the half of standColumn() most likely to be got wrong.  What is not visible
+// in any scenario is the cel, because trace.cpp emits no tile column.
+// ===========================================================================
+
+KH_TEST(perform_the_column_takes_the_slot_the_person_vacated) {
+    // night.s:551-568 reads the position, THEN clears the type, THEN spawns, and
+    // SpawnActor takes the first free slot scanning from zero -- so the column
+    // lands in the slot Riku just left.  Spawning first would put it after
+    // Selphie instead and shift every actor behind it, which is a diff in every
+    // actor column from that frame to the end of the run.
+    Stub w;
+    const int riku = w.actors.spawn(ActType::Riku, tileCentre(20), tileCentre(8));
+    CHECK(riku >= 0);
+    // Somebody after him, so that "his slot" and "the next free slot" are
+    // different answers and this case can tell them apart.
+    const int selphie =
+        w.actors.spawn(ActType::Selphie, tileCentre(30), tileCentre(18));
+    CHECK_EQ(selphie, riku + 1);
+    const int32_t px = w.actors.x[riku].raw();
+    const int32_t py = w.actors.y[riku].raw();
+
+    SceneView v = w.view();
+    CHECK(standColumn(v, ActType::Riku));
+
+    CHECK(w.actors.type[riku] == ActType::Dark);
+    CHECK_EQ(w.actors.x[riku].raw(), px);       // standing exactly where he was
+    CHECK_EQ(w.actors.y[riku].raw(), py);
+    CHECK(w.actors.type[selphie] == ActType::Selphie);   // untouched
+    CHECK_EQ(w.actors.count(ActType::Riku), 0);
+    CHECK_EQ(w.actors.count(ActType::Dark), 1);
+}
+
+KH_TEST(perform_kairis_column_is_the_same_routine_with_her_type) {
+    Stub w;
+    const int kairi = w.actors.spawn(ActType::Kairi, tileCentre(8), tileCentre(6));
+    SceneView v = w.view();
+    CHECK(standColumn(v, ActType::Kairi));
+    CHECK(w.actors.type[kairi] == ActType::Dark);
+    CHECK_EQ(w.actors.count(ActType::Kairi), 0);
+}
+
+KH_TEST(perform_a_column_for_somebody_absent_is_performed_by_doing_nothing) {
+    // night.s:553-560's scan falls out to `rts` -- the timer has already been
+    // spent, so an absent Riku is a beat the ROM performed by doing nothing.
+    // Returning FALSE here would put "beat not ported" on the bottom screen for
+    // an arm that is behaving exactly like the ROM.
+    Stub w;
+    SceneView v = w.view();
+    CHECK(standColumn(v, ActType::Riku));
+    CHECK_EQ(w.actors.count(ActType::Dark), 0);
+    CHECK_EQ(w.actors.count(ActType::Sora), 1);          // and nothing else went
+}
+
+KH_TEST(perform_clearing_the_columns_clears_every_one_of_them) {
+    // night.s:610-620 scans the whole table with no early exit.  Both columns
+    // can be up at once -- Riku's is cleared by the Keyblade, and a player quick
+    // enough through Kairi's line has hers standing too -- so a routine that
+    // stopped at the first would leave one there for the rest of the night.
+    Stub w;
+    w.actors.spawn(ActType::Dark, tileCentre(20), tileCentre(8));
+    w.actors.spawn(ActType::Dark, tileCentre(8), tileCentre(6));
+    const int shadow =
+        w.actors.spawn(ActType::Shadow, tileCentre(12), tileCentre(13));
+    CHECK_EQ(w.actors.count(ActType::Dark), 2);
+
+    SceneView v = w.view();
+    clearColumns(v);
+
+    CHECK_EQ(w.actors.count(ActType::Dark), 0);
+    CHECK(w.actors.type[shadow] == ActType::Shadow);     // only the columns
+    CHECK_EQ(w.actors.count(ActType::Sora), 1);
+}
+
+KH_TEST(perform_the_door_is_retyped_and_not_replaced) {
+    // Audit finding 13 again, from the performer's side this time: the test
+    // below at stage_night_kairi_opens_the_door_by_retyping_it pins the MACHINE
+    // asking for it, and this pins the routine that does it.  A second actor
+    // would leave the old door standing behind the new one and keep it
+    // examinable, since FindProp scans 28..30 and DoorOpen is 31.
+    Stub w;
+    const int door = w.actors.spawn(ActType::Door, tileCentre(8), tileCentre(5));
+    CHECK(door >= 0);
+
+    SceneView v = w.view();
+    CHECK(openTheDoor(v));
+
+    CHECK(w.actors.type[door] == ActType::DoorOpen);
+    CHECK_EQ(w.actors.count(ActType::Door), 0);
+    CHECK_EQ(w.actors.count(ActType::DoorOpen), 1);      // one, not two
+    // night.s:682 writes actTile as well; here tileFor() derives it, and this is
+    // the assertion that the derivation was actually applied rather than left
+    // showing the closed door's art.
+    CHECK_EQ(w.actors.tile[door], sprite::DoorOpen);
+}
+
+KH_TEST(perform_opening_the_door_retypes_every_door_and_not_just_the_first) {
+    // A PROBE THAT DID NOT FIRE, so here is the case that makes it.  Putting a
+    // `break` in openTheDoor()'s loop failed every revert-proof: the night's cast
+    // places exactly one Door, so no test could tell a loop from a find-first.
+    //
+    // night.s:674-686 has no early exit -- `@next` continues the scan to
+    // MAX_ACTORS -- so the ROM's behaviour with two is to open both, and that is
+    // what this pins.  It is a case the shipped data cannot produce today; the
+    // ROM is still the specification, and an untested loop is one somebody
+    // simplifies into a find-first on the grounds that it looks equivalent.
+    Stub w;
+    const int a = w.actors.spawn(ActType::Door, tileCentre(8), tileCentre(5));
+    const int b = w.actors.spawn(ActType::Door, tileCentre(2), tileCentre(7));
+    CHECK(a >= 0 && b > a);
+
+    SceneView v = w.view();
+    CHECK(openTheDoor(v));
+
+    CHECK(w.actors.type[a] == ActType::DoorOpen);
+    CHECK(w.actors.type[b] == ActType::DoorOpen);
+    CHECK_EQ(w.actors.count(ActType::Door), 0);
+    CHECK_EQ(w.actors.count(ActType::DoorOpen), 2);
+}
+
+KH_TEST(perform_opening_a_door_that_is_not_there_reports_rather_than_pretends) {
+    // State-identical to the ROM either way -- its scan simply finds nothing --
+    // but the night's whole last beat IS this door, and a cast that lost it
+    // would otherwise present as Kairi's line playing over a wall that never
+    // opens.  The oracle's night always has one, so this cannot diverge.
+    Stub w;
+    SceneView v = w.view();
+    CHECK(!openTheDoor(v));
+}
+
+KH_TEST(stage_night_rikus_column_flickers_and_kairis_stands_still) {
+    // night.s:576-593 vs night.s:731-735.  TakeRiku's wait branch rewrites
+    // actTile on every ACT_DARK each frame; LoseKairi's is `dec nightTimer; rts`.
+    // The asymmetry is reproduced rather than tidied.
+    //
+    // `and #$04` TESTS BIT TWO, so the period is EIGHT frames and not four.  This
+    // case is the ONLY thing in the tree holding either fact: there is no tile
+    // column in the trace, so all eight scenarios are blind to the cel.
+    {
+        Stub w;
+        ScreenFx fx;
+        NightMachine m;
+        m.begin(w.rng);
+        m.setStage(NightStage::Seek);
+        w.actors.spawn(ActType::Riku, tileCentre(20), tileCentre(8));
+        m.talkToRiku();
+
+        const StageStep first = step(m, w, fx);
+        CHECK(first.action == SceneAction::ColumnForRiku);
+        {
+            SceneView v = w.view();
+            CHECK(standColumn(v, ActType::Riku));
+        }
+        int dark = -1;
+        for (int i = 0; i < MAX_ACTORS; ++i)
+            if (w.actors.type[i] == ActType::Dark) dark = i;
+        CHECK(dark >= 0);
+
+        // Sixteen frames is two full periods, so both cels are seen twice and a
+        // rate that was doubled or halved cannot pass by luck.
+        int onSecondCel = 0;
+        for (int n = 0; n < 16; ++n) {
+            const uint32_t f = w.frame;      // what this step will see
+            step(m, w, fx);
+            const uint8_t want = (f & 0x04u) ? uint8_t(sprite::Dark + 4)
+                                             : uint8_t(sprite::Dark);
+            CHECK_EQ(w.actors.tile[dark], want);
+            if (want != sprite::Dark) ++onSecondCel;
+        }
+        CHECK_EQ(onSecondCel, 8);            // half of them, four at a time
+    }
+    {
+        Stub w;
+        ScreenFx fx;
+        NightMachine m;
+        m.begin(w.rng);
+        m.setStage(NightStage::Kairi);
+        w.actors.spawn(ActType::Kairi, tileCentre(8), tileCentre(6));
+        CHECK(m.talkToKairi().action == SceneAction::OpenTheDoor);
+        CHECK(m.stage() == NightStage::Door);
+
+        const StageStep first = step(m, w, fx);
+        CHECK(first.action == SceneAction::ColumnForKairi);
+        {
+            SceneView v = w.view();
+            CHECK(standColumn(v, ActType::Kairi));
+        }
+        int dark = -1;
+        for (int i = 0; i < MAX_ACTORS; ++i)
+            if (w.actors.type[i] == ActType::Dark) dark = i;
+        CHECK(dark >= 0);
+
+        for (int n = 0; n < 16; ++n) {
+            step(m, w, fx);
+            CHECK_EQ(w.actors.tile[dark], sprite::Dark);   // hers does not move
+        }
+    }
 }
 
 KH_TEST(stage_night_the_keyblade_arrives_on_a_flash_of_its_own) {

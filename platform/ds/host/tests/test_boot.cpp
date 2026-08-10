@@ -311,11 +311,18 @@ KH_TEST(boot_spawning_the_boss_arms_it_resting_and_fills_the_gauge) {
 }
 
 KH_TEST(boot_an_unported_beat_is_refused_by_name_rather_than_ignored) {
-    // The arm this is about is the block of ten actions boot.cpp cannot perform
-    // yet.  What matters is not that they are missing -- that is honest -- but
-    // that a caller can TELL, because a machine whose beat silently did nothing
-    // runs its timer out over a scene that never changed.
-    for (SceneAction a : {SceneAction::DropPair, SceneAction::ColumnForRiku,
+    // The arm this is about is the block of actions boot.cpp cannot perform yet.
+    // What matters is not that they are missing -- that is honest -- but that a
+    // caller can TELL, because a machine whose beat silently did nothing runs its
+    // timer out over a scene that never changed.
+    //
+    // THE LIST IS SIX NOW, NOT TEN.  The night's three column beats and the door
+    // were on it and are ported: perform.h's standColumn(), clearColumns() and
+    // openTheDoor(), tested in test_stage2.cpp and called by BOTH performers.
+    // ColumnForRiku used to be the example on this line, and naming a ported
+    // action as the specimen of an unported one is how a list like this rots --
+    // so the examples are two of the six that are still genuinely missing.
+    for (SceneAction a : {SceneAction::DropPair, SceneAction::LowerPair,
                           SceneAction::RestartScene}) {
         const char* n = actionName(a);
         CHECK(n != nullptr);

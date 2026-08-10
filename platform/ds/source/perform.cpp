@@ -70,4 +70,41 @@ bool spawnMote(SceneView& view) {
     return true;
 }
 
+bool standColumn(SceneView& view, ActType who) {
+    Actors& a = view.actors;
+    int found = -1;
+    for (int i = 0; i < MAX_ACTORS; ++i) {
+        if (a.type[i] == who) { found = i; break; }
+    }
+    if (found < 0) return true;         // night.s:553-560 falls out to `rts`
+
+    // Read, clear, spawn -- in that order, because the slot matters.  See the
+    // header: the column takes the slot the person vacated only because the
+    // clear happens first.
+    const World px = a.x[found];
+    const World py = a.y[found];
+    a.type[found] = ActType::None;
+    return a.spawn(ActType::Dark, px, py) >= 0;
+}
+
+void clearColumns(SceneView& view) {
+    for (int i = 0; i < MAX_ACTORS; ++i)
+        if (view.actors.type[i] == ActType::Dark)
+            view.actors.type[i] = ActType::None;
+}
+
+bool openTheDoor(SceneView& view) {
+    Actors& a = view.actors;
+    bool opened = false;
+    // Every match, with no early exit -- night.s:684's `@next` continues the
+    // scan.  One door is what the cast places; the loop is what the ROM does.
+    for (int i = 0; i < MAX_ACTORS; ++i) {
+        if (a.type[i] != ActType::Door) continue;
+        a.type[i] = ActType::DoorOpen;
+        a.tile[i] = tileFor(ActType::DoorOpen);
+        opened = true;
+    }
+    return opened;
+}
+
 }  // namespace kh

@@ -519,8 +519,13 @@ bool Game::perform(const StageStep& step) {
         // --- everything that needs a routine nobody has ported yet ------------
         //
         // REFUSED BY NAME, NOT IGNORED.  Each of these is a beat with a body in
-        // the assembly that this port has not written: the night's three column
-        // beats, Donald and Goofy's descent, and the four retry paths.  An arm
+        // the assembly that this port has not written: Donald and Goofy's
+        // descent, and the four retry paths.  The night's three column beats
+        // used to be on this list and are the arms directly above -- which is
+        // what this list is FOR, and why they were found rather than forgotten.
+        // The four retries are the remaining cluster and want doing together:
+        // each one reloads a scene's cast, which is the performer's other half
+        // and the seam perform.h deliberately does not cross.  An arm
         // that returned true would make the machine's timer run on over a beat
         // that never happened -- invisible, silent, and only findable by someone
         // who knows what the scene is supposed to look like, which is the worst
@@ -529,12 +534,40 @@ bool Game::perform(const StageStep& step) {
         // So they set lastActionPerformed() false and the caller puts the name
         // on the bottom screen.  A person testing the build sees which beat is
         // missing, in the scene it is missing from, on the frame it was wanted.
+        // --- the night's three actor beats ------------------------------------
+        // Shared with the trace performer through perform.h, for the reason that
+        // file gives: the oracle diff only ever runs ONE performer's copy, so a
+        // second copy here could drift arbitrarily far and every scenario would
+        // stay green.
+        case SceneAction::ColumnForRiku: {
+            SceneView v = view();
+            ok = kh::standColumn(v, ActType::Riku);
+            if (!ok) error_ = "the pool refused the column of dark, so Riku is "
+                              "gone and nothing is standing where he was";
+            break;
+        }
+        case SceneAction::ColumnForKairi: {
+            SceneView v = view();
+            ok = kh::standColumn(v, ActType::Kairi);
+            if (!ok) error_ = "the pool refused the column of dark, so Kairi is "
+                              "gone and nothing is standing where she was";
+            break;
+        }
+        case SceneAction::ClearColumns: {
+            SceneView v = view();
+            kh::clearColumns(v);
+            break;
+        }
+        case SceneAction::OpenTheDoor: {
+            SceneView v = view();
+            ok = kh::openTheDoor(v);
+            if (!ok) error_ = "there is no Door on the wall to open; the night's "
+                              "last beat has nothing to act on";
+            break;
+        }
+
         case SceneAction::DropPair:
         case SceneAction::LowerPair:
-        case SceneAction::ColumnForRiku:
-        case SceneAction::ColumnForKairi:
-        case SceneAction::ClearColumns:
-        case SceneAction::OpenTheDoor:
         case SceneAction::RespawnNightCast:
         case SceneAction::RespawnFragment:
         case SceneAction::RespawnDistrict:

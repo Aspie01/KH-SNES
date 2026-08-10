@@ -78,4 +78,55 @@ bool beginFall(SceneView& view);
 // ever, with no bound violated and no assertion to trip.
 bool spawnMote(SceneView& view);
 
+// ---------------------------------------------------------------------------
+// The night's three actor beats
+//
+// TakeRiku (night.s:534-598), LoseKairi (night.s:692-730), GiveKeyblade
+// (night.s:604-628) and OpenTheDoor (night.s:670-688).  Four routines, three
+// functions: the two columns are the same first pass with a different ActType,
+// and saying so once is what stops them drifting.
+// ---------------------------------------------------------------------------
+
+// The column of darkness comes up where somebody was standing.
+//
+// THE ORDER IS OBSERVABLE AND IS THEREFORE THE SNES'S.  night.s:551-568 reads
+// the position, THEN clears the type, THEN spawns -- and Actors::spawn takes the
+// first free slot scanning from zero, exactly as SpawnActor does, so the column
+// lands in the slot the person just vacated.  Spawning before the clear would
+// put it in the next free slot instead and shift every actor after it, which is
+// a trace diff in every column from that frame on.
+//
+// FALSE MEANS THE SPAWN WAS REFUSED, and that is a report rather than a
+// divergence.  night.s ignores SpawnActor's carry, so on a full table the ROM
+// deletes Riku and stands nothing in his place; this returns false so the
+// bottom screen says so.  The state is identical either way -- the difference is
+// only whether anybody is told -- and it cannot be reached on a 128-slot pool
+// with the night's seventeen actors and six Shadows anyway.
+//
+// A MISSING `who` IS TRUE, NOT FALSE.  night.s:553-560's scan falls out to `rts`
+// when nobody matches, having already spent the timer, so an absent Riku is a
+// beat the ROM performed by doing nothing -- the same reading spawnMote() takes
+// of dive.s:534, and refusing here would diverge from the oracle rather than
+// follow it.
+bool standColumn(SceneView& view, ActType who);
+
+// GiveKeyblade's first half, night.s:610-620: the dark thins out.  Every column,
+// with no early exit -- both of them are up by the time the Keyblade arrives if
+// the player has been quick, and clearing one would leave the other standing for
+// the rest of the night.
+void clearColumns(SceneView& view);
+
+// OpenTheDoor, night.s:674-686.  The door on the wall is RETYPED and not
+// replaced: a second actor would leave the old one standing behind it, and
+// ActType::DoorOpen falls outside the examinable range so it can no longer be
+// looked at.  The SNES writes actTile as well; here tileFor() derives it from
+// the type, so setting the type is setting the tile.
+//
+// FALSE MEANS THERE WAS NO DOOR TO OPEN.  The ROM's scan simply finds nothing,
+// which is state-identical -- but the night's whole last beat is this door, and
+// a cast file that lost it would otherwise present as Kairi's line playing over
+// a wall that never opens.  The oracle's night always has one, so false cannot
+// diverge from it.
+bool openTheDoor(SceneView& view);
+
 }  // namespace kh

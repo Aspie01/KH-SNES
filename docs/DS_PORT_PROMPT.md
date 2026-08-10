@@ -2316,6 +2316,63 @@ display is not showing them". Any future "nothing is drawing" should start
 there: the pipeline's output is checkable without a DS, and knowing the picture
 is correct is worth more than any number of readings of the code that builds it.
 
+## Destiny Islands — the night's three actor beats
+
+**Four of the ten refused beats are ported**, and they are the night's:
+`ColumnForRiku`, `ColumnForKairi`, `ClearColumns` and `OpenTheDoor`. They live in
+`platform/ds/source/perform.cpp` beside the other four routines, so both
+performers call one copy — the device's `Game::perform` and the trace emitter's.
+`standColumn()`, `clearColumns()`, `openTheDoor()`.
+
+**They were found by the refusal list itself**, which is what it is for. Six
+remain: Donald and Goofy's descent (`DropPair`, `LowerPair`) and the four retry
+paths (`RespawnNightCast`, `RespawnFragment`, `RespawnDistrict`, `RestartScene`).
+The retries want doing together — every one of them reloads a scene's cast, which
+is the performer's other half and the seam `perform.h` deliberately does not
+cross.
+
+**Three things in these routines are observable and were nearly got wrong:**
+
+- **The order is read, clear, spawn.** `night.s:551-568` reads the position,
+  *then* clears the type, *then* spawns — and `Actors::spawn` takes the first
+  free slot scanning from zero, exactly as `SpawnActor` does. So the column lands
+  in the slot the person just vacated. Spawning first puts it in the next free
+  slot and shifts every actor behind it, which is a diff in every actor column
+  from that frame to the end of the run. Proved: reverting the order fails two
+  cases.
+- **An absent Riku is a beat performed by doing nothing.** `night.s:553-560`'s
+  scan falls out to `rts` having already spent the timer, so returning false
+  there would put "beat not ported" on the bottom screen for an arm behaving
+  exactly like the ROM. Same reading `spawnMote()` takes of `dive.s:534`.
+- **Riku's column flickers and Kairi's does not.** `TakeRiku`'s wait branch
+  rewrites `actTile` on every `ACT_DARK` each frame, alternating two cels;
+  `LoseKairi`'s wait is `dec nightTimer; rts`. Almost certainly an oversight in
+  the original, reproduced rather than tidied. And `and #$04` tests **bit two**,
+  so the period is eight frames, not four.
+
+**The flicker is a fourth thing the oracle structurally cannot see.** `trace.cpp`
+emits `actor=idx/type/x/y/state/timer/hp` — there is **no tile column**, so all
+eight scenarios are blind to a cel. `test_stage2.cpp` is the only thing holding
+it, and reverting the period, the Riku-only guard, or the whole branch each fails
+eight checks.
+
+**And the state half has no oracle either, yet.** The `night` scenario pokes
+`nightStage` no further than `N_SEEK` — it measures the storm and the Shadow
+draws — so nothing in eight scenarios reaches `N_RIKU`. Until these cases existed
+the three routines could have done anything. A `columns` scenario poking
+`nightStage=2` with the hold timer set would put the type change and the slot on
+the oracle's timeline, where they belong; the scenario table takes arbitrary
+named globals (`race` pokes `questState` and `rikuWp`), so it is a table row and
+two tool symbols rather than new machinery. **Not done.**
+
+**One probe failed to fire and is now a case.** Putting a `break` in
+`openTheDoor()`'s loop broke nothing: the night's cast places exactly one Door,
+so no test could tell a loop from a find-first. `night.s:674-686` has no early
+exit, so the ROM opens both — and `perform_opening_the_door_retypes_every_door_and_not_just_the_first`
+pins that with two. A case the shipped data cannot produce; the ROM is still the
+specification, and an untested loop is one somebody simplifies on the grounds
+that it looks equivalent.
+
 ## §M7 — the build, and what it does and does not do
 
 **There is a device build now.** `make -C platform/ds` produces

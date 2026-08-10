@@ -392,6 +392,41 @@ bool perform(const StageStep& step) {
                 g_sim.dialogue.open(scriptFor(step.script), TextMode::Message);
             return true;
         }
+        // --- the night's three actor beats ------------------------------------
+        // The same copies device/boot.cpp calls.  Their state effects ARE in the
+        // trace -- actor=idx/type/x/y/... carries the type change and the slot
+        // the column lands in -- so a scenario that reaches N_RIKU compares them
+        // against the ROM directly.  What is NOT in the trace is the cel: there
+        // is no tile column, so the two-cel flicker in NightMachine::column() is
+        // held up by test_stage2.cpp alone.
+        case SceneAction::ColumnForRiku: {
+            SceneView v = g_sim.view();
+            return kh::standColumn(v, ActType::Riku);
+        }
+        case SceneAction::ColumnForKairi: {
+            SceneView v = g_sim.view();
+            return kh::standColumn(v, ActType::Kairi);
+        }
+        case SceneAction::ClearColumns: {
+            SceneView v = g_sim.view();
+            kh::clearColumns(v);
+            // The passenger, on the same terms as the SweepGauntlets arm above:
+            // GiveKeyblade ends `jmp Say` with scriptKey (night.s:627-628), and
+            // NightMachine::update returns ClearColumns carrying NightKey.
+            // Dropping it would hand the player control back on the frames the
+            // SNES spent reading -- see the HudChanged arm for what that costs.
+            if (step.script != ScriptId::None)
+                g_sim.dialogue.open(scriptFor(step.script), TextMode::Message);
+            return true;
+        }
+        case SceneAction::OpenTheDoor: {
+            SceneView v = g_sim.view();
+            const bool ok = kh::openTheDoor(v);
+            // talkToKairi returns this carrying ScriptId::NightKairi.
+            if (step.script != ScriptId::None)
+                g_sim.dialogue.open(scriptFor(step.script), TextMode::Message);
+            return ok;
+        }
         default:
             std::fprintf(stderr,
                          "frame %u: the scenario cannot perform SceneAction::%s.\n"

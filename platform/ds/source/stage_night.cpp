@@ -80,7 +80,6 @@ void NightMachine::spawnShadows(SceneView& view) {
 // caller must delete and spawn, not just spawn.
 StageStep NightMachine::column(SceneView& view, SceneAction make,
                                NightStage next, ScriptId say) {
-    (void)view;
     if (timer_ == DARK_HOLD) {
         --timer_;
         // Kairi's column arrives on a flash of its own; Riku's does not.
@@ -89,6 +88,35 @@ StageStep NightMachine::column(SceneView& view, SceneAction make,
     }
     if (timer_ != 0) {
         --timer_;
+        // THE COLUMN FLICKERS, AND ONLY RIKU'S DOES.
+        //
+        // night.s:576-593, TakeRiku's @wait branch: every frame of the hold it
+        // writes actTile on every ACT_DARK, alternating the column's two cels.
+        // LoseKairi's @wait (night.s:731-735) is `dec nightTimer; rts` and does
+        // not -- so hers stands still.  That asymmetry is almost certainly an
+        // oversight in the original, and it is reproduced rather than tidied
+        // because the oracle is the oracle; if it is ever to be corrected that
+        // is a divergence with a document, not a quiet improvement here.
+        //
+        // `and #$04` TESTS BIT TWO, so the period is EIGHT frames -- four on
+        // each cel -- not four.  Writing `& 1` would double the rate, which is
+        // the kind of difference nothing in this tree could catch: THE TRACE
+        // CARRIES NO TILE COLUMN.  trace.cpp:74-77 emits
+        // actor=idx/type/x/y/state/timer/hp, so a cel is invisible to all eight
+        // scenarios and this line is held up by test_stage2.cpp alone.  The
+        // column's TYPE and POSITION are in the trace; what it looks like is not.
+        //
+        // This whole branch was `--timer_; return` with `(void)view;` at the top
+        // of the function, which is what a dropped routine looks like when the
+        // parameter it needed is still in the signature.
+        if (make == SceneAction::ColumnForRiku) {
+            const uint8_t cel = (view.frame & 0x04u)
+                                    ? uint8_t(sprite::Dark + 4)
+                                    : uint8_t(sprite::Dark);
+            for (int i = 0; i < MAX_ACTORS; ++i)
+                if (view.actors.type[i] == ActType::Dark)
+                    view.actors.tile[i] = cel;
+        }
         return StageStep{};
     }
     stage_ = next;
