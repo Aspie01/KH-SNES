@@ -39,6 +39,17 @@ override MAKE := $(notdir $(MAKE))
 endif
 endif
 
+# ...and the same reasoning for the toolchain variables, which did not reach the
+# SECOND pass on their own: this makefile re-reads itself inside $(BUILD), and
+# that read hit its own DEVKITARM guard.  Named on the recursion and exported,
+# for the two different ways the automatic route can fail.  platform/ds/Makefile
+# carries the full note.
+export DEVKITPRO
+export DEVKITARM
+
+SUBMAKE := $(MAKE) --no-print-directory \
+           DEVKITPRO='$(DEVKITPRO)' DEVKITARM='$(DEVKITARM)' MAKE='$(MAKE)'
+
 TARGET   := $(notdir $(CURDIR))
 BUILD    := build
 SOURCES  := source
@@ -82,7 +93,7 @@ export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+	@$(SUBMAKE) -C $(BUILD) -f $(CURDIR)/Makefile
 
 clean:
 	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).map

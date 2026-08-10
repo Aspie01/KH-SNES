@@ -114,11 +114,25 @@ as '$(MAKE)' through PATH instead -- see the note in platform/ds/Makefile)
 endif
 endif
 
-# ...and the corrected value travels DOWN.  The sub-makefiles recurse again into
-# their own build directories, so fixing it only here would move the failure one
-# level deeper rather than removing it.  A command-line assignment is the form
-# that propagates: it goes into MAKEFLAGS and survives every further level.
-SUBMAKE := $(MAKE) --no-print-directory MAKE='$(MAKE)'
+# ...and everything the sub-makes need travels DOWN EXPLICITLY.
+#
+# Command-line variables are supposed to reach every level on their own, through
+# MAKEOVERRIDES inside MAKEFLAGS.  They reached level one here and NOT level two:
+# `make -C platform/ds DEVKITARM=...` got into arm7/, and arm7's own recursion
+# into its build directory came back with "DEVKITARM is not set".  Whatever the
+# mechanism -- devkitPro's ds_rules is the obvious suspect and this is not the
+# place to find out -- the cure is to stop relying on it.  Naming them on each
+# recursion costs one line and cannot be undone by anything a rules file does.
+#
+# `export` as well, because the two routes fail differently: an assignment
+# survives a MAKEFLAGS that got rewritten, and an export survives a make that
+# ignores command-line variables.  Neither is redundant while the reason the
+# first one failed is unknown.
+export DEVKITPRO
+export DEVKITARM
+
+SUBMAKE := $(MAKE) --no-print-directory \
+           DEVKITPRO='$(DEVKITPRO)' DEVKITARM='$(DEVKITARM)' MAKE='$(MAKE)'
 
 .PHONY: all arm7 arm9 clean
 
