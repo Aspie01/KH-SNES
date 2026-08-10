@@ -98,15 +98,18 @@ constexpr TownDoor TOWN3[] = {
 static_assert(sizeof TOWN3 / sizeof TOWN3[0] == 1,
               "town3_cast.txt's [doors] has 1 row");
 
-// island: 1 door, in islanddoors.bin order.  A room's
+// island: 2 doors, in islanddoors.bin order.  A room's
 // door has no gate -- see assets/ds/island_doors.txt.
 constexpr RoomDoor ISLAND_ROOMS[] = {
     // island_doors.txt:32 -- island (6,5) -> cave.  Landing derived
     // from the reciprocal door at cave (23,11); tile from island_cast.txt.
     {{6, 5}, SceneId::Cave, {23, 12}},
+    // island_doors.txt:34 -- island (30,6) -> cove.  Landing derived
+    // from the reciprocal door at cove (43,4); tile from island_cast.txt.
+    {{30, 6}, SceneId::Cove, {43, 5}},
 };
-static_assert(sizeof ISLAND_ROOMS / sizeof ISLAND_ROOMS[0] == 1,
-              "island_cast.txt's [doors] has 1 row");
+static_assert(sizeof ISLAND_ROOMS / sizeof ISLAND_ROOMS[0] == 2,
+              "island_cast.txt's [doors] has 2 rows");
 
 // cave: 1 door, in cavedoors.bin order.  A room's
 // door has no gate -- see assets/ds/island_doors.txt.
@@ -117,6 +120,16 @@ constexpr RoomDoor CAVE_ROOMS[] = {
 };
 static_assert(sizeof CAVE_ROOMS / sizeof CAVE_ROOMS[0] == 1,
               "cave_cast.txt's [doors] has 1 row");
+
+// cove: 1 door, in covedoors.bin order.  A room's
+// door has no gate -- see assets/ds/island_doors.txt.
+constexpr RoomDoor COVE_ROOMS[] = {
+    // island_doors.txt:35 -- cove (43,4) -> island.  Landing derived
+    // from the reciprocal door at island (30,6); tile from cove_cast.txt.
+    {{43, 4}, SceneId::Island, {30, 7}},
+};
+static_assert(sizeof COVE_ROOMS / sizeof COVE_ROOMS[0] == 1,
+              "cove_cast.txt's [doors] has 1 row");
 
 }  // namespace door
 
@@ -144,8 +157,9 @@ struct RoomDoors {
 };
 
 constexpr RoomDoors roomDoorsFor(SceneId s) {
-    return s == SceneId::Island ? RoomDoors{door::ISLAND_ROOMS, 1}
+    return s == SceneId::Island ? RoomDoors{door::ISLAND_ROOMS, 2}
          : s == SceneId::Cave ? RoomDoors{door::CAVE_ROOMS, 1}
+         : s == SceneId::Cove ? RoomDoors{door::COVE_ROOMS, 1}
          : RoomDoors{};
 }
 

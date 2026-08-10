@@ -41,7 +41,7 @@ usable as an oracle.
 
 **Expanded**, because they are places:
 
-- **Destiny Islands** — 64×32. 670 walkable tiles against 196, so 3.4× the
+- **Destiny Islands** — 64×32. 671 walkable tiles against 196, so 3.4× the
   ground you can actually stand on. Real coastline instead of a rectangle, a
   water channel with the footbridge crossing it, and the Secret Place sealed on
   three sides so it is entered by wading round the waterfall rather than walked
@@ -62,7 +62,10 @@ districts. Nothing shrank. A prop tile is not walkable, and the props and crates
 went into the maps one commit *after* the maps were expanded: the island gained
 24 `T`, 11 `r`, 8 `b`, 2 `R` and 2 `Y`, which is 47 tiles and 717 − 47 = 670, and
 each district gained 8 lamp posts and 10 to 13 crates, which is the 21 / 18 / 18
-that takes 912 / 840 / 895 to 891 / 822 / 877 exactly. The old figures were true
+that takes 912 / 840 / 895 to 891 / 822 / 877 exactly. The island has since gained
+one walkable tile the props never accounted for: piercing the headland for the
+Cove turned 1 cliff tile walkable, so it stands at 671. The doorway into the
+Secret Place cost nothing — it replaced cave floor, which was walkable already. The old figures were true
 of empty ground, were copied here by hand while they were true, and then stopped
 being true underneath the sentence that quoted them. `tools/build_assets.py`
 prints all four on every run and has done all along. See **How this section went
@@ -83,7 +86,7 @@ Two structural notes about the districts, both learned by getting them wrong:
   that last one had hidden the only exit.
 - **A district hangs off its door row, and there are six door tiles in all.**
   The island tolerates a mistake in a corner; a district does not, because the
-  whole map is reached through row 4 — `DOOR_ROW`, `constants.h:533` — and
+  whole map is reached through row 4 — `DOOR_ROW`, `constants.h:536` — and
   every other column of that row is wall. Checked, not assumed, against
   `build_assets.TERRAIN`: row 4 of each of the three maps is unbroken +3
   building except at town1 (16,4) and (24,4), town2 (5,4), (24,4) and (28,4),
@@ -167,7 +170,7 @@ district's new size. They are warm paving now. No frozen map uses either
 character, so the SNES ROM is unaffected.
 
 The character dedupe is unchanged and still earns its keep at the larger size:
-the 64×32 island folds to **250 unique characters** from 8192 cells, and the
+the 64×32 island folds to **251 unique characters** from 8192 cells, and the
 districts to 85, 107 and 85 from 6144 each. (This file said 242 for the island
 until now. That was correct when it was written and stopped being correct in the
 same commit that broke the walkable counts above — twenty-four more palms, eleven
@@ -288,7 +291,7 @@ mechanic is being hunted across ground you cannot fight back on until the
 Keyblade arrives.
 
 The DS figure preserves **tiles per Shadow** rather than the count: 196 walkable
-over 6 is one per 33, and 670 at that density is 20. `SHADOW_GAP` follows the
+over 6 is one per 33, and 671 at that density is 20. `SHADOW_GAP` follows the
 same argument and not the count — the fill should still take about as long as
 crossing the map, so roughly 2× the SNES's 420 frames, which at 20 alive is 42.
 The spot table went from 10 to 35 because spots are places, and ten of them over
@@ -495,7 +498,7 @@ closed and a thing that merely looks closed today.
   those tiles live has not been written". It is written. §M4 froze
   `platform/ds/include/vram_map.h`: main-engine sprites are bank E, split into
   `OBJ_RESIDENT{0, 32 KiB}` (`:667`) — exactly the reach of a ten-bit tile number
-  at boundary 32 — and `OBJ_BOUNDARY64{32 KiB, 32 KiB}` (`:670`), a reserve that
+  at boundary 32 — and `OBJ_BOUNDARY64{32 KiB, 32 KiB}` (`:671`), a reserve that
   is unusable until the boundary is raised. The bottom screen's sprites are bank
   I, `SUB_OBJ_CHR{0, 16 KiB}` (`:687`), and a later pass added `SUB_OBJ_TILES`
   (`:792`) to record the thing the main engine's numbers hide: **on the sub

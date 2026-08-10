@@ -31,3 +31,5 @@
 # from    i   j   to      # why
 island    6   5   cave    # the west dead end of the cliff pocket, past the fall
 cave     23  11   island  # ...and back out, at the far end of the passage
+island   30   6   cove    # through the headland to the back beach
+cove     43   4   island  # ...and back out, above the entrance landing

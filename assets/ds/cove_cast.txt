@@ -1,0 +1,46 @@
+# The Cove -- Nintendo DS cast.  Tile coordinates into cove.txt.
+#
+# Palms, coconut palms, boulders, rocks and bushes are NOT listed here.  They are
+# derived from the tile they stand on -- T is a palm, Y a palm carrying coconuts,
+# R a boulder, r a rock, b a bush -- so a tree is added by adding a character to
+# the map and the two halves cannot drift.
+#
+# Rows are  Type  i  j  [variant]
+#
+#   [base]   placed on entry, and again after a death
+#   [day2]   food and water -- never present at the same time as [day1]
+#   [doors]  i j land_i land_j -- the doorway and the tile you use it from
+
+[base]
+# Where the door puts him down, on the entrance landing.  It is also the race's
+# start and its finish line: docs/DESTINY_ISLANDS_PS2.md, "you either step onto
+# deck 1 or run off its edge down to sand-and-shallows level", and the win is
+# registered by landing back up on it.
+Sora        43  7
+
+# --- who is here ----------------------------------------------------------
+# RIKU IS JUST INSIDE THE DOOR, on the entrance landing, where the reference puts
+# him on day two: he challenges Sora for the right to name the raft, so he stands
+# where the race starts.
+Riku        44  9
+# ...and KAIRI OFFICIATES from the same landing.  She is the race judge -- she
+# counts it down and the finish is registered against her -- which is also why the
+# island's own race already reads "getting back to Kairi after that wins".
+Kairi       42 11
+
+# NOBODY ELSE IS HERE, and that is a correction rather than an omission.  Tidus,
+# Selphie and Wakka are on the SEASHORE in the PS2 game and never in the Cove; the
+# plan for this port had the sparring as a Cove feature until
+# docs/DESTINY_ISLANDS_PS2.md said otherwise.  They stay on the island map.
+
+[day2]
+# One of the three mushrooms, in the foliage at the foot of the lookout -- "on the
+# embankment at the tower's foot, in the plants on the wall side".
+Mush        31  6
+
+[doors]
+# The way back through the headland to the beach.  The near landing is the tile
+# directly SOUTH, the town's own rule (town.s:1386-1389), which is what lets
+# tools/build_doors.py derive the far side from the reciprocal row in
+# assets/ds/island_doors.txt.
+43 4 43 5

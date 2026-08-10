@@ -132,6 +132,55 @@ after dark and `assets/ds/night_cast.txt` still stands Kairi and a Door in the
 pocket, so the night's `OpenTheDoor` beat still has a Door to act on. Moving it
 needs a second scene sharing this ground, the way `night` shares the island's.
 
+## The Cove is a room (DS only)
+
+The island's back beach, behind the headland — `SceneId::Cove`,
+`assets/ds/cove.txt`, 48×20 tiles. In the PS2 game it is where the raft is built
+and where the race is run, and it is the one area **Kairi seals for the whole of
+day one**. Reached through a doorway pierced in the island's north cliff at
+`(30,6)`; the way back is at `(43,4)`, above the entrance landing.
+
+**This engine has no jump, and that is the whole of the translation.** `ActState`
+is Idle/Walk/Attack/Hurt/Dead/Fall, and `Fall` is "carried by the scene, not the
+player" — a move is allowed only between tiles whose heights differ by at most
+one. The PS2 Cove is a *platforming* course: three deck sections with jumpable
+gaps, a ladder grabbed high up, a zip line ridden down, mossy rocks and treetops
+hopped along, a crate carried and stood on to reach an alcove. None of that is
+expressible here, and building the shapes without the verbs would be a course the
+player cannot run — gaps that are walls, a ladder that is a fence, a chest nothing
+can reach.
+
+So it is a **terrain** course, which is the trick the island already uses: a deck
+at +2 is sealed off except across its step tile, "which is what makes a ladder out
+of a plank". The deck run is continuous, the watchtower is a +2 lookout on the
+embankment, and the west end is a stair of +1/+2/+3 up to a high ledge standing in
+for the star-lamp tree. All 457 walkable tiles are reachable from the doorway under
+the one-step rule.
+
+Two things about the map are worth knowing before editing it:
+
+- **The inlet is `W`, not `-`.** Shallow water is *blocked* in `TERRAIN`; the
+  waterfall pool is walkable and paints foam over pale water. The inlet is the
+  reference's "standard bypass for the whole deck section", and a bypass you cannot
+  walk is scenery.
+- **A prop carries the ground colour as well as the sprite.** `T` and `R` are
+  grass tiles, `r` is sand. Palms and boulders placed on the beach with the grass
+  codes are bright green squares with trees standing in them, which is what the
+  first two drafts looked like. The palms are clustered in the vegetated strip at
+  the cliff's foot; what breaks up the open beach is `r` rocks.
+
+**Riku and Kairi are the only cast**, and that is a correction rather than an
+omission: Tidus, Selphie and Wakka are on the Seashore in the PS2 game and never
+in the Cove, so the sparring is a beach system. This port's plan had it as a Cove
+feature until `docs/DESTINY_ISLANDS_PS2.md` said otherwise.
+
+**Not done yet:** the race course markers, the raft, the crate and the alcove's
+chest, the spring that fills the bottle, and the day-one seal — a `RoomDoor`
+carries no gate, so the Cove is open from the start. And the reference's "small
+tunnel beside the star tree" back to the Seashore is **deliberately not built**:
+two sources assert it and three argue against it, so the west ramp top is a
+scenic dead end.
+
 ## Raised ground
 
 `assets/island.txt` gives every terrain code a height in eight-pixel steps, and

@@ -81,9 +81,13 @@ KH_TEST(assets_characters_are_linear_4bpp_and_not_planar) {
     Blob chr = khhost::load("islandchr.bin", a, sizeof a);
     if (!have(chr, "islandchr.bin")) { CHECK(false); return; }
     CHECK_EQ(chr.size % 32, 0u);
-    // 250, up from 247 when the island gained the doorway into the Secret
-    // Place: a terrain code the map had not used before is new characters.
-    CHECK_EQ(chr.size / 32, 250u);
+    // 251.  It was 247, then 250 when the island gained the doorway into the
+    // Secret Place, then 251 when it gained the one through the headland to the
+    // Cove -- and the second 'd' costs a character even though the first already
+    // paid for the code, because build_world rim-lights and outlines a tile
+    // against its NEIGHBOURS: a doorway set in cliff rock is not the same
+    // characters as one set in cave floor.
+    CHECK_EQ(chr.size / 32, 251u);
 
     // Every nibble must be a real palette index.  A 16-colour palette means
     // that is vacuous -- but it stops being vacuous the moment anything emits
@@ -322,7 +326,7 @@ KH_TEST(assets_every_scene_that_fits_records_its_bgxcnt_size) {
         }
     }
     CHECK_EQ(fits, 5);       // three stations, the fragment, the Secret Place
-    CHECK_EQ(streams, 5);    // the island, the night, and three districts
+    CHECK_EQ(streams, 6);    // the island, the night, three districts, the Cove
 }
 
 KH_TEST(assets_the_scene_table_says_which_ones_stream) {
@@ -473,6 +477,9 @@ KH_TEST(assets_a_scene_says_which_optional_tables_it_has) {
         // The Secret Place: the third mushroom, and the way back out.  No spots
         // -- the Heartless do not come into the chamber.
         {"cave", SceneTable::Day2 | SceneTable::Doors},
+        // The Cove: a mushroom, and the way back through the headland.  No spots
+        // either -- the night does not reach the back beach.
+        {"cove", SceneTable::Day2 | SceneTable::Doors},
     };
     const int n = int(sizeof SCENE_ASSETS / sizeof *SCENE_ASSETS);
     CHECK_EQ(n, int(sizeof WANTS / sizeof *WANTS));

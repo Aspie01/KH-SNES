@@ -754,10 +754,26 @@ def check_history(d: Doc, w: dict) -> None:
         d.eq(G, "the old island count, restated", i(m, 7),
              old and i(old, 1), "the sentence above")
         d.eq(G, "the gain, restated", i(m, 8), i(m, 6), "the same sentence")
-        d.eq(G, "old minus the props is the island's count today", i(m, 9),
-             ds["island"]["walkable"], "build_assets over assets/ds/island.txt")
         d.eq(G, "and the subtraction works", i(m, 7) - i(m, 8), i(m, 9),
              "arithmetic")
+
+    # THE PROPS ARE NO LONGER THE WHOLE STORY, so the document's own next
+    # sentence carries the rest and this checks it.  Piercing the headland for the
+    # Cove replaced a '#' cliff tile with a 'd' doorway, which is one tile that was
+    # blocked and is now walkable -- so old-minus-props stopped being today's count
+    # and the subtraction above stopped reaching it.  The doorway into the Secret
+    # Place cost nothing, having replaced cave floor.
+    #
+    # Kept as a SEPARATE term rather than folded into the 717, because 717 is a
+    # measurement of a map that existed and editing it would be rewriting a
+    # historical figure to make an arithmetic come out.
+    door = d.anchor(r"turned (\d+) cliff tile walkable, so it stands at (\d+)",
+                    "the doorways' term")
+    if m and door:
+        d.eq(G, "the props and the doorway together are the count today",
+             i(m, 9) + i(door, 1), i(door, 2), "arithmetic")
+        d.eq(G, "...and that is what the map says", i(door, 2),
+             ds["island"]["walkable"], "build_assets over assets/ds/island.txt")
 
     m = d.anchor(r"each district gained (\d+) lamp posts and (\d+) to (\d+) "
                  r"crates, which is the (\d+) / (\d+) / (\d+)\s+that takes "

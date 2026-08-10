@@ -121,11 +121,13 @@ KH_BIN(town2doors);    KH_BIN(town2spots);
 KH_BIN(town3coll);     KH_BIN(town3height);    KH_BIN(town3map);
 KH_BIN(town3chr);      KH_BIN(town3pal);       KH_BIN(town3cast);
 KH_BIN(town3doors);    KH_BIN(town3pair);
-// The Secret Place.  No doors table on either side yet -- assets/ds/cave_cast.txt
-// records why, and it is tools/build_doors.py's decision rather than an omission.
+// The Secret Place and the Cove, and the island's two doorways into them.
 KH_BIN(cavecoll);      KH_BIN(caveheight);     KH_BIN(cavemap);
 KH_BIN(cavechr);       KH_BIN(cavepal);        KH_BIN(cavecast);
-KH_BIN(caveday2);
+KH_BIN(caveday2);      KH_BIN(cavedoors);      KH_BIN(islanddoors);
+KH_BIN(covecoll);      KH_BIN(coveheight);     KH_BIN(covemap);
+KH_BIN(covechr);       KH_BIN(covepal);        KH_BIN(covecast);
+KH_BIN(coveday2);      KH_BIN(covedoors);
 
 // Sprites, the font, and the object palettes.  Resident or scene-selected; the
 // arrangement is gen/assets.h's SPRITE_ASSETS and PALETTE_ASSETS and not a
@@ -170,6 +172,7 @@ void buildSceneTable() {
     const int ngt = int(SceneId::Night), frg = int(SceneId::Fragment);
     const int t1 = int(SceneId::Town1), t2 = int(SceneId::Town2);
     const int t3 = int(SceneId::Town3), cav = int(SceneId::Cave);
+    const int cov = int(SceneId::Cove);
 
     b[st1].collision = KH_BLOB(station1coll);
     b[st1].height = KH_BLOB(station1height);
@@ -200,6 +203,7 @@ void buildSceneTable() {
     b[isl].day1 = KH_BLOB(islandday1);
     b[isl].day2 = KH_BLOB(islandday2);
     b[isl].spots = KH_BLOB(islandspots);
+    b[isl].doors = KH_BLOB(islanddoors);   // the cave, and the Cove
     a[isl].chars = KH_BLOB(islandchr);
     a[isl].palette = KH_BLOB(islandpal);
 
@@ -258,8 +262,21 @@ void buildSceneTable() {
     b[cav].chars = KH_BLOB(cavemap);
     b[cav].cast = KH_BLOB(cavecast);
     b[cav].day2 = KH_BLOB(caveday2);
+    b[cav].doors = KH_BLOB(cavedoors);
     a[cav].chars = KH_BLOB(cavechr);
     a[cav].palette = KH_BLOB(cavepal);
+
+    // THE COVE, the island's back beach.  Daylight, so its palette is the
+    // island's rather than the chamber's -- and its own characters, because a
+    // wooden deck run and a wadeable inlet are not shapes the island map has.
+    b[cov].collision = KH_BLOB(covecoll);
+    b[cov].height = KH_BLOB(coveheight);
+    b[cov].chars = KH_BLOB(covemap);
+    b[cov].cast = KH_BLOB(covecast);
+    b[cov].day2 = KH_BLOB(coveday2);
+    b[cov].doors = KH_BLOB(covedoors);
+    a[cov].chars = KH_BLOB(covechr);
+    a[cov].palette = KH_BLOB(covepal);
 
     // The object pages and the two overridden sub-palettes, from
     // gen/assets.h's `when` column.  Sub-palette 1 is the Heartless and
@@ -273,7 +290,8 @@ void buildSceneTable() {
         // will put Kairi in it, and a room that had to change palette to admit
         // her would be a room the night could not walk into.
         a[i].heartPalette = town                    ? KH_BLOB(townobjpal)
-                          : i == isl || i == cav    ? KH_BLOB(islepal)
+                          : i == isl || i == cav
+                            || i == cov           ? KH_BLOB(islepal)
                           : i == ngt                ? KH_BLOB(nightscenepal)
                                                     : KH_BLOB(heartpal);
         a[i].scenePalette = town     ? KH_BLOB(armorpal)
@@ -399,7 +417,7 @@ char* putStr(char* out, char* end, const char* s) {
 const char* const SCENE_NAMES[int(SceneId::Count)] = {
     "STATION 1", "STATION 2", "STATION 3", "DESTINY ISLANDS", "THE NIGHT",
     "THE FRAGMENT", "FIRST DISTRICT", "SECOND DISTRICT", "THIRD DISTRICT",
-    "THE SECRET PLACE",
+    "THE SECRET PLACE", "THE COVE",
 };
 
 // ---------------------------------------------------------------------------

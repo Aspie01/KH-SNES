@@ -129,13 +129,14 @@ constexpr SceneAsset SCENE_ASSETS[] = {
     {"station1", 32, 16, 197, nullptr, false, 1, uint8_t(SceneTable::None)},
     {"station2", 32, 16, 197, nullptr, false, 1, uint8_t(SceneTable::None)},
     {"station3", 32, 16, 195, nullptr, false, 1, uint8_t(SceneTable::Boss)},
-    {"island", 64, 32, 250, nullptr, true, -1, uint8_t(SceneTable::Day1 | SceneTable::Day2 | SceneTable::Doors | SceneTable::Spots)},
+    {"island", 64, 32, 251, nullptr, true, -1, uint8_t(SceneTable::Day1 | SceneTable::Day2 | SceneTable::Doors | SceneTable::Spots)},
     {"night", 64, 32, 0, "island", true, -1, uint8_t(SceneTable::Spots)},
     {"fragment", 32, 16, 112, nullptr, false, 1, uint8_t(SceneTable::Boss)},
     {"town1", 48, 32, 85, nullptr, true, -1, uint8_t(SceneTable::Doors)},
     {"town2", 48, 32, 107, nullptr, true, -1, uint8_t(SceneTable::Doors | SceneTable::Spots)},
     {"town3", 48, 32, 85, nullptr, true, -1, uint8_t(SceneTable::Doors | SceneTable::Pair)},
     {"cave", 32, 16, 43, nullptr, false, 1, uint8_t(SceneTable::Day2 | SceneTable::Doors)},
+    {"cove", 48, 20, 159, nullptr, true, -1, uint8_t(SceneTable::Day2 | SceneTable::Doors)},
 };
 
 // WHERE A PALETTE GOES, which is not a free choice: the SNES's own CGRAM

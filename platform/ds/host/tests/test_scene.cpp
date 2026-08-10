@@ -53,7 +53,7 @@ KH_TEST(scene_ground_reads_the_islands_collision_map) {
     for (int j = 0; j < g.height(); ++j)
         for (int i = 0; i < g.width(); ++i)
             if (g.walkable(i, j)) ++walkable;
-    CHECK_EQ(walkable, 670);
+    CHECK_EQ(walkable, 671);
 
     // Where Sora wakes up, and the sea north of the cliff.
     CHECK(g.walkable(24, 20));

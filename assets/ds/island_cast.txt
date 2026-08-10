@@ -80,3 +80,11 @@ Bottle      12  7         # under the fall
 # half -- where it leads -- and build_doors.py derives the far side from the
 # reciprocal.
 6 5 6 6
+# ...and the way through the headland to the Cove, the island's back beach.  The
+# PS2 puts this door in a timber palisade at the Seashore's far end, clustered with
+# the shack and the Secret Place; this island's shape is pinned by the frozen
+# tools/check_map.py -- DS_ROUTES holds the bridge ends, the paopu landing, the dock
+# and the cave passage -- so the cluster cannot be reproduced without breaking a
+# frozen file.  What is preserved is the RELATION the reference actually asserts:
+# the Cove is behind the headland, reached through it, and not along the shore.
+30 6 30 7

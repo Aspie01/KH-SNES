@@ -406,7 +406,10 @@ enum class SceneId : uint8_t {
     // keeps the passage mouth in the cliff and a doorway at its far end leads
     // into the chamber with the drawings and the Door.
     Cave = 9,
-    Count = 10,
+    // ...and the back beach behind the headland, which is the PS2's obstacle
+    // course.  Day 2 only there; ungated here, because a RoomDoor carries no gate.
+    Cove = 10,
+    Count = 11,
 };
 
 enum class DiveStage : uint8_t {

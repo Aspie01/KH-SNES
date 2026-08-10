@@ -488,24 +488,51 @@ KH_TEST(boot_standing_on_a_doorway_takes_it_once_and_not_every_frame) {
 }
 
 KH_TEST(boot_the_room_doors_are_reciprocal_and_land_beside_each_other) {
-    // The table itself, read straight out of gen/doors.h.  Every number here is
-    // DERIVED by tools/build_doors.py from the reciprocal row -- the far landing
-    // is the other door's own near landing -- so this is the assertion that the
-    // derivation produced the pair somebody authored and not two halves of two
-    // different pairs.
-    const RoomDoors isl = roomDoorsFor(SceneId::Island);
-    const RoomDoors cav = roomDoorsFor(SceneId::Cave);
-    CHECK_EQ(isl.count, 1);
-    CHECK_EQ(cav.count, 1);
-    CHECK(isl.rows != nullptr && cav.rows != nullptr);
+    // The tables, read straight out of gen/doors.h.  Every landing in them is
+    // DERIVED by tools/build_doors.py from the reciprocal row -- the far landing is
+    // the other door's own near landing -- so this is the assertion that the
+    // derivation produced the pairs somebody authored and not halves of different
+    // ones.
+    //
+    // WRITTEN AS A SWEEP AND NOT AS THREE NAMED DOORS, because the first draft
+    // asserted the island had exactly one room door and that stopped being true the
+    // moment the Cove was wired.  A count is a fact about today; "every door has
+    // exactly one reciprocal and lands one row south of it" is the rule, and it is
+    // what build_doors.py's R5 refuses on.
+    struct Room { SceneId id; const char* name; };
+    const Room ROOMS[] = {
+        {SceneId::Island, "island"}, {SceneId::Cave, "cave"},
+        {SceneId::Cove, "cove"},
+    };
 
-    CHECK(isl.rows[0].to == SceneId::Cave);
-    CHECK(cav.rows[0].to == SceneId::Island);
-    // Each one's landing is the OTHER one's tile, one row south of it.
-    CHECK_EQ(int(isl.rows[0].landing.i), int(cav.rows[0].at.i));
-    CHECK_EQ(int(isl.rows[0].landing.j), int(cav.rows[0].at.j) + 1);
-    CHECK_EQ(int(cav.rows[0].landing.i), int(isl.rows[0].at.i));
-    CHECK_EQ(int(cav.rows[0].landing.j), int(isl.rows[0].at.j) + 1);
+    int doors = 0;
+    for (const Room& r : ROOMS) {
+        const RoomDoors rd = roomDoorsFor(r.id);
+        CHECK(rd.count > 0);
+        CHECK(rd.rows != nullptr);
+        for (int k = 0; k < rd.count; ++k) {
+            ++doors;
+            const RoomDoor& d = rd.rows[k];
+            CHECK(d.to != r.id);                    // no door onto its own scene
+            // Exactly one way back, and this door's landing IS that door's tile
+            // one row south of it.
+            const RoomDoors back = roomDoorsFor(d.to);
+            int reciprocals = 0;
+            for (int b = 0; b < back.count; ++b) {
+                if (back.rows[b].to != r.id) continue;
+                ++reciprocals;
+                if (int(back.rows[b].at.i) != int(d.landing.i)) continue;
+                CHECK_EQ(int(d.landing.i), int(back.rows[b].at.i));
+                CHECK_EQ(int(d.landing.j), int(back.rows[b].at.j) + 1);
+                CHECK_EQ(int(back.rows[b].landing.i), int(d.at.i));
+                CHECK_EQ(int(back.rows[b].landing.j), int(d.at.j) + 1);
+            }
+            CHECK_EQ(reciprocals, 1);
+        }
+    }
+    // Two out of the island and one back from each room.
+    CHECK_EQ(doors, 4);
+    CHECK_EQ(roomDoorsFor(SceneId::Island).count, 2);
 
     // A district has no room doors and a room has no district doors.  Both
     // accessors return an empty span rather than a default, so the interaction
@@ -514,4 +541,66 @@ KH_TEST(boot_the_room_doors_are_reciprocal_and_land_beside_each_other) {
     CHECK(roomDoorsFor(SceneId::Town1).rows == nullptr);
     CHECK_EQ(townDoorsFor(SceneId::Island).count, 0);
     CHECK_EQ(townDoorsFor(SceneId::Cave).count, 0);
+    CHECK_EQ(townDoorsFor(SceneId::Cove).count, 0);
+}
+
+KH_TEST(boot_the_headland_doorway_carries_him_into_the_cove_and_back) {
+    // The Cove's half of the same round trip the chamber's has.  Started IN THE
+    // COVE, for the reason the cave's case gives: the door puts Sora down two tiles
+    // from its own doorway, where the island's is halfway across a 64-tile map.
+    Game g(source);
+    CHECK(g.begin(SceneId::Cove));
+    CHECK(g.scene() == SceneId::Cove);
+    CHECK(g.player() >= 0);
+    CHECK_EQ(tileOf(g.actors().x[g.player()]), 43);
+    CHECK_EQ(tileOf(g.actors().y[g.player()]), 7);
+
+    // THE COVE'S CAST IS RIKU AND KAIRI AND NOBODY ELSE.  Tidus, Selphie and Wakka
+    // are on the Seashore in the PS2 game and never here, which is a correction
+    // docs/DESTINY_ISLANDS_PS2.md made to this port's plan.
+    CHECK_EQ(g.actors().count(ActType::Riku), 1);
+    CHECK_EQ(g.actors().count(ActType::Kairi), 1);
+    CHECK_EQ(g.actors().count(ActType::Tidus), 0);
+    CHECK_EQ(g.actors().count(ActType::Selphie), 0);
+    CHECK_EQ(g.actors().count(ActType::Wakka), 0);
+    // ...and the beach really is a beach: two dozen props off the map's own tiles.
+    CHECK(g.actors().count(ActType::Palm) + g.actors().count(ActType::PalmC) > 8);
+
+    // North from the landing, up onto the doorway in the headland.
+    CHECK(walkUntilScene(g, SceneId::Island, Button::Up, 200) > 0);
+    CHECK(g.lastActionPerformed());
+    CHECK(g.error() == nullptr);
+    // On the reciprocal's landing: the island's Cove door is (30,6), so (30,7).
+    CHECK_EQ(tileOf(g.actors().x[g.player()]), 30);
+    CHECK_EQ(tileOf(g.actors().y[g.player()]), 7);
+    CHECK_EQ(g.actors().count(ActType::Kairi), 1);       // the island's Kairi now
+    CHECK_EQ(g.actors().count(ActType::Tidus), 1);       // ...and the islanders
+
+    // AND BACK, which is the half that proves the island end fires too.
+    CHECK(walkUntilScene(g, SceneId::Cove, Button::Up, 200) > 0);
+    CHECK_EQ(tileOf(g.actors().x[g.player()]), 43);
+    CHECK_EQ(tileOf(g.actors().y[g.player()]), 5);
+    CHECK(g.error() == nullptr);
+}
+
+KH_TEST(boot_the_island_has_two_doorways_and_they_go_to_different_rooms) {
+    // The island is the hub now.  Both its doors are on the same map and both fire
+    // out of the same interactStep arm, so the thing worth pinning is that they do
+    // not lead to the same place -- a copy-paste in island_doors.txt would give two
+    // doors to the chamber and no way to the Cove, and every check upstream would
+    // still pass because both rows would be individually well-formed.
+    const RoomDoors isl = roomDoorsFor(SceneId::Island);
+    CHECK_EQ(isl.count, 2);
+    CHECK(isl.rows[0].to != isl.rows[1].to);
+    bool toCave = false, toCove = false;
+    for (int k = 0; k < isl.count; ++k) {
+        if (isl.rows[k].to == SceneId::Cave) toCave = true;
+        if (isl.rows[k].to == SceneId::Cove) toCove = true;
+        // ...and they are different tiles, or one of them can never be stepped on.
+        for (int j = k + 1; j < isl.count; ++j)
+            CHECK(isl.rows[k].at.i != isl.rows[j].at.i
+                  || isl.rows[k].at.j != isl.rows[j].at.j);
+    }
+    CHECK(toCave);
+    CHECK(toCove);
 }

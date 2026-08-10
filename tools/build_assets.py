@@ -2445,6 +2445,12 @@ def ds_scenes():
         DSScene("cave", "cave.txt", "ds", BG_NIGHT,
                 note="the chamber behind the waterfall: the drawings, and the "
                      "Door with no handle"),
+        # The Cove, behind the headland.  BG_GROUND and not BG_NIGHT: it is a
+        # daylight beach, and the wadeable inlet needs FOAM over WATER_L to read as
+        # shin-deep water rather than as a dark pool.
+        DSScene("cove", "cove.txt", "ds", BG_GROUND,
+                note="the back beach: the deck run, the inlet that bypasses it, "
+                     "and the rise to the high ledge"),
     )
 
 

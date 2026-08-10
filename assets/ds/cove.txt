@@ -1,0 +1,86 @@
+# The Cove -- Nintendo DS.  48 x 20 tiles = 768 x 320 pixels.
+#
+# The island's back beach, behind the headland, and the PS2 game's obstacle
+# course.  docs/DESTINY_ISLANDS_PS2.md section 2.5 is what it is there.
+#
+# ~ deep water   - shallow (blocked)   . sand    W wadeable shallows
+# # cliff +3     d a doorway           T palm    Y nut palm
+# R boulder      r rock                b bush
+# L step +1      B plank deck +1       P deck +2   K high ledge +3
+#
+# THIS ENGINE HAS NO JUMP, and that is the whole of the translation.  ActState is
+# Idle/Walk/Attack/Hurt/Dead/Fall, and Fall is "carried by the scene, not the
+# player" -- there is no jump button and no air control, so a move is allowed only
+# between tiles whose heights differ by at most one.
+#
+# The PS2 Cove is a PLATFORMING course: three deck sections with open jumpable gaps
+# between them, a ladder grabbed high up off the end of the deck run, a zip line
+# ridden down to a landing platform, mossy rocks and treetops hopped along, a crate
+# carried and stood on to reach an alcove.  NONE of that is expressible here, and
+# building the shapes without the verbs would be a course the player cannot run --
+# gaps that are walls, a ladder that is a fence, a chest nothing can reach.
+#
+# So it is a TERRAIN course instead, which is the trick the island already uses:
+# a deck at +2 is sealed off except across its step tile, "which is what makes a
+# ladder out of a plank".  Height is climbed by walking.  The deck run is
+# continuous, the watchtower is a +2 lookout on the embankment, and the west end is
+# a stair of +1 / +2 / +3 up to the high ledge that stands in for the star-lamp
+# tree.  Every one of the 440 walkable tiles is reachable from the doorway under the
+# one-step rule; nothing here is scenery pretending to be a route.
+#
+# THE CLIFF IS NORTH AND THE SEA IS SOUTH, mirroring the reference's compass -- and
+# the reference says plainly that its compass is a convention rather than canon.
+# What decides it here is the PAINTER: a raised tile is drawn 8*h pixels above its
+# own cell, so it covers what is NORTH of it, and a cliff along the south edge would
+# paint over the beach in front of it.  Every other map in this tree puts its cliff
+# north for the same reason.
+#
+# THE INLET IS 'W' AND NOT '-'.  Shallow water is BLOCKED in TERRAIN; the waterfall
+# pool is walkable, and it paints FOAM over WATER_L, which under the island's
+# daylight palette reads as shin-deep water over sand.  That matters because the
+# inlet is the reference's "standard bypass for the whole deck section", and a
+# bypass you cannot walk is scenery.
+#
+# AND EVERY PROP MATCHES THE GROUND IT STANDS ON.  A prop tile carries the ground
+# COLOUR as well as the sprite: 'T' and 'R' are grass tiles, 'r' is a sand one.  A
+# palm or a boulder placed on the beach with the grass code is a bright green square
+# with a tree standing in it, which is what the first two drafts of this map looked
+# like.  So the palms are clustered in the vegetated strip at the cliff's foot where
+# they belong, and what breaks up the open beach is 'r' rocks.
+#
+# READING THIS FILE WITH A LEADING-'#' TEST WILL EAT THE CLIFF.  The rows are
+# 48 characters and five of them are solid '#'.  load_grid() gets it right -- "a
+# comment is '#' alone or '# ...', so a map row that starts with cliff rock must not
+# be mistaken for one" -- and an ad-hoc script that forgets is how this map briefly
+# looked four rows tall.
+#
+# EVERY PROP STANDS ON FLAT GROUND.  A prop's height is zero whatever it is drawn
+# in, so one placed on the +1 embankment is a hole in that embankment -- three were,
+# in the first draft, and they are moved rather than deleted.
+#
+# WHAT IS NOT HERE YET, all named in docs/DESTINY_ISLANDS.md: the race course
+# markers, the raft, the crate and the high alcove's chest, the spring that fills
+# the bottle, and the day-one seal.  The Cove is Day 2 only in the PS2 -- Kairi
+# blocks its door for the whole of day one -- and a RoomDoor carries no gate, so it
+# is open from the start here.
+#
+################################################
+################################################
+################################################
+################################################
+###########################################d####
+###,,,,,,,,,,,T,Y,,,,YT,,,,,,,,b,..............#
+###,KKKKPPLL,,,,,,T,,,,b,Y,,,T,,,..............#
+###,KKKKPPLLb,,,T,,b,,,,T,LLLLLLLBBBBBBBBLLLLLL#
+###,KKKKPPLL,T,,,,,,T,,,,,LLPPPPLBBBBBBBBLLLLLL#
+###.......................LLPPPPLBBBBBBBBLLLLLL#
+###..r.........r...r......LLPPPPLWWWWWWWWLLLLLL#
+###.....r....r........r...LLLLLLLWWWWWWWWLLLLLL#
+###...............r.....r.LLLLLLLWWWWWWWWLLLLLL#
+###...........................r................#
+###.......................r.................r..#
+###...............................r.....r......#
+------------------------------------------------
+------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
