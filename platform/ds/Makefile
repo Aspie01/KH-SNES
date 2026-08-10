@@ -34,23 +34,29 @@
 
 .SUFFIXES:
 
-# "NOT SET" HERE USUALLY MEANS "NOT EXPORTED", and the two look identical from
-# the shell.  `echo $DEVKITARM` prints a plain shell variable just as happily as
-# an exported one; make is a child process and only inherits the exported kind.
-# So the message names that case first, because it is the one where the person
-# reading it can see the value on their own screen and reasonably conclude the
-# makefile is wrong.  Measured, on a devkitPro MSYS2 install.
+# WHEN THIS FIRES AND THE VARIABLE IS PLAINLY SET.
+#
+# The obvious cause is that it is set and not EXPORTED -- `echo $DEVKITARM`
+# prints a plain shell variable as happily as an exported one, and make, being a
+# child process, only inherits the exported kind.  That is the first thing to
+# check and it is what the message says.
+#
+# IT IS NOT ALWAYS THE CAUSE.  On one devkitPro MSYS2 install `env` listed
+# DEVKITARM=/opt/devkitpro/devkitARM, exported, and this check fired anyway.
+# That was never explained.  What always works is putting the values on make's
+# own command line, where no environment is involved at all -- so that is the
+# form the message leads with, rather than the diagnosis that sounds better.
+#
 # `define`, not `:=`, because $(error) prints its argument verbatim and make
-# does NOT interpret a backslash-n inside one -- a help text written that way
+# does NOT interpret a backslash-n inside one: a help text written that way
 # comes out as one long line with literal \n in it, which is worse than no help
-# at all.  This was written the wrong way first and the difference was visible
-# only by running it.
+# at all.  Written the wrong way first; visible only by running it.
 define KH_DEVKIT_HELP
 
-  Set them for this shell -- note EXPORT, not merely assignment:
+  Put them on make's command line, which needs no environment at all:
+      make -C platform/ds DEVKITPRO=/opt/devkitpro DEVKITARM=/opt/devkitpro/devkitARM
+  ...or export them -- note EXPORT, not merely assignment:
       export DEVKITPRO=/opt/devkitpro DEVKITARM=/opt/devkitpro/devkitARM
-  ...or source devkitPro's own script, which also makes it stick:
-      source /etc/profile.d/devkit-env.sh
   python3 tools/check_device.py names every missing piece
 endef
 
@@ -78,20 +84,29 @@ NDSTOOL := $(DEVKITPRO)/tools/bin/ndstool
 # with error 127, and the message accuses a file that exists.  Measured on a
 # real install; it is why this block is here rather than in a bug report.
 #
-# TESTED, NOT ASSUMED.  The fallback fires only when $(MAKE) actually cannot
-# run: if it contains a slash and `--version` fails through the same shell the
-# recursion will use, the bare name is used instead, which PATH resolves -- and
-# PATH is how make was invoked in the first place.  A caller who set MAKE
-# deliberately to something that WORKS is left alone, which is the property that
-# makes this safe to do unconditionally.
-# ---------------------------------------------------------------------------
+# TESTED, NOT ASSUMED: if $(MAKE) contains a slash and cannot run, the bare name
+# is used instead, which PATH resolves -- and PATH is how make was invoked in the
+# first place.  A MAKE that WORKS is left alone, which is the property that makes
+# this safe to apply unconditionally.
+#
+# AND TESTED UNDER $(SHELL), WHICH TURNED OUT TO BE THE WHOLE POINT.  The failure
+# reported was `/usr/bin/bash: line 1: ... No such file or directory` raised by a
+# SUB-makefile, moments after this top-level one had launched it successfully.
+# Two shells, one path, opposite answers: this file's recipes run under plain
+# /bin/sh and ds_rules sets SHELL to bash for the others.  A probe run under
+# /bin/sh would therefore pass on a path the recipe's bash cannot exec -- a green
+# check and a dead build, which is the exact failure mode this project exists to
+# refuse.  So it spells out `$(SHELL) -c` rather than trusting $(shell) to pick
+# the right one, and each makefile runs its own probe after its own include.
+#
 # `override`, because a plain assignment loses to a command-line MAKE= and this
-# has to win even then: the guard only fires when the value cannot run, and a
-# value that cannot run is not a preference worth respecting.  Written without
-# it first, which printed the note and then went on using the broken path --
+# has to win even then: the guard fires only when the value cannot run, and a
+# value that cannot run is not a preference worth respecting.  Written without it
+# first, which printed the note and went on using the broken path anyway --
 # visible only by running it with a deliberately bad MAKE.
+# ---------------------------------------------------------------------------
 ifneq ($(findstring /,$(MAKE)),)
-ifeq ($(shell '$(MAKE)' --version >/dev/null 2>&1 && echo ok),)
+ifeq ($(shell $(SHELL) -c "'$(MAKE)' --version" >/dev/null 2>&1 && echo ok),)
 KH_UNRUNNABLE_MAKE := $(MAKE)
 override MAKE := $(notdir $(MAKE))
 $(info note: $(KH_UNRUNNABLE_MAKE) cannot be executed by this shell; recursing \

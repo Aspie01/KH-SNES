@@ -32,6 +32,25 @@ endif
 
 include $(DEVKITARM)/ds_rules
 
+# THE SAME $(MAKE) GUARD THE TOP-LEVEL MAKEFILE CARRIES, and it is repeated here
+# rather than inherited because inheriting it did not work.  The top level
+# passes `MAKE=<corrected>` as a command-line assignment, which is the form that
+# is supposed to propagate -- and on devkitPro's MSYS2 this make still recursed
+# into its build directory through /opt/devkitpro/msys2/usr/bin/make and died
+# with error 127.  Measured.  So each makefile checks for itself; three copies
+# of a mechanical test are cheaper than one clever propagation that fails
+# silently one level down.  The reasoning is in platform/ds/Makefile.
+#
+# AFTER the ds_rules include on purpose: $(shell) runs under $(SHELL), ds_rules
+# sets SHELL, and the point of the test is to use the same shell the RECIPE will
+# use.  Testing under /bin/sh a path that /usr/bin/bash cannot exec would be a
+# check that passes and a build that fails.
+ifneq ($(findstring /,$(MAKE)),)
+ifeq ($(shell $(SHELL) -c "'$(MAKE)' --version" >/dev/null 2>&1 && echo ok),)
+override MAKE := $(notdir $(MAKE))
+endif
+endif
+
 TARGET   := $(notdir $(CURDIR))
 BUILD    := build
 SOURCES  := source ../source ../device
