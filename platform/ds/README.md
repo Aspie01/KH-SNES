@@ -78,10 +78,42 @@ Two prerequisites, and they are needed by different lines below:
   build is actually possible.
 
 ```sh
+git pull                          # BEFORE the pipeline, not after -- see below
 python3 tools/build_assets.py     # the .bin tables the cartridge links in
 python3 tools/check_link.py       # every symbol the ARM9 declares is on disk
 make -C platform/ds               # -> platform/ds/kh.nds
 ```
+
+**Pull before you regenerate.** `build_assets.py` writes the `.bin` tables into
+`assets/gen/`, which is gitignored — but it also writes the review images into
+`assets/src/`, and *those are tracked*. They are tracked on purpose:
+`docs/WORLD_SIZES.md` calls `assets/src/ds_<scene>_cast.png` the thing that makes
+cast placement reviewable ("placement is reviewed by looking at it"), and the root
+`README.md` offers them as the hook for replacing a piece of art with your own.
+
+So running the pipeline and *then* pulling leaves locally-regenerated PNGs in the
+way of a commit that changed the same maps, and git stops with
+
+```
+error: Your local changes to the following files would be overwritten by merge:
+        assets/src/ds_island_cast.png
+        ...
+```
+
+They are generated, so throwing them away costs nothing — the authored thing is
+`assets/ds/*.txt`:
+
+```sh
+git checkout -- assets/src/
+git pull
+python3 tools/build_assets.py
+```
+
+If they come back modified straight after that sequence, the cause is a different
+one and worth knowing about: the PNG encoder. They are byte-reproducible for a
+given Pillow, so two machines on the same version agree and two on different
+versions may not. `python3 -c "import PIL; print(PIL.__version__)"` on both is the
+check.
 
 **On Windows, `make` must run in devkitPro's OWN MSYS2 shell.** Not Git Bash,
 not PowerShell. This is the single most expensive thing to get wrong here, and
