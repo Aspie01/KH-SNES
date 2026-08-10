@@ -472,6 +472,25 @@ StageStep townInteract(TownMachine& m, Interact& st, SceneView& view,
 // ---------------------------------------------------------------------------
 // Being out of HP, which takes priority over whatever the scene was doing
 // ---------------------------------------------------------------------------
+const RoomDoor* roomDoorStepped(Interact& st, SceneView& view,
+                                const RoomDoor* doors, int nDoors) {
+    if (view.player < 0 || view.player >= MAX_ACTORS) return nullptr;
+    const int ti = tileOfPos(view.actors.x[view.player]);
+    const int tj = tileOfPos(view.actors.y[view.player]);
+    // THE EDGE, and it is deliberately taken BEFORE the door lookup rather than
+    // after.  Standing still on a doorway must be indistinguishable from standing
+    // still anywhere else, so the cursor advances on every frame he moves, door or
+    // not -- exactly as townInteract's CheckDoors does.  Advancing it only on a
+    // door would make "walk onto the door, step off, step back on" fire once.
+    if (ti == st.lastI && tj == st.lastJ) return nullptr;
+    st.lastI = int16_t(ti);
+    st.lastJ = int16_t(tj);
+
+    for (int d = 0; d < nDoors; ++d)
+        if (doors[d].at.i == ti && doors[d].at.j == tj) return &doors[d];
+    return nullptr;
+}
+
 StageStep gameOverStep(WorldState& w, SceneView& view) {
     if (view.dialogue.busy()) return StageStep{};       // the card is still up
     if (w.deadFlag == 1) {

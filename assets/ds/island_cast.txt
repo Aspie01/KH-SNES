@@ -68,3 +68,15 @@ Bottle      12  7         # under the fall
 18 11
 40 12
 24 16
+
+[doors]
+# The way into the Secret Place, at the far WEST end of the cliff pocket -- which
+# is where the PS2 puts it: "the cliff base at sand level immediately west of the
+# twin waterfall".  The pocket is entered from the plunge pool at (11,6) and runs
+# west; this is its dead end.
+#
+# The near landing is the tile directly SOUTH, which is the same rule the town's
+# doors follow (town.s:1386-1389).  assets/ds/island_doors.txt carries the other
+# half -- where it leads -- and build_doors.py derives the far side from the
+# reciprocal.
+6 5 6 6

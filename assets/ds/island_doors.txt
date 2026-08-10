@@ -1,0 +1,33 @@
+# Destiny Islands -- where the rooms join.  The island's own doorTable.
+#
+# WHY THIS FILE IS NOT town_doors.txt.  That file wires DISTRICTS: its rows carry
+# a TownStage gate, its doors are all in DOOR_ROW because a district is a walled
+# courtyard whose only openings are building fronts, and every join in it is
+# checked against platform/snes/src/town.s's doorTable row for row.  None of that
+# is true here.  The island's rooms are joined by a hole in a cliff, there is no
+# gate on any of them, and the SNES had no such join at all -- the Secret Place
+# was six tiles of the island map, so there is no oracle row to check against.
+#
+# Two files rather than one flag column, because the two sets obey different
+# rules and a single table would have to carry a gate column that is always '-'
+# for half its rows -- which is how a rule becomes a convention and then becomes
+# wrong.  tools/build_doors.py reads both, partitions the door-carrying scenes by
+# which file names them, and refuses (R2) any scene that no file names or that
+# both do.
+#
+# WHAT IS STILL SHARED, and it is most of it: R1 (a wiring row's tile really is a
+# 'd', and every 'd' is wired), R2 (this file and the [doors] sections describe
+# the same set), R5 (a routed door has exactly one reciprocal), R6 (the derived
+# landing is standable and within MAX_STEP), R8 (nothing is stranded).
+#
+# THE LANDING IS DERIVED AND NEVER AUTHORED, exactly as for the town.
+# town.s:1386-1389: "every landing is the tile directly south of the door on the
+# far side, so a player who walks straight through comes out facing the square."
+# So the far-side landing IS the reciprocal door's own near-side landing, and
+# build_doors.py derives it from the reciprocal's tile.  For a district that
+# reduces to (i, DOOR_ROW + 1); here it is (i, j + 1) of whichever row is the
+# reciprocal, which is the same rule with the row no longer a constant.
+#
+# from    i   j   to      # why
+island    6   5   cave    # the west dead end of the cliff pocket, past the fall
+cave     23  11   island  # ...and back out, at the far end of the passage

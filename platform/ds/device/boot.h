@@ -186,6 +186,28 @@ private:
     Door doors_[MAX_DOORS]{};
     int nDoors_ = 0;
 
+    // WHERE A ROOM DOOR WAS GOING, held here rather than on a machine.
+    //
+    // The town's pending door lives on TownMachine (openDoor/doorTo/doorLanding)
+    // and EnterDistrict's performer asks it.  A room has no machine of its own --
+    // the Secret Place runs the island's -- and putting a destination on
+    // IslandMachine would give the quest state a field about geography.  So the
+    // caller holds it, which is also where it belongs: taking a door is a scene
+    // load, and Game is the only thing in the tree that can do one.
+    //
+    // Count is "nothing pending", so a stale EnterRoom cannot enter a scene: the
+    // performer refuses it by name rather than loading whatever 0 happens to be.
+    //
+    // BOTH HALVES OF THAT ARE UNEXERCISED, and a probe said so: deleting the
+    // consume in perform() breaks no test, because the only thing that emits
+    // EnterRoom is the door scan and it always sets these first.  They are kept
+    // because the action is now public vocabulary -- any future beat that wants a
+    // room transition will reach for it -- and a performer that loads SceneId(0)
+    // on a step somebody forgot to prime would drop the player into the first
+    // Station of Awakening, which is a bug that looks like a scene script error.
+    SceneId roomTo_ = SceneId::Count;
+    Tile roomLanding_{};
+
     SceneId scene_ = SceneId::Dive;
     int player_ = -1;
     uint32_t frame_ = 0;

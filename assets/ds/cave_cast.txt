@@ -37,23 +37,9 @@ Scribble    11  4
 # always described as being in.
 Mush         5 10
 
-# NO [doors] SECTION YET, AND THAT IS THE CHECKER'S DECISION RATHER THAN AN
-# OMISSION.
-#
-# tools/build_doors.py discovers its subjects as "every scene that has doors" and
-# then requires each one to be a district of Traverse Town: a SCENE_* constant in
-# the frozen assembly, a row in assets/ds/town_doors.txt, a TownStage gate, and a
-# door in DOOR_ROW.  The Secret Place is none of those -- there is no SCENE_CAVE,
-# its doorway is a hole in a cliff rather than a building front, and it is not
-# gated on anything at all.
-#
-# So authoring a 'd' tile now would leave exactly the state that tool exists to
-# prevent: a doorway drawn into the art with nothing behind it, which a reader
-# cannot distinguish from one that is meant to be dead.  The tiles and the wiring
-# arrive together, in the increment that teaches build_doors.py the difference
-# between a district and a room -- which also wants a RoomDoor type with no
-# TownStage in it, a SceneAction to carry the transition, and the existing
-# reciprocal-landing derivation pointed at the new pair.
-#
-# Until then the chamber is reached with the L/R bring-up controls, everything in
-# it is authored and checked, and there is no half-built door in the tree.
+[doors]
+# The way back out to the beach.  The near landing is the tile directly SOUTH,
+# the town's own rule (town.s:1386-1389), which is what lets build_doors.py derive
+# the far side from the reciprocal row in assets/ds/island_doors.txt without a
+# second arrangement for this scene.
+23 11 23 12

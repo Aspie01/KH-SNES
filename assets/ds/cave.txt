@@ -8,10 +8,7 @@
 # passage" -- and the doorway at its far end leads here.
 #
 # # cliff +3     C cave floor   * the dark (blocked, backdrop colour)
-#
-# NO 'd' DOORWAY YET.  The way in and out is authored in the same increment that
-# teaches tools/build_doors.py the difference between a district and a room; see
-# assets/ds/cave_cast.txt.  Until then the chamber is reached with L/R.
+# d a doorway -- the way back out, at the far end of the passage
 #
 # THE WALLS ARE THE DARK AND NOT ROCK, and that is the whole difference between
 # a cave and a quarry.  '#' is a cliff at +3: the painter draws it 24 pixels
@@ -47,7 +44,7 @@
 ***CCCCCCCCCCCCCCCCCCCC*********
 ***CCCCCCCCCCCCCCCCCCCC*********
 ***CCCCCCCCCCCCC****CCC*********
-****CCCCCCCCCCC*****CCCC********
+****CCCCCCCCCCC*****CCCd********
 ******CCCCCC********CCCC********
 ********************************
 ********************************

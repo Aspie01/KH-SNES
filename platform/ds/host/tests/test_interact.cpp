@@ -615,3 +615,92 @@ KH_TEST(interact_the_race_starts_on_the_start_line_and_not_where_they_were_sat) 
     placeRacers(v2);
     CHECK_EQ(alone.actors.x[alone.player].raw(), START_SORA_X.raw());
 }
+
+// ===========================================================================
+// roomDoorStepped -- the half of a room transition that needs no asset source
+// ===========================================================================
+
+KH_TEST(interact_a_room_door_fires_on_the_frame_he_arrives_and_not_after) {
+    // THE EDGE, TESTED DIRECTLY, because the integration test cannot reach it.
+    // boot_standing_on_a_doorway_takes_it_once_and_not_every_frame walks him onto
+    // a doorway and holds still -- and it passes with the edge REMOVED, because
+    // taking the door relocates him off it, so he is never standing on a door for
+    // a second frame.  That probe not firing is what says the edge is not what
+    // prevents the loop there; the LANDING is, by being beside its door and never
+    // on it.
+    //
+    // The edge still earns its place, and this is where: it is the difference
+    // between a transition that has FAILED firing once and firing on every frame
+    // for as long as the player stands there.  Nothing in the shipped tree can
+    // fail one -- Game::enter refuses only on missing bytes -- so it is checked
+    // here, on the function, rather than through a scene load that cannot be made
+    // to break.
+    constexpr RoomDoor DOORS[] = {
+        {{6, 5}, SceneId::Cave, {23, 12}},
+        {{20, 9}, SceneId::Island, {1, 1}},
+    };
+    Stub w;
+    Interact st;
+
+    // Nowhere near one.
+    w.putPlayer(11, 12);
+    SceneView v0 = w.view();
+    CHECK(roomDoorStepped(st, v0, DOORS, 2) == nullptr);
+
+    // Onto the first door: it fires once.
+    w.putPlayer(6, 5);
+    SceneView v1 = w.view();
+    const RoomDoor* d = roomDoorStepped(st, v1, DOORS, 2);
+    CHECK(d != nullptr);
+    CHECK(d == &DOORS[0]);
+    CHECK(d->to == SceneId::Cave);
+    CHECK_EQ(int(d->landing.i), 23);
+    CHECK_EQ(int(d->landing.j), 12);
+
+    // ...and standing on it does not fire again, however long he stands there.
+    for (int n = 0; n < 8; ++n) {
+        SceneView v = w.view();
+        CHECK(roomDoorStepped(st, v, DOORS, 2) == nullptr);
+    }
+
+    // Step off and back on and it fires again -- the cursor is a tile, not a
+    // latch, so a door is usable more than once.
+    w.putPlayer(6, 6);
+    SceneView v2 = w.view();
+    CHECK(roomDoorStepped(st, v2, DOORS, 2) == nullptr);
+    w.putPlayer(6, 5);
+    SceneView v3 = w.view();
+    CHECK(roomDoorStepped(st, v3, DOORS, 2) == &DOORS[0]);
+
+    // The second row is reachable too, which is what proves the scan is a scan
+    // and not a test against the first entry.
+    w.putPlayer(20, 9);
+    SceneView v4 = w.view();
+    CHECK(roomDoorStepped(st, v4, DOORS, 2) == &DOORS[1]);
+
+    // An empty table is walked zero times rather than dereferenced: a district
+    // gets RoomDoors{} and this must be safe on nullptr.
+    w.putPlayer(6, 5);
+    SceneView v5 = w.view();
+    CHECK(roomDoorStepped(st, v5, nullptr, 0) == nullptr);
+}
+
+KH_TEST(interact_a_room_door_needs_a_player) {
+    // Game::enter refinds the player on every load and leaves -1 if a cast has no
+    // Sora; check_map.py refuses such a cast, so this is a guard rather than a
+    // case.
+    //
+    // AND THIS CASE CANNOT PROVE IT, which is worth saying rather than leaving it
+    // looking like coverage.  Deleting the guard makes the function read
+    // actors.x[-1], which is undefined behaviour and not a wrong answer: the
+    // garbage it reads almost certainly matches no door, so nullptr comes back
+    // either way and this case still passes.  It pins the CONTRACT -- a playerless
+    // view yields no door -- and the guard itself is correct by construction, in
+    // the same way a volatile store is.
+    constexpr RoomDoor DOORS[] = {{{6, 5}, SceneId::Cave, {23, 12}}};
+    Stub w;
+    Interact st;
+    w.player = -1;
+    SceneView v = w.view();
+    CHECK(roomDoorStepped(st, v, DOORS, 1) == nullptr);
+}

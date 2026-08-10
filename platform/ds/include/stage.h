@@ -145,6 +145,20 @@ enum class SceneAction : uint8_t {
     SpawnMote,          // one speck of light, off to one side and below
     EnterIsland,        // the whiteout's midpoint: load the island, init the quest
     EnterDistrict,      // a door's midpoint: load `arg`, stand Sora on the landing
+    // ...and the same for one of the island's ROOMS, which is a separate action
+    // rather than a reuse of the one above.  EnterDistrict's performer asks the
+    // TownMachine where it was going (town_.doorTo(), town_.doorLanding()), and a
+    // room transition has no TownMachine and no gate -- the pending door is the
+    // CALLER's, because taking one is a scene load and Game is the only thing
+    // that can do that.  Sharing the action would mean sharing that holder, which
+    // is how the island would end up storing a destination on the town's machine.
+    //
+    // INSERTED HERE AND NOT APPENDED, because it belongs beside its sibling and
+    // because nothing depends on a SceneAction's VALUE: check_constants.py pairs
+    // no SceneAction family, the trace carries action NAMES, and test_boot's
+    // every-action-has-a-name loop is bounded by whichever member is last --
+    // which is still RestartScene.
+    EnterRoom,
     DropPair,           // Donald and Goofy, placed well above the square
     LowerPair,          // one frame of their descent
     RaiseArmor,         // the Guard Armor comes down

@@ -18,6 +18,7 @@
 #include "check.h"
 #include "constants.h"
 #include "gen/assets.h"
+#include "gen/doors.h"
 #include "hostblob.h"
 
 using namespace kh;
@@ -358,4 +359,159 @@ KH_TEST(boot_runs_the_island_for_a_thousand_frames_without_faulting) {
     // ...and the cel the sprite packer needs came out.
     CHECK(g.soraCel() >= 0);
     CHECK(g.soraCel() < SORA_CELS);
+}
+
+// ===========================================================================
+// The doorway between the island and the Secret Place
+// ===========================================================================
+
+namespace {
+
+// Walk him until he is standing on (i,j), or give up.  Returns the frame count,
+// or -1.  Deliberately drives Game::frame() rather than moving the actor: the
+// door fires out of interactStep, which only runs inside a frame, and a test that
+// teleported him would prove the performer works and the trigger does not.
+int walkTo(Game& g, int i, int j, Button dir, int cap = 400) {
+    Pad p;
+    p.held = raw(dir);
+    for (int n = 1; n <= cap; ++n) {
+        p.pressed = n == 1 ? p.held : uint16_t(0);
+        g.frame(p);
+        const int who = g.player();
+        if (who < 0) return -1;
+        if (tileOf(g.actors().x[who]) == i && tileOf(g.actors().y[who]) == j)
+            return n;
+    }
+    return -1;
+}
+
+// Hold `dir` until the scene becomes `want`.
+//
+// THE TRANSITION LANDS ONE FRAME AFTER HE STEPS ON THE DOORWAY, and that is the
+// SNES's frame order rather than a lag worth fixing: SceneUpdate runs before
+// UpdateWorld (main.s), so interactStep sees where he was at the START of the
+// frame and updateWorld moves him afterwards.  He arrives on the door during
+// frame N and the door is noticed on frame N+1.  A helper that stopped the moment
+// tileOf matched would therefore always read the scene one frame too early --
+// which is exactly how the first draft of these cases failed, with every
+// assertion about the destination wrong and the mechanism perfectly fine.
+int walkUntilScene(Game& g, SceneId want, Button dir, int cap = 400) {
+    Pad p;
+    p.held = raw(dir);
+    for (int n = 1; n <= cap; ++n) {
+        p.pressed = n == 1 ? p.held : uint16_t(0);
+        g.frame(p);
+        if (g.scene() == want) return n;
+    }
+    return -1;
+}
+
+}  // namespace
+
+KH_TEST(boot_the_doorway_carries_him_into_the_secret_place_and_back) {
+    // THE ROUND TRIP, driven with the pad, because every half of it can be wrong
+    // on its own: the trigger (interactStep sees the tile), the action (EnterRoom
+    // reaches perform), the load (enter() finds the room's bytes) and the
+    // placement (he arrives on the reciprocal's landing and not wherever the
+    // cast file happens to put him).
+    //
+    // STARTED IN THE CAVE rather than on the island, and that is the only reason
+    // this is a short test: the chamber puts Sora down at (21,12) and its doorway
+    // is at (23,11), so the walk is two tiles east and one north.  The island's
+    // doorway is at the far end of a cliff pocket reached by wading round a
+    // waterfall, which is a pathfinding exercise and not a door test.
+    Game g(source);
+    CHECK(g.begin(SceneId::Cave));
+    CHECK(g.scene() == SceneId::Cave);
+    CHECK(g.player() >= 0);
+    CHECK_EQ(tileOf(g.actors().x[g.player()]), 21);
+    CHECK_EQ(tileOf(g.actors().y[g.player()]), 12);
+
+    // East along the passage floor to the tile below the door.  Standing there
+    // must NOT fire anything -- the landing is beside its door and never on it,
+    // which is what stops an arrival from immediately taking the door back.
+    CHECK(walkTo(g, 23, 12, Button::Right) > 0);
+    CHECK(g.scene() == SceneId::Cave);
+    CHECK(g.lastAction() != SceneAction::EnterRoom);
+
+    // ...and north onto the doorway itself.
+    CHECK(walkUntilScene(g, SceneId::Island, Button::Up, 120) > 0);
+    // He is on the island now, on the reciprocal door's own landing: the island's
+    // door is (6,5) and its near landing is (6,6).  gen/doors.h derives that from
+    // the reciprocal row and never authors it.
+    CHECK(g.scene() == SceneId::Island);
+    CHECK(g.lastActionPerformed());
+    CHECK(g.error() == nullptr);
+    CHECK(g.player() >= 0);
+    CHECK_EQ(tileOf(g.actors().x[g.player()]), 6);
+    CHECK_EQ(tileOf(g.actors().y[g.player()]), 6);
+    // HIS FACING AND VELOCITY ARE NOT ASSERTED HERE, and the reason is the frame
+    // order rather than an oversight.  The performer does clear both and face him
+    // south -- the same five statements EnterDistrict's arm runs -- but
+    // updateWorld() runs LATER IN THE SAME FRAME with the direction still held,
+    // so by the time a test can look he has correctly turned north and started
+    // walking again.  Asserting Dir::S here fails against working code, which is
+    // how the first draft of this case read.  What survives the frame, and is
+    // therefore what is worth checking, is where he was put down.
+    // The island's cast is up, which is what proves the scene really loaded
+    // rather than the placement having been applied to the cave's table.
+    CHECK_EQ(g.actors().count(ActType::Kairi), 1);
+    CHECK_EQ(g.actors().count(ActType::Faces), 0);      // those are in the room
+
+    // AND BACK.  He is one tile south of the island's doorway, so north again.
+    CHECK(walkUntilScene(g, SceneId::Cave, Button::Up, 120) > 0);
+    CHECK(g.lastActionPerformed());
+    CHECK_EQ(tileOf(g.actors().x[g.player()]), 23);
+    CHECK_EQ(tileOf(g.actors().y[g.player()]), 12);
+    CHECK_EQ(g.actors().count(ActType::Faces), 1);      // the chamber, again
+    CHECK_EQ(g.actors().count(ActType::Kairi), 0);
+}
+
+KH_TEST(boot_standing_on_a_doorway_takes_it_once_and_not_every_frame) {
+    // THE EDGE IS NOT AN OPTIMISATION HERE.  A town door that fired every frame
+    // would repeat a bolted-door line; a room door that fired every frame would
+    // re-enter the scene it just loaded, for ever.  So this drives him onto the
+    // doorway and then holds still for a hundred frames.
+    Game g(source);
+    CHECK(g.begin(SceneId::Cave));
+    CHECK(walkTo(g, 23, 12, Button::Right) > 0);
+    CHECK(walkUntilScene(g, SceneId::Island, Button::Up, 120) > 0);
+
+    Pad still;
+    for (int i = 0; i < 100; ++i) g.frame(still);
+    // One transition, not a hundred: he is still on the island and still on its
+    // landing, which he could not be if the door had taken him back and forth.
+    CHECK(g.scene() == SceneId::Island);
+    CHECK_EQ(tileOf(g.actors().x[g.player()]), 6);
+    CHECK_EQ(tileOf(g.actors().y[g.player()]), 6);
+    CHECK(g.error() == nullptr);
+}
+
+KH_TEST(boot_the_room_doors_are_reciprocal_and_land_beside_each_other) {
+    // The table itself, read straight out of gen/doors.h.  Every number here is
+    // DERIVED by tools/build_doors.py from the reciprocal row -- the far landing
+    // is the other door's own near landing -- so this is the assertion that the
+    // derivation produced the pair somebody authored and not two halves of two
+    // different pairs.
+    const RoomDoors isl = roomDoorsFor(SceneId::Island);
+    const RoomDoors cav = roomDoorsFor(SceneId::Cave);
+    CHECK_EQ(isl.count, 1);
+    CHECK_EQ(cav.count, 1);
+    CHECK(isl.rows != nullptr && cav.rows != nullptr);
+
+    CHECK(isl.rows[0].to == SceneId::Cave);
+    CHECK(cav.rows[0].to == SceneId::Island);
+    // Each one's landing is the OTHER one's tile, one row south of it.
+    CHECK_EQ(int(isl.rows[0].landing.i), int(cav.rows[0].at.i));
+    CHECK_EQ(int(isl.rows[0].landing.j), int(cav.rows[0].at.j) + 1);
+    CHECK_EQ(int(cav.rows[0].landing.i), int(isl.rows[0].at.i));
+    CHECK_EQ(int(cav.rows[0].landing.j), int(isl.rows[0].at.j) + 1);
+
+    // A district has no room doors and a room has no district doors.  Both
+    // accessors return an empty span rather than a default, so the interaction
+    // layer walks zero rows -- which is the correct number.
+    CHECK_EQ(roomDoorsFor(SceneId::Town1).count, 0);
+    CHECK(roomDoorsFor(SceneId::Town1).rows == nullptr);
+    CHECK_EQ(townDoorsFor(SceneId::Island).count, 0);
+    CHECK_EQ(townDoorsFor(SceneId::Cave).count, 0);
 }

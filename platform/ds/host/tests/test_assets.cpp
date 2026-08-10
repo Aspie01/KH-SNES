@@ -81,7 +81,9 @@ KH_TEST(assets_characters_are_linear_4bpp_and_not_planar) {
     Blob chr = khhost::load("islandchr.bin", a, sizeof a);
     if (!have(chr, "islandchr.bin")) { CHECK(false); return; }
     CHECK_EQ(chr.size % 32, 0u);
-    CHECK_EQ(chr.size / 32, 247u);          // what the pipeline reports
+    // 250, up from 247 when the island gained the doorway into the Secret
+    // Place: a terrain code the map had not used before is new characters.
+    CHECK_EQ(chr.size / 32, 250u);
 
     // Every nibble must be a real palette index.  A 16-colour palette means
     // that is vacuous -- but it stops being vacuous the moment anything emits
@@ -459,16 +461,18 @@ KH_TEST(assets_a_scene_says_which_optional_tables_it_has) {
         {"station1", uint8_t(SceneTable::None)},
         {"station2", uint8_t(SceneTable::None)},
         {"station3", uint8_t(SceneTable::Boss)},
-        {"island", SceneTable::Spots | SceneTable::Day1 | SceneTable::Day2},
+        // Doors: the island has exactly one, the doorway at the west dead end of
+        // the cliff pocket that leads into the Secret Place.
+        {"island", SceneTable::Spots | SceneTable::Day1 | SceneTable::Day2
+                       | SceneTable::Doors},
         {"night", uint8_t(SceneTable::Spots)},
         {"fragment", uint8_t(SceneTable::Boss)},
         {"town1", uint8_t(SceneTable::Doors)},
         {"town2", SceneTable::Doors | SceneTable::Spots},
         {"town3", SceneTable::Doors | SceneTable::Pair},
-        // The Secret Place: the third mushroom, and nothing else.  No spots --
-        // the Heartless do not come into the chamber -- and no doors yet; see
-        // assets/ds/cave_cast.txt for whose decision that is.
-        {"cave", uint8_t(SceneTable::Day2)},
+        // The Secret Place: the third mushroom, and the way back out.  No spots
+        // -- the Heartless do not come into the chamber.
+        {"cave", SceneTable::Day2 | SceneTable::Doors},
     };
     const int n = int(sizeof SCENE_ASSETS / sizeof *SCENE_ASSETS);
     CHECK_EQ(n, int(sizeof WANTS / sizeof *WANTS));

@@ -58,6 +58,14 @@ ROOT = Path(__file__).resolve().parent.parent
 SNES = ROOT / "platform" / "snes" / "src"
 GEN = ROOT / "assets" / "gen" / "ds"
 WIRING = ROOT / "assets" / "ds" / "town_doors.txt"
+# ...and the island's, which obeys different rules and therefore is not a flag
+# column in the same file.  A district's row carries a TownStage gate and its door
+# is in DOOR_ROW because a district is a walled courtyard; a room is joined by a
+# hole in a cliff, is gated on nothing, and has no doorTable row to be checked
+# against because the SNES had no such join.  One table would need a gate column
+# that is always absent for half its rows, which is how a rule becomes a
+# convention and then becomes wrong.
+ROOM_WIRING = ROOT / "assets" / "ds" / "island_doors.txt"
 CONSTANTS = ROOT / "platform" / "ds" / "include" / "constants.h"
 OUT = ROOT / "platform" / "ds" / "include" / "gen" / "doors.h"
 
@@ -166,15 +174,16 @@ def snes_door_rows(eq: dict[str, int]) -> list[tuple[int, int, int, int, int, in
 class Wire:
     """One row of assets/ds/town_doors.txt, before the landing is derived."""
 
-    __slots__ = ("frm", "i", "j", "to", "needs", "line")
+    __slots__ = ("frm", "i", "j", "to", "needs", "line", "path")
 
-    def __init__(self, frm, i, j, to, needs, line):
+    def __init__(self, frm, i, j, to, needs, line, path=WIRING):
         self.frm = frm          # district name
         self.i = i
         self.j = j
         self.to = to            # district name, or SHUT
-        self.needs = needs      # a T_* name, or None when shuttered
-        self.line = line        # town_doors.txt:<n>, for the refusal message
+        self.needs = needs      # a T_* name, or None when shuttered or ungated
+        self.line = line        # <wiring>:<n>, for the refusal message
+        self.path = path        # which wiring file, so `where` can name it
 
     @property
     def routed(self) -> bool:
@@ -182,10 +191,22 @@ class Wire:
 
     @property
     def where(self) -> str:
-        return f"{WIRING.name}:{self.line}"
+        return f"{self.path.name}:{self.line}"
 
 
-def load_wiring(districts: tuple[str, ...], stages: dict[str, int]) -> list[Wire]:
+def load_wiring(districts: tuple[str, ...], stages: dict[str, int],
+                path=WIRING, gated: bool = True) -> list[Wire]:
+    """Read one wiring file.
+
+    `gated` is the whole difference between the two.  A district's row is
+    `from i j to needs` and every routed one names a TownStage, because that gate
+    is fidelity: it is what makes townStage progress rather than location.  A
+    room's row is `from i j to` and there is no gate at all -- the island's rooms
+    are always open, and a column that would read '-' on every row is a rule
+    pretending to be data.  So the gate is absent from the format rather than
+    present and ignored, and R7 (the three columns must agree about what kind of
+    row this is) applies only where there are three columns.
+    """
     rows: list[Wire] = []
     # R2's multiplicity half.  check_pairing() below compares the cast's doors
     # and the wiring's doors as SETS, which answers "is every door mentioned in
@@ -203,16 +224,19 @@ def load_wiring(districts: tuple[str, ...], stages: dict[str, int]) -> list[Wire
     # thing; this one is about a wiring that says two things, where the check
     # reads one of them and the emitter reads the other.
     seen: dict[tuple[str, int, int], int] = {}
-    for n, raw in enumerate(WIRING.read_text().splitlines(), 1):
+    for n, raw in enumerate(path.read_text().splitlines(), 1):
         line = raw.split("#", 1)[0].strip()
         if not line:
             continue
         f = line.split()
-        where = f"{WIRING.name}:{n}"
-        if len(f) != 5:
-            raise SystemExit(f"{where}: a wiring row is 'from i j to needs', "
+        where = f"{path.name}:{n}"
+        want = 5 if gated else 4
+        if len(f) != want:
+            shape = "from i j to needs" if gated else "from i j to"
+            raise SystemExit(f"{where}: a wiring row is '{shape}', "
                              f"got {len(f)} fields -- {line!r}")
-        frm, i, j, to, needs = f[0], f[1], f[2], f[3], f[4]
+        frm, i, j, to = f[0], f[1], f[2], f[3]
+        needs = f[4] if gated else NO_GATE
         if frm not in districts:
             raise SystemExit(f"{where}: '{frm}' is not a district; the districts "
                              f"are {', '.join(districts)}")
@@ -231,7 +255,7 @@ def load_wiring(districts: tuple[str, ...], stages: dict[str, int]) -> list[Wire
         if key in seen:
             raise SystemExit(
                 f"{where}: R2 -- {frm} ({i},{j}) is already wired at "
-                f"{WIRING.name}:{seen[key]}.  One door is one row: the checks "
+                f"{path.name}:{seen[key]}.  One door is one row: the checks "
                 f"below compare the two halves of the table as sets and would "
                 f"not notice, and the emitter takes whichever row comes last, "
                 f"so a second row for a tile silently decides what the door "
@@ -248,7 +272,13 @@ def load_wiring(districts: tuple[str, ...], stages: dict[str, int]) -> list[Wire
                     f"'{needs}'.  It has no far side, so there is no TownStage "
                     f"that could ever open it; write '{NO_GATE}' and let the "
                     f"'{SHUT}' destination be the only thing that says so")
-            rows.append(Wire(frm, int(i), int(j), to, None, n))
+            rows.append(Wire(frm, int(i), int(j), to, None, n, path))
+            continue
+        if not gated:
+            # A room's door is ungated by design; there is no third state here,
+            # because a room has no shuttered doors either -- SHUT is a district
+            # thing (a painted shop front the SNES never had).
+            rows.append(Wire(frm, int(i), int(j), to, None, n, path))
             continue
         if needs == NO_GATE:
             raise SystemExit(
@@ -259,9 +289,9 @@ def load_wiring(districts: tuple[str, ...], stages: dict[str, int]) -> list[Wire
         if needs not in stages:
             raise SystemExit(f"{where}: '{needs}' is not a townStage equate in "
                              f"game.inc")
-        rows.append(Wire(frm, int(i), int(j), to, needs, n))
+        rows.append(Wire(frm, int(i), int(j), to, needs, n, path))
     if not rows:
-        raise SystemExit(f"{WIRING.name}: no wiring rows")
+        raise SystemExit(f"{path.name}: no wiring rows")
     return rows
 
 
@@ -269,8 +299,13 @@ def load_wiring(districts: tuple[str, ...], stages: dict[str, int]) -> list[Wire
 # The checks
 # ---------------------------------------------------------------------------
 def check_tiles(wires: list[Wire], grids: dict, casts: dict,
-                door_row: int) -> None:
-    """R1 and R3: the map, the cast file and the wiring name the same doors."""
+                door_row: "int | None", wiring=WIRING) -> None:
+    """R1 and R3: the map, the cast file and the wiring name the same doors.
+
+    `door_row` is None for rooms.  R3 is really two rules that were one line
+    while there was only one kind of door: the ROW is a fact about districts, and
+    the LANDING is a fact about doors.  Only the first is skipped here.
+    """
     for w in wires:
         grid = grids[w.frm]
         if not (0 <= w.i < grid.w and 0 <= w.j < grid.h):
@@ -283,10 +318,12 @@ def check_tiles(wires: list[Wire], grids: dict, casts: dict,
                 f"doorway.  A wiring row for a tile that is not a door wires "
                 f"nothing: the interaction layer matches on the tile the player "
                 f"is standing on, so this door would never fire")
-        # R3.  DOOR_ROW is not a convention, it is the only row of a building
-        # block that shows a face (town.s:1386-1387); a door anywhere else is
-        # painted onto the pavement or covered by the block above it.
-        if w.j != door_row:
+        # R3, first half.  DOOR_ROW is not a convention, it is the only row of a
+        # building block that shows a face (town.s:1386-1387); a door anywhere
+        # else is painted onto the pavement or covered by the block above it.
+        # That is a fact about DISTRICTS -- a cave mouth in a cliff has no
+        # building front to be in -- so it is skipped when door_row is None.
+        if door_row is not None and w.j != door_row:
             raise SystemExit(f"{w.where}: R3 -- ({w.i},{w.j}) is not in "
                              f"DOOR_ROW = {door_row}")
 
@@ -303,7 +340,7 @@ def check_tiles(wires: list[Wire], grids: dict, casts: dict,
                 if (name, i, j) not in wired:
                     raise SystemExit(
                         f"R1 -- {name}.txt has a 'd' doorway at ({i},{j}) with "
-                        f"no row in {WIRING.name}.  Every door is wired or is "
+                        f"no row in {wiring.name}.  Every door is wired or is "
                         f"declared shuttered; there is no third state, because "
                         f"'nothing happens' has to be a decision and not an "
                         f"oversight")
@@ -314,10 +351,15 @@ def check_tiles(wires: list[Wire], grids: dict, casts: dict,
     # the header's is on the far side, in the destination's.
     for name, cast in casts.items():
         for (di, dj, li, lj) in cast.doors:
-            if dj != door_row:
+            if door_row is not None and dj != door_row:
                 raise SystemExit(f"{name}_cast.txt: R3 -- a [doors] row at "
                                  f"({di},{dj}) is not in DOOR_ROW = {door_row}")
-            if (li, lj) != (di, door_row + 1):
+            # The LANDING half, which is universal: "directly south of the door"
+            # (town.s:1386-1389).  For a district that reduces to
+            # (i, DOOR_ROW + 1) because R3's first half has already forced
+            # dj == door_row; writing it as (di, dj + 1) is the same rule with the
+            # row no longer a constant, and it is what lets a room reuse it.
+            if (li, lj) != (di, dj + 1):
                 raise SystemExit(
                     f"{name}_cast.txt: R3 -- the door at ({di},{dj}) lands on "
                     f"({li},{lj}); a [doors] landing is the NEAR side and is "
@@ -326,7 +368,7 @@ def check_tiles(wires: list[Wire], grids: dict, casts: dict,
                     f"asserts of the emitted binary")
 
 
-def check_pairing(wires: list[Wire], casts: dict) -> None:
+def check_pairing(wires: list[Wire], casts: dict, wiring=WIRING) -> None:
     """R2: the cast file's doors and the wiring's doors are the same set.
 
     THE DRIFT THIS WHOLE DESIGN EXISTS TO PREVENT.  <scene>doors.bin is
@@ -344,19 +386,19 @@ def check_pairing(wires: list[Wire], casts: dict) -> None:
             raise SystemExit(
                 f"R2 -- {name} has a [doors] row at "
                 f"{', '.join(str(t) for t in missing)} with nothing in "
-                f"{WIRING.name}.  That door is in the emitted "
+                f"{wiring.name}.  That door is in the emitted "
                 f"{name}doors.bin and would be a tile the player can stand on "
                 f"that does nothing, with no record of anybody deciding so")
         if extra:
             raise SystemExit(
-                f"R2 -- {WIRING.name} wires {name} "
+                f"R2 -- {wiring.name} wires {name} "
                 f"{', '.join(str(t) for t in extra)}, which is not in "
                 f"{name}_cast.txt's [doors].  The header and "
                 f"{name}doors.bin index the same table, so a row here with no "
                 f"row there puts the two permanently out of step")
 
 
-def derive_landings(wires: list[Wire], door_row: int) -> dict[int, tuple[int, int]]:
+def derive_landings(wires: list[Wire]) -> dict[int, tuple[int, int]]:
     """R5, and the far-side landing that comes out of it.
 
     town.s:1386-1389: "every landing is the tile directly south of the door on
@@ -365,6 +407,13 @@ def derive_landings(wires: list[Wire], door_row: int) -> dict[int, tuple[int, in
     than an independent coordinate, so it is derived here and never authored.
     The SNES's four rows obey it and the DS's must, and deriving it is the only
     way to make that a fact rather than a habit.
+
+    IT COMES OFF THE RECIPROCAL'S OWN ROW and not off DOOR_ROW, and for a district
+    those are the same number: R3's first half has already refused any district
+    door outside DOOR_ROW, so `back[0].j + 1` and `door_row + 1` cannot differ
+    there.  Writing it this way is what lets a room -- whose doorway is a hole in
+    a cliff at whatever height the cliff is -- use the identical rule.  The town's
+    emitted header is byte-identical across this change, which `--check` proves.
     """
     out: dict[int, tuple[int, int]] = {}
     for n, w in enumerate(wires):
@@ -380,7 +429,7 @@ def derive_landings(wires: list[Wire], door_row: int) -> dict[int, tuple[int, in
                 f"with none there is nowhere to put Sora down and with two "
                 f"there is no way to choose -- and a door out of a district "
                 f"with no way back is a district the player is stranded in")
-        out[n] = (back[0].i, door_row + 1)
+        out[n] = (back[0].i, back[0].j + 1)
     return out
 
 
@@ -565,8 +614,11 @@ def cpp_stage(t: str) -> str:
     return stem[0].upper() + stem[1:]
 
 
-def emit(districts, casts, wires, landings, eq, snes_rows) -> str:
+def emit(districts, casts, wires, landings, eq, snes_rows,
+         rooms, room_casts, room_wires, room_landings) -> str:
     by_tile = {(w.frm, w.i, w.j): (n, w) for n, w in enumerate(wires)}
+    room_by_tile = {(w.frm, w.i, w.j): (n, w)
+                    for n, w in enumerate(room_wires)}
     # (from scene, to scene) -> the town.s line the row is actually on, read out
     # of the file by snes_door_rows.  See its docstring for why this is not
     # `1391 + k`: these end up in the header as citations.
@@ -576,6 +628,14 @@ def emit(districts, casts, wires, landings, eq, snes_rows) -> str:
     w_ = L.append
     w_("#pragma once")
     w_("// GENERATED by tools/build_doors.py -- do not edit.")
+    w_("//")
+    w_("// TWO KINDS OF DOOR, and they are different types on purpose.  A TownDoor")
+    w_("// carries a TownStage gate and may be shuttered; a RoomDoor carries neither,")
+    w_("// because the island's rooms are always open and it has no painted shop")
+    w_("// fronts.  Giving rooms a gate field that is never read would be a rule")
+    w_("// pretending to be data, and giving them TownStage would let a townStage be")
+    w_("// compared against a cave.  Authored in assets/ds/town_doors.txt and")
+    w_("// assets/ds/island_doors.txt respectively.")
     w_("//")
     w_("// Traverse Town's doorTable, for the 48x32 districts.  The other three")
     w_("// columns of platform/snes/src/town.s:42-44's seven-byte row -- where a")
@@ -658,6 +718,27 @@ def emit(districts, casts, wires, landings, eq, snes_rows) -> str:
         w_(f"              \"{name}_cast.txt's [doors] has {len(rows)} "
            f"row{'' if len(rows) == 1 else 's'}\");")
         w_("")
+    for name in rooms:
+        rows = room_casts[name].doors
+        w_(f"// {name}: {len(rows)} door"
+           f"{'' if len(rows) == 1 else 's'}, in {name}doors.bin order.  A room's")
+        w_("// door has no gate -- see assets/ds/island_doors.txt.")
+        w_(f"constexpr RoomDoor {name.upper()}_ROOMS[] = {{")
+        for (di, dj, _li, _lj) in rows:
+            n, wire = room_by_tile[(name, di, dj)]
+            li, lj = room_landings[n]
+            w_(f"    // {wire.where} -- {wire.frm} ({di},{dj}) -> {wire.to}."
+               f"  Landing derived")
+            w_(f"    // from the reciprocal door at {wire.to} ({li},{lj - 1});"
+               f" tile from {wire.frm}_cast.txt.")
+            w_(f"    {{{{{di}, {dj}}}, SceneId::{cpp_scene(wire.to)}, "
+               f"{{{li}, {lj}}}}},")
+        w_("};")
+        w_(f"static_assert(sizeof {name.upper()}_ROOMS / "
+           f"sizeof {name.upper()}_ROOMS[0] == {len(rows)},")
+        w_(f"              \"{name}_cast.txt's [doors] has {len(rows)} "
+           f"row{'' if len(rows) == 1 else 's'}\");")
+        w_("")
     w_("}  // namespace door")
     w_("")
     w_("// Which district's table to use.  A scene that is not one of the three has")
@@ -674,6 +755,23 @@ def emit(districts, casts, wires, landings, eq, snes_rows) -> str:
         w_(f"{lead} s == SceneId::{cpp_scene(name)} "
            f"? TownDoors{{door::{name.upper()}, {len(casts[name].doors)}}}")
     w_("         : TownDoors{};")
+    w_("}")
+    w_("")
+    w_("// ...and the island's rooms, the same shape for the same reason.  A scene")
+    w_("// with no room doors gets an empty span and the interaction layer walks")
+    w_("// zero rows, which is the correct number for a district.")
+    w_("struct RoomDoors {")
+    w_("    const RoomDoor* rows = nullptr;")
+    w_("    int count = 0;")
+    w_("};")
+    w_("")
+    w_("constexpr RoomDoors roomDoorsFor(SceneId s) {")
+    for k, name in enumerate(rooms):
+        lead = "    return" if k == 0 else "         :"
+        w_(f"{lead} s == SceneId::{cpp_scene(name)} "
+           f"? RoomDoors{{door::{name.upper()}_ROOMS, "
+           f"{len(room_casts[name].doors)}}}")
+    w_("         : RoomDoors{};")
     w_("}")
     w_("")
     w_("}  // namespace kh")
@@ -693,9 +791,9 @@ def main() -> int:
     scenes = cpp_enum("SceneId")
     stages_h = cpp_enum("TownStage")
 
-    # The districts are the scenes that HAVE doors, discovered from the pipeline
-    # rather than listed: a fourth district would then be checked the day its
-    # cast file appears, which is the day it can first be wrong.
+    # The scenes that HAVE doors, discovered from the pipeline rather than
+    # listed: a new one is then checked the day its cast file appears, which is
+    # the day it can first be wrong.
     casts = {}
     grids = {}
     for scene in ds_scenes():
@@ -704,10 +802,60 @@ def main() -> int:
             continue
         casts[scene.name] = cast
         grids[scene.name] = scene.grid()
-    districts = tuple(casts)
-    if not districts:
+    if not casts:
         raise SystemExit("no scene has a [doors] section")
 
+    # ---------------------------------------------------------------------
+    # DISTRICTS AND ROOMS, and the partition is DATA rather than a guess.
+    #
+    # This tool used to call every door-carrying scene a district and then
+    # demand a SCENE_* equate for it, which is a demand only Traverse Town can
+    # meet -- game.inc is frozen and there is no SCENE_CAVE.  The refusal was
+    # "game.inc has no SCENE_CAVE for district cave", which is true and useless:
+    # the Secret Place is not a district and never will be.
+    #
+    # So the partition is which WIRING FILE names the scene.  Not the presence of
+    # a SCENE_* equate, which would be an accident of the oracle -- the island has
+    # SCENE_ISLAND and is a room -- and not the scene's name, which would be a
+    # convention.  A file naming a scene is somebody having decided.
+    # ---------------------------------------------------------------------
+    def wired_by(path) -> set:
+        out = set()
+        for raw in path.read_text().splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if line:
+                out.add(line.split()[0])
+        return out
+
+    town_named, room_named = wired_by(WIRING), wired_by(ROOM_WIRING)
+    both = town_named & room_named
+    if both:
+        raise SystemExit(
+            f"R2 -- {', '.join(sorted(both))} is wired in both "
+            f"{WIRING.name} and {ROOM_WIRING.name}.  A scene is a district or a "
+            f"room and the two obey different rules; being both means one of the "
+            f"two files would silently lose its rows to the other's emitted table")
+    districts = tuple(n for n in casts if n in town_named)
+    rooms = tuple(n for n in casts if n in room_named)
+    orphans = [n for n in casts if n not in town_named and n not in room_named]
+    if orphans:
+        raise SystemExit(
+            f"R2 -- {', '.join(sorted(orphans))} has a [doors] section and no "
+            f"wiring row in {WIRING.name} or {ROOM_WIRING.name}.  A door with no "
+            f"destination is a tile the player can stand on that does nothing, "
+            f"with no record of anybody deciding so -- which is the one state "
+            f"this tool exists to make impossible")
+    for name in tuple(town_named | room_named) :
+        if name not in casts:
+            raise SystemExit(
+                f"R2 -- a wiring row names '{name}', which has no [doors] "
+                f"section in {name}_cast.txt (or no cast file at all).  The "
+                f"header and {name}doors.bin index the same table")
+
+    # THE SCENE_* IDENTITY IS A DISTRICT RULE.  It is what proves the emitted
+    # header names the district doorTable meant; a room has no doorTable row to
+    # be checked against, so what is checked instead is that constants.h has an
+    # enumerator for it at all.
     for name in districts:
         key = f"SCENE_{name.upper()}"
         if key not in eq:
@@ -717,6 +865,13 @@ def main() -> int:
                 f"SceneId::{cpp_scene(name)} = {scenes.get(cpp_scene(name))} "
                 f"but {key} = {eq[key]}; the two numberings have diverged and "
                 f"the emitted header would name the wrong district")
+    for name in rooms:
+        if cpp_scene(name) not in scenes:
+            raise SystemExit(
+                f"constants.h has no SceneId::{cpp_scene(name)} for room "
+                f"{name}.  A room is DS-only content, so there is no SCENE_* to "
+                f"check it against and the enum is the only thing that says it "
+                f"exists")
 
     stages = {k: v for k, v in eq.items() if k.startswith("T_")}
     for t, v in stages.items():
@@ -724,10 +879,22 @@ def main() -> int:
             raise SystemExit(f"TownStage::{cpp_stage(t)} does not equal {t}")
 
     wires = load_wiring(districts, stages)
-    check_tiles(wires, grids, casts, door_row)
-    check_pairing(wires, casts)
-    landings = derive_landings(wires, door_row)
+    check_tiles(wires, {n: grids[n] for n in districts},
+                {n: casts[n] for n in districts}, door_row)
+    check_pairing(wires, {n: casts[n] for n in districts})
+    landings = derive_landings(wires)
     check_standable(wires, landings, grids)
+
+    # ...and the rooms, through the same checks with the two district-only rules
+    # left out: no DOOR_ROW (door_row=None) and no gate (gated=False).  R1, R2,
+    # R5 and R6 are identical, because they are facts about doors rather than
+    # facts about districts.
+    room_wires = load_wiring(rooms, stages, ROOM_WIRING, gated=False)
+    check_tiles(room_wires, {n: grids[n] for n in rooms},
+                {n: casts[n] for n in rooms}, None, ROOM_WIRING)
+    check_pairing(room_wires, {n: casts[n] for n in rooms}, ROOM_WIRING)
+    room_landings = derive_landings(room_wires)
+    check_standable(room_wires, room_landings, grids)
     # The town is entered at the First District, from the night --
     # SceneAction::EnterTown, stage.h:125 -- which is why nothing has to lead
     # into it and why its [base] Sora is mid-plaza rather than on a landing.
@@ -740,6 +907,15 @@ def main() -> int:
     # so with the three districts as they stand, anything R8 could catch would
     # have tripped R9 first and the anti-strand check would be dead code that
     # only wakes up for a fourth district.
+    # TOWN WIRES ONLY, for both, and each would fail in a way that reads as a
+    # town regression.  check_ladder's start district is districts[0], which is
+    # ds_scenes() order -- pass the rooms in and it becomes the island, and the
+    # anti-soft-lock fill starts in the wrong world.  check_fidelity's scene_of
+    # needs a SCENE_* equate, so a room reaches it as a KeyError and then as
+    # "R9 -- island -> cave is a join doorTable never had", which is a refusal
+    # whose text is simply false about this pair.  R9's body is untouched and
+    # exactly as strict for the town: it is the only thing proving the DS routes
+    # what doorTable routed, and it must not acquire an exception.
     first = check_ladder(wires, districts, eq, districts[0])
     snes_rows = snes_door_rows(eq)
     check_fidelity(wires, eq, snes_rows)
@@ -756,13 +932,24 @@ def main() -> int:
                   f"needs {w.needs}")
         else:
             print(f"          {w.frm} ({w.i},{w.j}) -> shuttered")
+    # ...and the rooms, which the report used to be silent about.  A tool that
+    # checked something and said nothing about it reads as a tool that did not
+    # check it, which is how the island's doorway would come to look unwired.
+    print(f"          {len(room_wires)} room door"
+          f"{'' if len(room_wires) == 1 else 's'} across "
+          f"{len(rooms)} room{'' if len(rooms) == 1 else 's'}, ungated")
+    for n, w in enumerate(room_wires):
+        li, lj = room_landings[n]
+        print(f"          {w.frm} ({w.i},{w.j}) -> {w.to} ({li},{lj})")
     stage_name = {v: k for k, v in eq.items() if k.startswith("T_")}
     print("          reachable from " + districts[0] + ": "
           + ", ".join(f"{n} at {stage_name[s]}"
                       for n, s in sorted(first.items(), key=lambda kv: kv[1])))
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    text = emit(districts, casts, wires, landings, eq, snes_rows)
+    text = emit(districts, casts, wires, landings, eq, snes_rows,
+                rooms, {n: casts[n] for n in rooms}, room_wires,
+                room_landings)
     same = OUT.exists() and OUT.read_text() == text
 
     if "--check" in sys.argv:

@@ -101,6 +101,33 @@ struct TownDoor {
     TownStage needs = TownStage::Arrive;
 };
 
+// ---------------------------------------------------------------------------
+// A ROOM'S DOOR, which is a TownDoor with the two district things taken out.
+//
+// No GATE, because the island's rooms are always open.  A field that is never
+// read is a rule pretending to be data, and the specific trap here is that
+// TownStage::Arrive is ZERO -- so wiring a room with `needs = Arrive` to silence
+// a compiler would give a comparison that is always true, which compiles, works,
+// and type-launders a townStage into a scene that has no TownMachine.  This
+// project's own rule is that a txtState cannot be compared against a txtMode; the
+// same applies here.
+//
+// No SHUTTERED STATE either.  A shuttered door is a painted shop front the SNES
+// never had, of which there are exactly two and both are in the town.  A room
+// door always leads somewhere, so `to` needs no sentinel and the interaction
+// layer needs no test before the gate it does not have.
+//
+// The LANDING is the far side, in the destination's map, on exactly the same
+// terms as TownDoor::landing -- and <scene>doors.bin's land_i/land_j is still the
+// NEAR side.  The two are different tiles and no code may copy one into the
+// other; tools/build_doors.py derives the far one from the reciprocal row.
+// ---------------------------------------------------------------------------
+struct RoomDoor {
+    Tile at;
+    SceneId to = SceneId::Island;
+    Tile landing;
+};
+
 // The one piece of state the interaction layer keeps: lastTileI / lastTileJ,
 // which is what makes a door fire on the frame he arrives rather than on every
 // frame he stands in front of it.  $FF means nowhere, so whichever tile he
@@ -151,6 +178,40 @@ StageStep nightInteract(NightMachine& m, SceneView& view);
 // accident -- talking on a doorway would otherwise change district mid-sentence.
 StageStep townInteract(TownMachine& m, Interact& st, SceneView& view,
                        const TownDoor* doors, int nDoors);
+
+// THE DOORWAY HE HAS JUST STEPPED ONTO, or nullptr.
+//
+// Returns the door rather than performing it, and that is the whole reason it is
+// a separate function.  Taking a room door needs a scene load and a placement,
+// which is the CALLER's business -- Game::perform is the only thing in the tree
+// that can enter a scene -- so this half is the part that is decidable without an
+// asset source, and therefore the part a host test can drive.
+//
+// ONLY THE FRAME HE ARRIVES ON COUNTS, which is what `st` is for.  The town's
+// CheckDoors has the same rule because a bolted door has a line and it would be
+// said on every frame he stood in front of it.
+//
+// WHAT THE EDGE DOES *NOT* DO HERE, stated because a probe said so: it is not
+// what stops a room door looping.  Removing it entirely leaves
+// boot_standing_on_a_doorway_takes_it_once_and_not_every_frame passing, because
+// taking a door relocates him off it -- the LANDING is beside its door and never
+// on it, so there is no second frame on which to fire.  That is the invariant
+// doing the work, and tools/build_doors.py enforces it as R3's landing half.
+//
+// The edge earns its place on the FAILED transition: if a scene load ever refuses,
+// he is left standing on the doorway, and the difference is between reporting once
+// and reporting on every frame until he moves.  Nothing in the shipped tree can
+// fail one, so that is checked on this function directly --
+// interact_a_room_door_fires_on_the_frame_he_arrives_and_not_after -- rather than
+// through a load that cannot be made to break.
+//
+// Interact needs nothing scene-specific: Game::enter() calls interact_.reset() on
+// every entry, so whichever tile Sora is put down on counts as a step onto it.
+// That is safe BECAUSE a landing is beside its door and never on it -- the near
+// landing is (i, j + 1) and the far landing is the reciprocal's near landing, so
+// arriving never stands him on the door he would immediately take back.
+const RoomDoor* roomDoorStepped(Interact& st, SceneView& view,
+                                const RoomDoor* doors, int nDoors);
 
 // GameOverUpdate, dive.s:324, which runs INSTEAD of the scene's own update for
 // every scene -- "being out of HP takes priority over whatever the scene was

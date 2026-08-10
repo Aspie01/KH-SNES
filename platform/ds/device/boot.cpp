@@ -31,6 +31,7 @@ const char* actionName(SceneAction a) {
         case SceneAction::SpawnMote: return "SpawnMote";
         case SceneAction::EnterIsland: return "EnterIsland";
         case SceneAction::EnterDistrict: return "EnterDistrict";
+        case SceneAction::EnterRoom: return "EnterRoom";
         case SceneAction::DropPair: return "DropPair";
         case SceneAction::LowerPair: return "LowerPair";
         case SceneAction::RaiseArmor: return "RaiseArmor";
@@ -313,21 +314,35 @@ StageStep Game::interactStep() {
             return s;
         }
         case SceneId::Cave:
-        case SceneId::Island:
-            // THE CAVE RUNS THE ISLAND'S INTERACTIONS, and there is nothing
-            // room-specific to add yet: the chamber's mushroom is picked up by
-            // walking into it and the three drawings are examined by pressing A,
-            // which is what islandInteract already does for both.
+        case SceneId::Island: {
+            // THE CAVE RUNS THE ISLAND'S INTERACTIONS: the chamber's mushroom is
+            // picked up by walking into it and the three drawings are examined by
+            // pressing A, which is what islandInteract already does for both.
             //
-            // WHAT IS MISSING IS THE DOORWAY, and neither map carries one -- see
-            // assets/ds/cave_cast.txt.  tools/build_doors.py would (rightly)
-            // refuse a 'd' tile it could not check, because its whole model is
-            // "a scene with doors is a district of Traverse Town": a SCENE_*
-            // constant in the frozen assembly, a TownStage gate, a door in
-            // DOOR_ROW.  A hole in a cliff is none of those.  So the tiles and
-            // the wiring arrive together, and until then the room is reached with
-            // the L/R bring-up controls.
-            return islandInteract(island_, v, inv_);
+            // INTERACTIONS FIRST, THEN THE DOORWAY, which is townInteract's order
+            // and for its reason: "a conversation that just opened holds the door
+            // shut for the frame".  A door taken mid-sentence would change scene
+            // under an open box.
+            //
+            // The cursor in `interact_` therefore does NOT advance on a frame that
+            // interacted, exactly as the town's does not.  The consequence is
+            // narrow and worth stating: picking something up while standing on a
+            // doorway defers the door until he moves again, and since he is
+            // standing on it, stepping off and back on takes it.  No item is
+            // authored on a doorway tile, so this is a property rather than a
+            // symptom.
+            const StageStep s = islandInteract(island_, v, inv_);
+            if (s.action != SceneAction::None) return s;
+
+            const RoomDoors rd = roomDoorsFor(scene_);
+            if (const RoomDoor* d = roomDoorStepped(interact_, v, rd.rows,
+                                                    rd.count)) {
+                roomTo_ = d->to;
+                roomLanding_ = d->landing;
+                return StageStep{SceneAction::EnterRoom};
+            }
+            return s;
+        }
         case SceneId::Night:
         case SceneId::Fragment:
             return nightInteract(night_, v);
@@ -477,6 +492,38 @@ bool Game::perform(const StageStep& step) {
                     setActorZ(actors_, player_, ground_);
                     updateCamera(cam_, actors_, player_, bounds_, fx_.shakeX);
                 }
+            }
+            break;
+        }
+
+        case SceneAction::EnterRoom: {
+            // A ROOM DOOR'S MIDPOINT.  The same five statements EnterDistrict's
+            // arm above performs, minus the one that tells a TownMachine which
+            // district it is now in -- a room has no machine to tell.
+            //
+            // THE LANDING IS READ BEFORE enter(), and that is not stylistic: the
+            // scene load respawns the cast and refinds the player, so `player_`
+            // afterwards is a different slot in a different table.  Reading the
+            // destination out of a member that survives the load is what makes
+            // that safe.
+            const SceneId to = roomTo_;
+            const Tile land = roomLanding_;
+            roomTo_ = SceneId::Count;       // consumed, so it cannot fire twice
+            if (to == SceneId::Count) {
+                ok = false;
+                error_ = "EnterRoom with no pending door; something asked for a "
+                         "room transition without saying which room";
+                break;
+            }
+            ok = enter(to);
+            if (ok && player_ >= 0) {
+                actors_.x[player_] = tileCentre(land.i);
+                actors_.y[player_] = tileCentre(land.j);
+                actors_.vx[player_] = World::fromRaw(0);
+                actors_.vy[player_] = World::fromRaw(0);
+                actors_.dir[player_] = Dir::S;
+                setActorZ(actors_, player_, ground_);
+                updateCamera(cam_, actors_, player_, bounds_, fx_.shakeX);
             }
             break;
         }

@@ -2406,18 +2406,62 @@ cannot come back.
 sentence explaining why a figure changed *fails the gate* if it contains the
 figure. That is a good rule and worth knowing before writing the sentence.
 
-**What is deliberately not done**, and is recorded in the tree rather than left
-looking finished:
+## The door system stopped being town-shaped
 
-- **No doorway.** `build_doors.py` models every door-carrying scene as a district
-  of Traverse Town: a `SCENE_*` constant, a `town_doors.txt` row, a `TownStage`
-  gate, a door in `DOOR_ROW`. The island pair is none of those. Authoring a `d`
-  tile it could not check would leave exactly the state that tool exists to
-  prevent, so the tiles and the wiring arrive together. Declared in
-  `assets/ds/cave_cast.txt`, `assets/ds/cave.txt`, `boot.cpp` and
-  `docs/DESTINY_ISLANDS.md`.
-- **The night has not moved in.** `night_cast.txt` is untouched, so
-  `OpenTheDoor` still has a Door.
+`build_doors.py` used to call every door-carrying scene a district and demand a
+`SCENE_*` equate for it — a demand only Traverse Town can meet, since `game.inc`
+is frozen. **The partition is now which wiring file names the scene**: not the
+presence of a `SCENE_*` (an accident of the oracle — the island has one and is a
+room), and not the scene's name (a convention). A file naming a scene is somebody
+having decided, and R2 refuses a door-carrying scene that no file names or that
+both do.
+
+**Most rules were already about doors rather than districts** and are shared
+unchanged: R1, R2, R5, R6. Two are district-only — `DOOR_ROW` and the gate — and
+R8/R9 stay town-only, which matters more than it looks: `check_ladder`'s start
+district is `districts[0]` in `ds_scenes()` order, so passing rooms in silently
+makes it the island and the anti-soft-lock fill starts in the wrong world; and
+`check_fidelity`'s `scene_of` needs a `SCENE_*`, so a room reaches it as a KeyError
+and then as *"R9 — island → cave is a join doorTable never had"*, a refusal whose
+text is simply false about that pair. R9's body is untouched: it is the only thing
+proving the DS routes what `doorTable` routed and it must not acquire an exception.
+
+**The landing derivation generalised without changing the town.**
+`(back[0].i, door_row + 1)` became `(back[0].i, back[0].j + 1)` — identical for a
+district, because R3's row half has already refused any district door outside
+`DOOR_ROW`. `build_doors.py --check` proves the emitted header is byte-identical,
+which is a stronger statement than any test could make.
+
+**The emitter had to stop re-deriving j.** The town's rows are written
+`{{i, DOOR_ROW}, …}`, which is correct for a district and would have put a room
+door at `(23,4)` — void in `cave.txt`. Every check upstream passes on `(23,11)`,
+the tile never matches, and the door does nothing. Silent, and the reason rooms get
+their own emission rather than sharing the district loop.
+
+**Two probes did not fire, and both are recorded where they matter:**
+
+- Removing `roomDoorStepped`'s edge detect breaks nothing at the integration
+  level, because taking a door relocates him off it. The **landing being beside
+  its door** is what prevents the loop, not the edge; the edge earns its place on
+  a *failed* transition, which nothing shipped can produce, so it is checked on
+  the function directly.
+- Deleting the `roomTo_` consume breaks nothing either, because only the door scan
+  emits `EnterRoom` and it always primes it first. Kept because the action is
+  public vocabulary now, and a performer that loaded `SceneId(0)` on an unprimed
+  step would drop the player into the first Station of Awakening.
+
+**Removing the player guard cannot be caught at all** — it is undefined behaviour,
+not a wrong answer, so the test pins the contract and the guard is correct by
+construction in the same way a volatile store is.
+
+**One hazard worth knowing:** inserting an enumerator into `SceneAction` shifts
+every value after it, and an incremental build left some objects on the old
+numbering — the symptom was machines returning actions that tests compared
+symbolically and still failed. A clean build fixed it. If a header change shifts
+enum values, clean.
+
+**What is still not done:** the night has not moved into the chamber.
+`night_cast.txt` is untouched, so `OpenTheDoor` still has a Door to act on.
 
 ## §M7 — the build, and what it does and does not do
 

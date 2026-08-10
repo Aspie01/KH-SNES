@@ -86,16 +86,32 @@ right palette rather than a borrowed one: a cave is lit by its opening, so index
 is near-black and the sand and rock ramps come out dim. It also means
 `cavepal.bin` is byte-identical to `nightpal.bin`.
 
-**There is no doorway yet, and that is the checker's decision.**
-`tools/build_doors.py` discovers its subjects as "every scene that has doors" and
-then requires each to be a district of Traverse Town — a `SCENE_*` in the frozen
-assembly, a row in `town_doors.txt`, a `TownStage` gate, a door in `DOOR_ROW`. A
-hole in a cliff is none of those. Authoring a `d` tile before that tool can check
-it would leave precisely the state it exists to prevent: a doorway drawn into the
-art with nothing behind it. So the room is reached with the L/R bring-up controls
-until the tiles and the wiring arrive together — which wants a `RoomDoor` type
-with no `TownStage` in it, a `SceneAction` to carry the transition, and the
-existing reciprocal-landing derivation pointed at the new pair.
+**The doorway.** The island's is at `(6,5)`, the west dead end of the cliff
+pocket; the chamber's is at `(23,11)`, the far end of the passage. Walk onto
+either and the other scene loads with Sora on the reciprocal door's own landing.
+
+Doors come in **two kinds now**, and they are different types on purpose. A
+`TownDoor` carries a `TownStage` gate and may be shuttered; a `RoomDoor` carries
+neither, because the island's rooms are always open and it has no painted shop
+fronts. Giving a room a gate field nothing reads would be a rule pretending to be
+data — and the specific trap is that `TownStage::Arrive` is **zero**, so wiring a
+room with `needs = Arrive` gives a comparison that is always true, which compiles,
+works, and type-launders a townStage into a scene with no `TownMachine`.
+
+`assets/ds/island_doors.txt` is the island's wiring, beside the town's rather than
+inside it, for the same reason. `tools/build_doors.py` partitions the
+door-carrying scenes by which file names them and refuses (R2) any scene that
+neither names or both do. Most of its rules are shared: R1 (a wiring row's tile
+really is a `d`, and every `d` is wired), R2, R5 (a routed door has exactly one
+reciprocal), R6 (the landing is standable and within `MAX_STEP`). Two are
+district-only: `DOOR_ROW`, and the gate.
+
+**The landing is still derived and never authored.** `town.s:1386-1389` — "every
+landing is the tile directly south of the door on the far side". That made the far
+landing `(i, DOOR_ROW + 1)` while every door was in a building front; it is now
+`(i, j + 1)` of the reciprocal row, which is the same rule with the row no longer
+a constant. The town's emitted header is byte-identical across that change, and
+`build_doors.py --check` is what says so.
 
 **The night has not moved in.** `SceneId::Night` is still the island's own map
 after dark and `assets/ds/night_cast.txt` still stands Kairi and a Door in the

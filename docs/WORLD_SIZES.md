@@ -167,11 +167,15 @@ district's new size. They are warm paving now. No frozen map uses either
 character, so the SNES ROM is unaffected.
 
 The character dedupe is unchanged and still earns its keep at the larger size:
-the 64×32 island folds to **247 unique characters** from 8192 cells, and the
+the 64×32 island folds to **250 unique characters** from 8192 cells, and the
 districts to 85, 107 and 85 from 6144 each. (This file said 242 for the island
 until now. That was correct when it was written and stopped being correct in the
 same commit that broke the walkable counts above — twenty-four more palms, eleven
 more rocks and eight more bushes are new shapes against the ground they sit on.
+It moved again when the doorway into the Secret Place went in, and by more than
+the one cell suggests: a `d` tile is a terrain code the island map had never used,
+and a code the dedupe has not seen before contributes every character its three
+colour bands make against the ground beside it.
 The districts' three happen to have survived unchanged, which is luck and not a
 reason to trust them: they are quoted from `build_assets.py`'s report, which
 prints all four every time it runs.)

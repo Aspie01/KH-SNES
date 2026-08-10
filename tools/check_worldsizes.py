@@ -18,7 +18,8 @@ still exit zero with the document claiming 877.
 
 That is this project's recurring defect in its purest form: a stated fact with no
 consumer.  It is worse here than usual because the numbers were JUST corrected --
-717 became 670, 912/840/895 became 891/822/877, 242 became 247 -- so the file is
+717 became 670, 912/840/895 became 891/822/877, 242 became 247 and then 250 when
+the Secret Place's doorway added a terrain code -- so the file is
 on its second transcription and its first day of being right, guarded by exactly
 the same nothing that let the first transcription rot.
 

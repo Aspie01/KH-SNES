@@ -285,6 +285,7 @@ const char* actionName(SceneAction a) {
         case SceneAction::SpawnMote: return "SpawnMote";
         case SceneAction::EnterIsland: return "EnterIsland";
         case SceneAction::EnterDistrict: return "EnterDistrict";
+        case SceneAction::EnterRoom: return "EnterRoom";
         case SceneAction::DropPair: return "DropPair";
         case SceneAction::LowerPair: return "LowerPair";
         case SceneAction::RaiseArmor: return "RaiseArmor";
