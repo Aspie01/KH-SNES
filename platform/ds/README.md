@@ -54,11 +54,27 @@ and a Windows clone under `C:\Users\…` look identical and are two trees;
 
 Which *shell* runs which line matters less, and only for one reason: `make`
 needs `$DEVKITARM`, so it has to run somewhere that has it. A Windows devkitPro
-sets it for PowerShell and for its own MSYS2/Git Bash; a WSL install sets it for
-WSL. The Python lines need only Python and Pillow and can run anywhere pointed
-at the same folder. Simplest is to have both in one shell: devkitPro's MSYS2
-ships no Python, so `pacman -S python3 python-pillow` there and everything is in
-one place.
+sets it for PowerShell and for its own MSYS2; a WSL install sets it for WSL. The
+Python lines need only Python and Pillow and can run anywhere pointed at the
+same folder.
+
+**On devkitPro's MSYS2, do not try to make its own Python work.** `pacman -S
+python3` gives you `/usr/bin/python3` with **no pip**, and devkitPro ships a
+trimmed package set with no `python-pillow` in it, so both routes to Pillow dead
+end — measured, on a real install. The way through is to leave that Python alone
+and run the two pipeline lines with the ordinary **Windows** Python, which
+installs Pillow with one `pip install Pillow`:
+
+```sh
+python tools/build_assets.py     # Windows Python, has Pillow
+python tools/check_link.py
+make -C platform/ds              # MSYS2, has $DEVKITARM
+```
+
+Mixing the two is safe because the only thing they share is the directory:
+Windows Python inherits the real Win32 working directory, and both scripts
+resolve their own location from `__file__`, so relative paths work from an
+MSYS2 prompt unchanged.
 
 The `.nds` runs on melonDS, DeSmuME or a flashcart. It boots straight into the
 first Station of Awakening; **L and R step through the nine scenes and SELECT
