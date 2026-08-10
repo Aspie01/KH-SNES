@@ -2240,8 +2240,8 @@ record**, because most of it was not the port:
   from memory against 1.x.
 * an incomplete libnds install, whose headers were missing `irqInit` entirely.
 
-**Two real code findings**, both of a kind the host suite structurally cannot
-see:
+**Three real code findings**, all of a kind the host suite structurally could not
+see — and the third one is now the only one it can:
 
 * `vram_map.h`'s `OAM_SUB` collides with libnds's `#define OAM_SUB
   ((u16*)(MM_OBJRAM+0x400))`. The preprocessor rewrites the token before
@@ -2254,6 +2254,51 @@ see:
   the one class of bug the whole host tier cannot reach — the tests read the
   window back, so a volatile store and a plain one are indistinguishable there.
   Any new direct VRAM write must be volatile.
+* **An enabled background layer that nothing writes is an opaque full-screen
+  curtain, not a blank one** — and two layers were in that state. This is the
+  rule to carry forward:
+
+  > **A layer may be enabled only once something writes it.** Not "once it is
+  > configured" — configured and empty is the failure.
+
+  `OVERLAY_MAP` (main BG1, priority 1) and `MINIMAP_MAP` (sub BG2, priority 2)
+  each had a base, a priority and a reserved region, and no writer anywhere in
+  the tree. A powered-on map entry of `0x0000` is character 0 in sub-palette 0,
+  and character 0 of the shared font is a **solid block of colour index 3** —
+  every glyph carries an opaque background so text can sit in the dialogue
+  window, which is why `CH_CLEAR` (character 127) exists at all. So BG1 drew a
+  256×192 wash in whichever colour `uploadSceneArt()` last put in main BG
+  sub-palette 0, in front of the ground at priority 3 and in front of every
+  sprite. The top screen came up one flat, plausible, **scene-coloured**
+  shade — `station1pal`'s index 3 is a mid blue, `town3pal`'s a slate — while
+  every diagnostic on the bottom screen read correct, because everything except
+  the display genuinely was.
+
+  It was masked, then unmasked. The bring-up probe that asked "does engine A
+  display at all" wrote onto BG1, and to do that it filled the map with
+  `CH_CLEAR` first — which incidentally made it the only writer that layer had
+  ever had. Deleting the probe once it had answered its question deleted the
+  writer, and the curtain came back. The report was, exactly, "this again".
+
+  The weak form of the rule was already in `test_device_init.cpp`
+  ("an unconfigured layer must also be an unENABLED one") and BG2 obeyed it. The
+  fix is the strong form: `devinit_enables_exactly_the_layers_something_writes`
+  tables every layer on both engines against the name of what writes it and
+  checks the enable bit in **both** directions, so an enable without a writer
+  fails on the host — and so does a writer without an enable, which is the same
+  mistake pointing the other way and merely less spectacular. Both regions keep
+  their base, asserted, so giving either one content is a one-bit edit in
+  `device/init.cpp` next to the reason.
+
+**Two lessons about scaffolding**, because this bug is both of them:
+
+* **Scaffolding must not be load-bearing.** The probe fixed something while
+  answering a different question, and nothing recorded that it had. What makes
+  the fix safe to remove is not care, it is the test.
+* **Two independent faults can present as one symptom.** The first blank top
+  screen had *both* causes — the non-`volatile` write and the uncovered
+  overlay — and each fix on its own would have looked like it had failed.
+  "This again" was not a regression; it was the second fault, uncovered.
 
 **What found them** was three colour marks and five lines of text, not
 inspection. White on both screens meant `main()` was never entered, which
@@ -2261,6 +2306,15 @@ eliminated four hundred lines in one run; a probe on an unused layer separated
 "engine A is broken" from "the ground path is broken"; and reading VRAM back
 distinguished "never computed" from "computed and lost". The scaffolding is
 still in `arm9/source/main.cpp` and is cheap enough to keep.
+
+The curtain, by contrast, was found by **rendering the scene on the host** —
+`station1map.bin` + `station1chr.bin` + `station1pal.bin` composited at the
+camera the panel reported, straight to a PNG. It came out a perfect
+stained-glass disc, which eliminated the map, the tileset, the palette, the
+camera and the scroll in one step and left only "the bytes are right and the
+display is not showing them". Any future "nothing is drawing" should start
+there: the pipeline's output is checkable without a DS, and knowing the picture
+is correct is worth more than any number of readings of the code that builds it.
 
 ## §M7 — the build, and what it does and does not do
 

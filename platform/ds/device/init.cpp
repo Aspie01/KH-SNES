@@ -102,14 +102,51 @@ constexpr uint32_t objBoundaryField(int bytes) {
 
 constexpr uint32_t bgBit(Layer l) { return DISP_BG_ENABLE << unsigned(l); }
 
-// Engine A: the ground, the overlay, the box, and the sprites.  BG2 is NOT
-// enabled -- vram_map.h holds it back as the whole margin, because with 3D on
-// there are only three tilemap layers and one in reserve is the difference
-// between a later task having somewhere to go and a later task reopening a
-// frozen file.
+// ---------------------------------------------------------------------------
+// AN ENABLED LAYER MUST HAVE A WRITER, AND THAT IS A STRONGER RULE THAN IT
+// SOUNDS.  It cost two blank top screens to learn.
+//
+// The weaker version was already here, one line down: "an unconfigured layer
+// must also be an unENABLED one".  BG2 obeys it -- no base, no enable.  The
+// OVERLAY did not, because it is CONFIGURED: it has a base, a priority and a
+// reserved region in vram_map.h, and nothing in the port has ever written one
+// entry into it.  Configured and empty is not the same as unconfigured, and the
+// display controller does not care about the difference.
+//
+// What it draws instead is not noise, which is what makes this so hard to see.
+// A powered-on map entry of 0x0000 is character 0 in sub-palette 0, and
+// character 0 of the shared font is a SOLID BLOCK of colour index 3 -- see
+// test_assets.cpp, which pins that fact precisely because it is the loaded gun.
+// So an untouched overlay map is an OPAQUE 256x192 curtain, drawn in whichever
+// colour uploadSceneArt() last put in main BG sub-palette 0, at priority 1:
+// in front of the ground at priority 3, and in front of every sprite.  The
+// symptom is a top screen that is one flat, plausible, SCENE-COLOURED wash --
+// station1pal's index 3 is a mid blue and town3pal's is a slate -- while the
+// bottom screen is perfect and every diagnostic reads correct, because
+// everything except the display genuinely is.
+//
+// It was masked once and unmasked once.  A bring-up probe wrote "TOP SCREEN OK"
+// onto this layer to prove engine A displayed at all; to do that it filled the
+// map with CH_CLEAR first, which is the one genuinely transparent cell, and
+// that incidentally made it the only writer this layer has ever had.  Deleting
+// the probe after it had answered its question deleted the writer, and the
+// curtain came back -- reported, exactly, as "this again".
+//
+// So the enable now waits for the content.  The BASE still goes up below: the
+// region is reserved, the arithmetic is checked, and the day the overlay gets a
+// writer the only edit is the bit on this line, next to the reason.  A layer
+// switched on with nothing in it is a whole-screen bug; a layer switched off
+// with something in it is content that does not appear, which is the failure
+// anybody adding it will see on their first run.
+// ---------------------------------------------------------------------------
+// Engine A: the ground, the box, and the sprites.  BG2 is NOT enabled --
+// vram_map.h holds it back as the whole margin, because with 3D on there are
+// only three tilemap layers and one in reserve is the difference between a
+// later task having somewhere to go and a later task reopening a frozen file.
+// BG1, the overlay, is configured and NOT enabled: see above.
 constexpr uint32_t DISPCNT_MAIN_VALUE =
     DISP_MODE0 | DISP_OBJ_1D | DISP_GRAPHICS | DISP_OBJ_ENABLE
-    | bgBit(MAIN_GROUND_LAYER) | bgBit(MAIN_OVERLAY_LAYER) | bgBit(MAIN_BOX_LAYER);
+    | bgBit(MAIN_GROUND_LAYER) | bgBit(MAIN_BOX_LAYER);
 
 // Engine B: the HUD, the command menu, the minimap.  BG3 is the margin here,
 // for the same reason and with more of it -- engine B has no 3D, so all four of
@@ -120,9 +157,16 @@ constexpr uint32_t DISPCNT_MAIN_VALUE =
 // records that the BANK binds there rather than the reach.  Whatever the bottom
 // screen's sprites turn out to be, they fit inside tile numbers 0..511 at
 // boundary 32, which is field 0, which is what a zeroed field already says.
+// ...and the MINIMAP is the same defect on the other engine, found by looking
+// for it rather than by playing.  Configured, priority 2, never written -- so it
+// is an opaque curtain too, behind the HUD at priority 0 and the diagnostics
+// panel at priority 1.  It has been showing through every cell of the bottom
+// screen those two leave transparent for as long as there has been a bottom
+// screen, and nobody noticed because the two things anybody reads down there are
+// in front of it.  Off until it has a writer, for the reason above.
 constexpr uint32_t DISPCNT_SUB_VALUE =
     DISP_MODE0 | DISP_OBJ_1D | DISP_GRAPHICS | DISP_OBJ_ENABLE
-    | bgBit(SUB_HUD_LAYER) | bgBit(SUB_MENU_LAYER) | bgBit(SUB_MINIMAP_LAYER);
+    | bgBit(SUB_HUD_LAYER) | bgBit(SUB_MENU_LAYER);
 
 // ---------------------------------------------------------------------------
 // BGxCNT -- 4000008h + layer*2 (engine A), 4001008h + layer*2 (engine B).

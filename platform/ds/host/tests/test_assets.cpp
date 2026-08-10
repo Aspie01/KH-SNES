@@ -414,10 +414,32 @@ KH_TEST(assets_the_font_went_from_two_bits_to_four) {
 
     // ...and character 0, the space, is NOT blank: every glyph carries an opaque
     // background so text can sit inside the dialogue window.
+    //
+    // WHICH MAKES A ZEROED MAP AN OPAQUE CURTAIN, and that consequence is worth
+    // spelling out here rather than leaving two files to be read together.  A
+    // map entry of 0x0000 selects character 0 in sub-palette 0 -- so any layer
+    // pointed at this font and left unwritten does not come up blank, it comes
+    // up as a solid wash of whatever colour index 3 currently is.  That is what
+    // an untouched OVERLAY_MAP did to the whole top screen, in the scene's own
+    // palette, in front of the ground and the sprites, twice; device/init.cpp
+    // carries the account and test_device_init.cpp now refuses to enable a layer
+    // nothing writes.  Character 127 exists so that "empty" can be said.
     bool spaceOpaque = false;
     for (size_t i = 0; i < 32; ++i)
         if (font.data[i] != 0) spaceOpaque = true;
     CHECK(spaceOpaque);
+
+    // Solid, not merely non-blank: all 64 pixels of character 0 carry the same
+    // non-zero index.  A curtain is what it is BECAUSE there is no transparent
+    // pixel anywhere in it -- one would have let the ground show through in
+    // patches and turned a flat screen into an obvious glitch, which would have
+    // been found in minutes instead of costing a session.
+    const unsigned idx = font.data[0] & 0x0F;
+    CHECK(idx != 0);
+    bool solid = true;
+    for (size_t i = 0; i < 32; ++i)
+        if (font.data[i] != ((idx << 4) | idx)) solid = false;
+    CHECK(solid);
 }
 
 // ===========================================================================

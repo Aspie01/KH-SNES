@@ -33,15 +33,34 @@ Calico startup and never gets past the ROM header — it shows two white screens
 and no diagnostic, which is indistinguishable from a broken build and cost
 several rounds to identify.
 
-**The bug that kept the top screen blank is worth knowing about**, because the
-shape of it will recur. `TilemapGround::writeColumn` wrote four thousand map
-entries into VRAM through a plain `uint16_t*`, and nothing in the program ever
-reads that memory back — so the optimiser was entitled to discard every store,
-and did. The display controller is not a reader GCC knows about. Everything else
-in the port reaches video memory either by `dmaCopy` or through
-`device/mmio.h`'s volatile stores, which is why the bottom screen worked
-perfectly while the top screen showed only its backdrop colour. **Any new path
-that writes VRAM directly must be `volatile`.**
+**Two bugs kept the top screen blank, not one**, and both shapes will recur. The
+first fix looked like it had failed, because the second fault was underneath it.
+
+`TilemapGround::writeColumn` wrote four thousand map entries into VRAM through a
+plain `uint16_t*`, and nothing in the program ever reads that memory back — so
+the optimiser was entitled to discard every store, and did. The display
+controller is not a reader GCC knows about. Everything else in the port reaches
+video memory either by `dmaCopy` or through `device/mmio.h`'s volatile stores,
+which is why the bottom screen worked perfectly. **Any new path that writes VRAM
+directly must be `volatile`.**
+
+And `OVERLAY_MAP` — main BG1, priority 1 — was **enabled with nothing writing
+it**. That does not give a blank layer. A powered-on map entry of `0x0000` is
+character 0 in sub-palette 0, and character 0 of the shared font is a solid
+block of colour index 3, because every glyph carries an opaque background so text
+can sit in the dialogue window. So BG1 was an opaque 256×192 curtain in whichever
+colour the current scene put in main BG sub-palette 0, covering the ground and
+every sprite — a flat, plausible, *scene-coloured* screen with every diagnostic
+reading correct. `MINIMAP_MAP` on the sub engine was the same, hidden behind the
+HUD. Both are configured-but-disabled now. **A layer may be enabled only once
+something writes it** — not once it is configured; configured and empty is the
+failure — and `devinit_enables_exactly_the_layers_something_writes` enforces it
+in both directions on every host run.
+
+If nothing draws again, **render the scene on the host first**: composite
+`<scene>map.bin` + `<scene>chr.bin` + `<scene>pal.bin` at the camera the panel
+reports and look at the PNG. That eliminates the map, the tileset, the palette
+and the camera in one step, which is what it did here.
 
 ## Building it
 

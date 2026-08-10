@@ -649,12 +649,19 @@ int main() {
         *p = '\0';
         panelText(8, line);
 
+        // THE CENTRE ENTRY, NOT JUST THE CORNER.  `at(0,0)` reading zero proves
+        // nothing: the top-left of a Station of Awakening is void, and zero is
+        // the correct answer there.  The middle of the map is where the disc is,
+        // so a zero THERE means the character map is not the map we think it is.
         p = putStr(line, e, "MAP ");
         p = putNum(p, e, game.charMap().wChars);
         p = putStr(p, e, "X");
         p = putNum(p, e, game.charMap().hChars);
         p = putStr(p, e, " E0 ");
         p = putNum(p, e, game.charMap().at(0, 0));
+        p = putStr(p, e, " MID ");
+        p = putNum(p, e, game.charMap().at(game.charMap().wChars / 2,
+                                          game.charMap().hChars / 2));
         *p = '\0';
         panelText(9, line);
 
@@ -694,6 +701,22 @@ int main() {
         *p = '\0';
         panelText(12, line);
 
+        // WHERE THE STAGE MACHINE HAS GOT TO, and whether a box is holding it
+        // there.  This is the answer to the commonest report a bring-up build
+        // gets -- "I pressed A and nothing happened" -- because every Dive beat
+        // waits on dialogue (stage_dive.cpp:170) and a stage that has not moved
+        // is either waiting for a box or sitting on a beat that is not ported.
+        //
+        // The screen-effect readout that was here briefly is gone: it was written
+        // to test the theory that a ScreenFx blackout was hiding engine A, and
+        // ScreenFx::reset() sets brightness to full on every begin(), which
+        // disproves it without a device.  The curtain was an unwritten layer.
+        p = putStr(line, e, "STG ");
+        p = putNum(p, e, int(game.dive().stage()));
+        p = putStr(p, e, " TXT ");
+        p = putNum(p, e, int(game.dialogue().state()));
+        *p = '\0';
+        panelText(13, line);
 
         applyFx(io, dispcntMainValue(), game.fx());
 

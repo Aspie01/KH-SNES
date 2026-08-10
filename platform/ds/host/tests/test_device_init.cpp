@@ -152,6 +152,65 @@ KH_TEST(devinit_points_every_layer_at_the_region_reserved_for_it) {
     CHECK_EQ(dispcntSubValue() & (1u << (8 + 3)), 0u);
 }
 
+KH_TEST(devinit_enables_exactly_the_layers_something_writes) {
+    // THE RULE ABOVE, AT ITS REAL STRENGTH, and the difference is the whole bug.
+    //
+    // "Unconfigured implies unenabled" let the OVERLAY through, because the
+    // overlay is configured: base, priority, reserved region, everything except
+    // a single entry ever written into it.  An empty map is not a blank layer --
+    // a zero entry is character 0, and character 0 of this font is a solid block
+    // (see test_vram.cpp) -- so a configured, enabled, unwritten layer is an
+    // opaque full-screen curtain in the scene's own palette, sitting in front of
+    // the ground and the sprites.  It cost two blank top screens: one masked by
+    // a bring-up probe that happened to fill the map, and one when deleting the
+    // probe deleted the only writer the layer had.
+    //
+    // So the table is EVERY layer on both engines with the name of what writes
+    // it, and the check is that the enable bit and the writer agree in both
+    // directions.  Adding an enable without a writer fails here; so does giving
+    // a layer a writer and forgetting to switch it on, which is the same mistake
+    // pointing the other way and merely less spectacular.
+    struct Wired { int layer; bool writer; const char* by; };
+
+    const Wired main_[] = {
+        {int(MAIN_GROUND_LAYER), true, "TilemapGround::load and writeColumn"},
+        {int(MAIN_OVERLAY_LAYER), false, "nothing -- reserved, undesigned"},
+        {2, false, "nothing -- vram_map.h's margin, unconfigured"},
+        {int(MAIN_BOX_LAYER), true, "buildBox, DMAd from g_boxMap every frame"},
+    };
+    for (const Wired& w : main_) {
+        const bool on = (dispcntMainValue() & (1u << (8 + w.layer))) != 0u;
+        CHECK_EQ(on, w.writer);
+    }
+
+    const Wired sub[] = {
+        {int(SUB_HUD_LAYER), true, "buildHud, DMAd from g_hudMap every frame"},
+        {int(SUB_MENU_LAYER), true, "panelClear/panelText, DMAd from g_menuMap"},
+        {int(SUB_MINIMAP_LAYER), false, "nothing -- reserved, undesigned"},
+        {3, false, "nothing -- engine B's margin, unconfigured"},
+    };
+    for (const Wired& w : sub) {
+        const bool on = (dispcntSubValue() & (1u << (8 + w.layer))) != 0u;
+        CHECK_EQ(on, w.writer);
+    }
+
+    // The four layers named above are the only ones either engine has, so the
+    // enable nibble is fully accounted for and no fifth bit is set by accident.
+    CHECK_EQ((dispcntMainValue() >> 8) & 0x0F,
+             (1u << int(MAIN_GROUND_LAYER)) | (1u << int(MAIN_BOX_LAYER)));
+    CHECK_EQ((dispcntSubValue() >> 8) & 0x0F,
+             (1u << int(SUB_HUD_LAYER)) | (1u << int(SUB_MENU_LAYER)));
+
+    // A DISABLED LAYER STILL GETS ITS BASE, which is deliberate and is what
+    // keeps the fix from being a rollback.  The overlay's and the minimap's
+    // regions stay reserved and their arithmetic stays checked, so the day
+    // either gets content the edit is one bit in device/init.cpp next to the
+    // reason -- not a re-derivation of where the layer was supposed to point.
+    Recorded r2;
+    CHECK_EQ(mmioTouches(bgcnt(BGCNT_MAIN, int(MAIN_OVERLAY_LAYER)), 2), 1);
+    CHECK_EQ(mmioTouches(bgcnt(BGCNT_SUB, int(SUB_MINIMAP_LAYER)), 2), 1);
+}
+
 KH_TEST(devinit_keeps_both_dispcnt_base_fields_zero) {
     // THE 62 KiB RULE'S CONSUMER.  Bits 24-26 and 27-29 of engine A's DISPCNT
     // are engine-wide base terms in 64 KiB units, added to every layer's BGxCNT
