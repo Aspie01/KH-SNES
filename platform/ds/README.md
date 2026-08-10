@@ -44,37 +44,55 @@ python3 tools/check_link.py       # every symbol the ARM9 declares is on disk
 make -C platform/ds               # -> platform/ds/kh.nds
 ```
 
-**One working tree, not necessarily one shell.** What the three lines share is
-the *directory*: the first writes `assets/gen/ds/*.bin` and the third links
-those exact files in, so running the pipeline against one checkout and `make`
-against another produces a build that cannot find assets that plainly exist.
-On Windows that is the trap worth naming, because a WSL clone under `/home/…`
-and a Windows clone under `C:\Users\…` look identical and are two trees;
-`assets/gen/` is gitignored, so the `.bin` files never travel between them.
+**On Windows, `make` must run in devkitPro's OWN MSYS2 shell.** Not Git Bash,
+not PowerShell. This is the single most expensive thing to get wrong here, and
+it does not announce itself.
 
-Which *shell* runs which line matters less, and only for one reason: `make`
-needs `$DEVKITARM`, so it has to run somewhere that has it. A Windows devkitPro
-sets it for PowerShell and for its own MSYS2; a WSL install sets it for WSL. The
-Python lines need only Python and Pillow and can run anywhere pointed at the
-same folder.
+devkitPro installs its own MSYS2 at `C:\devkitPro\msys2` and puts
+`C:\devkitPro\msys2\usr\bin` on the Windows `PATH`. That makes its `make`,
+`bash` and `python3` reachable from Git Bash — which is a *different* MSYS2,
+with its own `msys-2.0.dll`, root and mount table. Run the build there and you
+get devkitPro's make driving Git Bash's shell, and the two disagree about what
+the filesystem is. It surfaces as four unrelated-looking failures — a file make
+can open that bash says does not exist, exported variables vanishing, the build
+pass stopping with "No targets", gcc falling back to `C:\WINDOWS\` for its
+temporary files — each with a plausible local workaround, every one of them
+wrong.
 
-**On devkitPro's MSYS2, do not try to make its own Python work.** `pacman -S
-python3` gives you `/usr/bin/python3` with **no pip**, and devkitPro ships a
-trimmed package set with no `python-pillow` in it, so both routes to Pillow dead
-end — measured, on a real install. The way through is to leave that Python alone
-and run the two pipeline lines with the ordinary **Windows** Python, which
-installs Pillow with one `pip install Pillow`:
+`platform/ds/Makefile` refuses with a paragraph if it detects this, by asking
+the shell whether it can see `$DEVKITARM` when make demonstrably can.
+
+```
+Start Menu -> devkitPro -> MSYS2       (or C:\devkitPro\msys2\msys2_shell.cmd)
+cd /c/Users/<you>/path/to/KH-SNES      # /home there is NOT Git Bash's /home
+make -C platform/ds
+```
+
+`which make` should print `/usr/bin/make` in that shell. A `/c/...` path means
+you are in the wrong one.
+
+**One working tree.** The pipeline writes `assets/gen/ds/*.bin` and the link
+step reads those exact files, so running them against different checkouts
+produces a build that cannot find assets that plainly exist. A WSL clone under
+`/home/…` and a Windows clone under `C:\Users\…` look identical and are two
+trees; `assets/gen/` is gitignored, so the `.bin` files never travel between
+them.
+
+**The Python lines are not bound by any of this**, because no make is involved:
+they are ordinary processes that read and write files. devkitPro's MSYS2 Python
+is a dead end for them — `pacman -S python3` gives a `/usr/bin/python3` with no
+pip, and the trimmed devkitPro package set has no `python-pillow` — so run those
+two with the ordinary Windows Python, which installs Pillow with one
+`pip install Pillow`, pointed at the same folder:
 
 ```sh
 python tools/build_assets.py     # Windows Python, has Pillow
 python tools/check_link.py
-make -C platform/ds              # MSYS2, has $DEVKITARM
+make -C platform/ds              # devkitPro's MSYS2
 ```
 
-Mixing the two is safe because the only thing they share is the directory:
-Windows Python inherits the real Win32 working directory, and both scripts
-resolve their own location from `__file__`, so relative paths work from an
-MSYS2 prompt unchanged.
+Windows Python inherits the real Win32 working directory and both scripts
+resolve their own location from `__file__`, so relative paths work unchanged.
 
 The `.nds` runs on melonDS, DeSmuME or a flashcart. It boots straight into the
 first Station of Awakening; **L and R step through the nine scenes and SELECT

@@ -34,105 +34,73 @@
 
 .SUFFIXES:
 
-# WHEN THIS FIRES AND THE VARIABLE IS PLAINLY SET.
-#
-# The obvious cause is that it is set and not EXPORTED -- `echo $DEVKITARM`
-# prints a plain shell variable as happily as an exported one, and make, being a
-# child process, only inherits the exported kind.  That is the first thing to
-# check and it is what the message says.
-#
-# IT IS NOT ALWAYS THE CAUSE.  On one devkitPro MSYS2 install `env` listed
-# DEVKITARM=/opt/devkitpro/devkitARM, exported, and this check fired anyway.
-# That was never explained.  What always works is putting the values on make's
-# own command line, where no environment is involved at all -- so that is the
-# form the message leads with, rather than the diagnosis that sounds better.
-#
-# `define`, not `:=`, because $(error) prints its argument verbatim and make
-# does NOT interpret a backslash-n inside one: a help text written that way
-# comes out as one long line with literal \n in it, which is worse than no help
-# at all.  Written the wrong way first; visible only by running it.
-define KH_DEVKIT_HELP
+# `define`, not `:=`: $(error) prints its argument verbatim and make does not
+# interpret a backslash-n inside one, so a multi-line message has to be real
+# lines or it arrives as one long string with literal escapes in it.
+define KH_WRONG_SHELL
+this shell cannot see $(DEVKITARM), but make can.
 
-  Put them on make's command line, which needs no environment at all:
-      make -C platform/ds DEVKITPRO=/opt/devkitpro DEVKITARM=/opt/devkitpro/devkitARM
-  ...or export them -- note EXPORT, not merely assignment:
-      export DEVKITPRO=/opt/devkitpro DEVKITARM=/opt/devkitpro/devkitARM
-  python3 tools/check_device.py names every missing piece
+  That means make and the shell come from DIFFERENT MSYS2 installations -- the
+  usual cause on Windows is running the build from Git Bash, which finds
+  devkitPro's make on the Windows PATH while providing its own runtime, root
+  and mount table.  Nothing downstream of that works reliably: paths, exported
+  variables and the compiler's temp directory all disagree across the boundary.
+
+  Use devkitPro's own MSYS2 shell instead:
+
+      Start Menu -> devkitPro -> MSYS2      (or C:\devkitPro\msys2\msys2_shell.cmd)
+      cd /c/Users/<you>/path/to/KH-SNES     ( /home there is NOT Git Bash's /home )
+      make -C platform/ds
+
+  `which make` should print /usr/bin/make in that shell, not a /c/... path.
+  On Linux or macOS this check cannot fire; there is only one runtime.
 endef
 
 ifeq ($(strip $(DEVKITARM)),)
-$(error DEVKITARM is not set -- or is set and not EXPORTED, which make cannot see$(KH_DEVKIT_HELP))
+$(error DEVKITARM is not set.  Install devkitPro and export DEVKITARM, or run \
+        python3 tools/check_device.py to be told exactly what is missing)
 endif
 ifeq ($(strip $(DEVKITPRO)),)
-$(error DEVKITPRO is not set or not exported; ndstool lives under $$DEVKITPRO/tools/bin$(KH_DEVKIT_HELP))
+$(error DEVKITPRO is not set.  ndstool lives under $$DEVKITPRO/tools/bin)
+endif
+
+# ---------------------------------------------------------------------------
+# THE SHELL AND MAKE MUST BE THE SAME MSYS2, and on Windows they easily are not.
+#
+# devkitPro's installer puts its own MSYS2 at C:\devkitPro\msys2 and adds
+# C:\devkitPro\msys2\usr\bin to the WINDOWS path.  So devkitPro's make, bash,
+# python and the rest are all reachable from Git Bash -- which is a DIFFERENT
+# MSYS2, with its own msys-2.0.dll, its own root and its own mount table.  Run
+# the build there and you get devkitPro's make driving Git Bash's shell, and the
+# two disagree about what the filesystem looks like.
+#
+# It does not fail cleanly.  It fails as four unrelated-looking things, all of
+# which were chased separately before the cause was found:
+#
+#   * make opens $(DEVKITARM)/ds_rules happily -- its runtime has the
+#     /opt/devkitpro mount -- and then the bash it spawns says a path under that
+#     same mount does not exist, naming a file that plainly does;
+#   * exported variables do not survive the boundary, so DEVKITARM looks unset
+#     to make even though `env` lists it;
+#   * the build-directory pass gets none of the template's exported hand-over
+#     and stops with "No targets", naming nothing;
+#   * gcc inherits no TMP and asks Windows, which answers C:\WINDOWS\, which it
+#     may not write to.
+#
+# Every one of those has a plausible local workaround, and every workaround is
+# wrong, because the build is simply being run from the wrong shell.  So this is
+# ONE CHECK INSTEAD OF FOUR FIXES.
+#
+# It works by asking THE SHELL something make already knows: whether $(DEVKITARM)
+# is a directory.  Make can see it -- the include above succeeded, or we would
+# not be here -- so a shell that cannot is a shell from another installation.
+# ---------------------------------------------------------------------------
+ifeq ($(shell test -d '$(DEVKITARM)' && echo yes),)
+$(error $(KH_WRONG_SHELL))
 endif
 
 TARGET  := kh
 NDSTOOL := $(DEVKITPRO)/tools/bin/ndstool
-
-# ---------------------------------------------------------------------------
-# $(MAKE) CAN BE A PATH THAT MAKE'S OWN SHELL CANNOT EXECUTE.
-#
-# On devkitPro's MSYS2, /opt/devkitpro is a mount onto C:\devkitPro.  Make
-# resolves the path to ITSELF back through that mount and $(MAKE) comes out as
-#
-#     /opt/devkitpro/msys2/usr/bin/make
-#
-# which the bash it then spawns reports as "No such file or directory" -- on a
-# binary `which` finds perfectly well at /c/devkitPro/msys2/usr/bin/make, the
-# same file by a different route.  Every recursion dies at the first sub-make
-# with error 127, and the message accuses a file that exists.  Measured on a
-# real install; it is why this block is here rather than in a bug report.
-#
-# TESTED, NOT ASSUMED: if $(MAKE) contains a slash and cannot run, the bare name
-# is used instead, which PATH resolves -- and PATH is how make was invoked in the
-# first place.  A MAKE that WORKS is left alone, which is the property that makes
-# this safe to apply unconditionally.
-#
-# AND TESTED UNDER $(SHELL), WHICH TURNED OUT TO BE THE WHOLE POINT.  The failure
-# reported was `/usr/bin/bash: line 1: ... No such file or directory` raised by a
-# SUB-makefile, moments after this top-level one had launched it successfully.
-# Two shells, one path, opposite answers: this file's recipes run under plain
-# /bin/sh and ds_rules sets SHELL to bash for the others.  A probe run under
-# /bin/sh would therefore pass on a path the recipe's bash cannot exec -- a green
-# check and a dead build, which is the exact failure mode this project exists to
-# refuse.  So it spells out `$(SHELL) -c` rather than trusting $(shell) to pick
-# the right one, and each makefile runs its own probe after its own include.
-#
-# `override`, because a plain assignment loses to a command-line MAKE= and this
-# has to win even then: the guard fires only when the value cannot run, and a
-# value that cannot run is not a preference worth respecting.  Written without it
-# first, which printed the note and went on using the broken path anyway --
-# visible only by running it with a deliberately bad MAKE.
-# ---------------------------------------------------------------------------
-ifneq ($(findstring /,$(MAKE)),)
-ifeq ($(shell $(SHELL) -c "'$(MAKE)' --version" >/dev/null 2>&1 && echo ok),)
-KH_UNRUNNABLE_MAKE := $(MAKE)
-override MAKE := $(notdir $(MAKE))
-$(info note: $(KH_UNRUNNABLE_MAKE) cannot be executed by this shell; recursing \
-as '$(MAKE)' through PATH instead -- see the note in platform/ds/Makefile)
-endif
-endif
-
-# ...and everything the sub-makes need travels DOWN EXPLICITLY.
-#
-# Command-line variables are supposed to reach every level on their own, through
-# MAKEOVERRIDES inside MAKEFLAGS.  They reached level one here and NOT level two:
-# `make -C platform/ds DEVKITARM=...` got into arm7/, and arm7's own recursion
-# into its build directory came back with "DEVKITARM is not set".  Whatever the
-# mechanism -- devkitPro's ds_rules is the obvious suspect and this is not the
-# place to find out -- the cure is to stop relying on it.  Naming them on each
-# recursion costs one line and cannot be undone by anything a rules file does.
-#
-# `export` as well, because the two routes fail differently: an assignment
-# survives a MAKEFLAGS that got rewritten, and an export survives a make that
-# ignores command-line variables.  Neither is redundant while the reason the
-# first one failed is unknown.
-export DEVKITPRO
-export DEVKITARM
-
-SUBMAKE := $(MAKE) --no-print-directory \
-           DEVKITPRO='$(DEVKITPRO)' DEVKITARM='$(DEVKITARM)' MAKE='$(MAKE)'
 
 .PHONY: all arm7 arm9 clean
 
@@ -142,10 +110,10 @@ all: $(TARGET).nds
 # directories they build in -- without this make finds the directory, decides it
 # is up to date, and never descends.
 arm7:
-	@$(SUBMAKE) -C arm7
+	@$(MAKE) --no-print-directory -C arm7
 
 arm9:
-	@$(SUBMAKE) -C arm9
+	@$(MAKE) --no-print-directory -C arm9
 
 # No banner and no icon.  `-b` takes a bitmap and a three-line title, and
 # inventing box art for something that is not being distributed is inventing
@@ -155,6 +123,6 @@ $(TARGET).nds: arm7 arm9
 	@echo "built $@"
 
 clean:
-	@$(SUBMAKE) -C arm7 clean
-	@$(SUBMAKE) -C arm9 clean
+	@$(MAKE) --no-print-directory -C arm7 clean
+	@$(MAKE) --no-print-directory -C arm9 clean
 	@rm -f $(TARGET).nds

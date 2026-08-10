@@ -20,64 +20,16 @@ endif
 
 include $(DEVKITARM)/ds_rules
 
-# THE SAME $(MAKE) GUARD THE TOP-LEVEL MAKEFILE CARRIES, and it is repeated here
-# rather than inherited because inheriting it did not work.  The top level
-# passes `MAKE=<corrected>` as a command-line assignment, which is the form that
-# is supposed to propagate -- and on devkitPro's MSYS2 this make still recursed
-# into its build directory through /opt/devkitpro/msys2/usr/bin/make and died
-# with error 127.  Measured.  So each makefile checks for itself; three copies
-# of a mechanical test are cheaper than one clever propagation that fails
-# silently one level down.  The reasoning is in platform/ds/Makefile.
-#
-# AFTER the ds_rules include on purpose: $(shell) runs under $(SHELL), ds_rules
-# sets SHELL, and the point of the test is to use the same shell the RECIPE will
-# use.  Testing under /bin/sh a path that /usr/bin/bash cannot exec would be a
-# check that passes and a build that fails.
-ifneq ($(findstring /,$(MAKE)),)
-ifeq ($(shell $(SHELL) -c "'$(MAKE)' --version" >/dev/null 2>&1 && echo ok),)
-override MAKE := $(notdir $(MAKE))
+# THE SHELL AND MAKE MUST BE THE SAME MSYS2.  One check, and the reasoning is in
+# platform/ds/Makefile: make can see $(DEVKITARM) -- the include above proves it
+# -- so a shell that cannot is a shell from another installation, which on
+# Windows means the build is being run from Git Bash rather than from
+# devkitPro's own MSYS2.  Repeated here for anyone who runs this makefile
+# directly rather than through the top level.
+ifeq ($(shell test -d '$(DEVKITARM)' && echo yes),)
+$(error this shell cannot see $(DEVKITARM), but make can -- use devkitPro's own \
+MSYS2 shell, not Git Bash.  platform/ds/Makefile explains why)
 endif
-endif
-
-# ...and the same reasoning for the toolchain variables, which did not reach the
-# SECOND pass on their own: this makefile re-reads itself inside $(BUILD), and
-# that read hit its own DEVKITARM guard.  Named on the recursion and exported,
-# for the two different ways the automatic route can fail.  platform/ds/Makefile
-# carries the full note.
-export DEVKITPRO
-export DEVKITARM
-
-SUBMAKE := $(MAKE) --no-print-directory \
-           DEVKITPRO='$(DEVKITPRO)' DEVKITARM='$(DEVKITARM)' MAKE='$(MAKE)'
-
-# WHERE THE COMPILER PUTS ITS TEMPORARY FILES.
-#
-# devkitARM is a native Windows gcc.  It asks Windows for a temp directory, and
-# Windows answers C:\WINDOWS\ when TMP and TEMP are both unset -- a directory no
-# ordinary user may write to.  The build then dies with
-#
-#     Cannot create temporary file in C:\WINDOWS\: Permission denied
-#
-# on the first source file, which reads like a broken toolchain and is nothing of
-# the sort.  Reported from a devkitPro MSYS2 shell where those variables were not
-# set; it is the fourth thing on that install to arrive at a child process empty.
-#
-# So the build says where, rather than asking.  $(CURDIR) is the build directory
-# in the pass that compiles, which is guaranteed to exist and be writable because
-# make just made it.  gcc's temporaries are deleted as it goes.
-#
-# THE PATH HAS TO BE IN WINDOWS FORM.  A native gcc handed /home/... would take
-# it as \home\... on whatever the current drive is.  cygpath -m gives the drive
-# letter with forward slashes, which Windows accepts and which survives being
-# pasted into a command line.  On a real Unix there is no cygpath and no problem,
-# and the plain path is right.
-KH_TMPDIR := $(CURDIR)
-ifneq ($(shell command -v cygpath >/dev/null 2>&1 && echo yes),)
-KH_TMPDIR := $(shell cygpath -m '$(CURDIR)')
-endif
-export TMPDIR := $(KH_TMPDIR)
-export TMP    := $(KH_TMPDIR)
-export TEMP   := $(KH_TMPDIR)
 
 TARGET   := $(notdir $(CURDIR))
 BUILD    := build
@@ -118,31 +70,11 @@ export INCLUDE  := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
                    -I$(CURDIR)/$(BUILD)
 export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
-
-# EVERYTHING THE SECOND PASS NEEDS, NAMED ON ITS COMMAND LINE.
-#
-# devkitPro's template hands these over by `export`, i.e. through the
-# environment, and on one devkitPro MSYS2 install the environment does not
-# survive make spawning make: the second pass came back with "No targets.
-# Stop.", which is what make says when it can find no default goal -- because
-# $(OUTPUT) had arrived EMPTY and the only rule in that pass reads
-# `$(OUTPUT).elf : $(OFILES)`, whose target then begins with a dot and is
-# therefore skipped when choosing one.  A cryptic message for a lost variable.
-#
-# It is the same failure that made an exported DEVKITARM invisible and then lost
-# the command-line copy one level down, so the same answer: say it out loud on
-# the recursion, where nothing can drop it.  The `export`s above stay too --
-# they cost nothing and they are what works everywhere else.
-HANDOVER := OUTPUT='$(OUTPUT)' DEPSDIR='$(DEPSDIR)' VPATH='$(VPATH)' \
-            OFILES='$(OFILES)' OFILES_BIN='$(OFILES_BIN)' \
-            OFILES_SOURCES='$(OFILES_SOURCES)' HFILES='$(HFILES)' \
-            INCLUDE='$(INCLUDE)' LIBPATHS='$(LIBPATHS)' LD='$(LD)'
-
 .PHONY: $(BUILD) clean
 
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
-	@$(SUBMAKE) -C $(BUILD) -f $(CURDIR)/Makefile $(HANDOVER)
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 clean:
 	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).map
@@ -150,17 +82,6 @@ clean:
 #---------------------------------------------------------------------------
 else
 #---------------------------------------------------------------------------
-
-# ...and if it arrives empty anyway, say SO rather than "No targets".
-#
-# This pass defines exactly one rule, and its target is built from $(OUTPUT).
-# With OUTPUT empty that target is ".elf", make skips dot-leading targets when
-# picking a default goal, and the whole build stops with a message that names
-# nothing.  Two lines to turn that into the actual problem.
-ifeq ($(strip $(OUTPUT)),)
-$(error the second pass received no OUTPUT.  The first pass hands it over on the \
-recursion AND by export, so both routes failed -- see the HANDOVER note above)
-endif
 
 DEPENDS := $(OFILES:.o=.d)
 
