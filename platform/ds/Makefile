@@ -8,13 +8,24 @@
 # needs it -- the host tier is most of the port and all of the risk, and it
 # builds and tests with the system g++ (platform/ds/host/Makefile.host).
 #
-# WHY THREE MAKEFILES.  The DS has two processors and they take different
-# compilers: the ARM9 is an ARM946E-S (ARMv5TE) and the ARM7 an ARM7TDMI
-# (ARMv4T), with different specs files and different libraries.  A .nds is the
-# two ELFs wrapped in a cartridge header by ndstool.  devkitPro's own combined
-# template has exactly this shape and this follows it rather than inventing one:
-# a build layout that differs from the standard one differs in ways that surface
-# as a link error nobody has seen before.
+# THE ARM7 IS LIBNDS'S OWN, AND THIS PROJECT NO LONGER BUILDS ONE.
+#
+# The DS has two processors.  The ARM9 runs the game; the ARM7 samples the
+# touchscreen and the buttons over SPI and pushes them across the FIFO, reads
+# the touchscreen calibration out of firmware, and services sound and power.
+# libnds ships a prebuilt core that does exactly that, and a hand-written one
+# was a transcription of it.
+#
+# The transcription cost more than it was worth on first contact with a real
+# toolchain: five undeclared functions, because the ARM7 template written from
+# memory did not match the installed libnds's API.  That is a maintenance
+# liability with no upside -- the port has no custom ARM7 work, and when it
+# acquires some (an audio driver is the only candidate) the right move will be
+# to start from devkitPro's current template rather than from a copy that has
+# been quietly rotting since.
+#
+# So: ndstool gets libnds's core for the ARM7 half, and the only thing this
+# tree compiles is the ARM9.
 #
 # THE ASSETS ARE LINKED IN, NOT LOADED.  arm9/Makefile points DATA at
 # assets/gen/ds and devkitPro's ds_rules runs bin2s over every .bin there,
@@ -102,27 +113,36 @@ endif
 TARGET  := kh
 NDSTOOL := $(DEVKITPRO)/tools/bin/ndstool
 
-.PHONY: all arm7 arm9 clean
+# libnds's prebuilt ARM7, under whichever of its names this install uses.  The
+# file has been called default_arm7.elf and default.arm7.elf in different
+# versions, so it is FOUND rather than named -- and if none of them is there,
+# the error lists what actually is, because a missing file whose name nobody is
+# sure of is exactly the case where a directory listing ends the argument.
+ARM7ELF := $(firstword $(wildcard \
+    $(DEVKITPRO)/libnds/default_arm7.elf $(DEVKITPRO)/libnds/default.arm7.elf \
+    $(DEVKITPRO)/libnds/default_arm7 $(DEVKITPRO)/libnds/default.arm7))
+ifeq ($(ARM7ELF),)
+$(error no prebuilt ARM7 core in $(DEVKITPRO)/libnds.  That directory holds: \
+$(notdir $(wildcard $(DEVKITPRO)/libnds/*)))
+endif
+
+.PHONY: all arm9 clean
 
 all: $(TARGET).nds
 
-# PHONY, and both of them, because the targets share a name with the
-# directories they build in -- without this make finds the directory, decides it
-# is up to date, and never descends.
-arm7:
-	@$(MAKE) --no-print-directory -C arm7
-
+# PHONY because the target shares a name with the directory it builds in --
+# without this make finds the directory, decides it is up to date, and never
+# descends.
 arm9:
 	@$(MAKE) --no-print-directory -C arm9
 
 # No banner and no icon.  `-b` takes a bitmap and a three-line title, and
 # inventing box art for something that is not being distributed is inventing
 # work; a homebrew loader shows its own placeholder.
-$(TARGET).nds: arm7 arm9
-	$(NDSTOOL) -c $@ -9 arm9/arm9.elf -7 arm7/arm7.elf
-	@echo "built $@"
+$(TARGET).nds: arm9
+	$(NDSTOOL) -c $@ -9 arm9/arm9.elf -7 $(ARM7ELF)
+	@echo "built $@ (ARM7: $(notdir $(ARM7ELF)))"
 
 clean:
-	@$(MAKE) --no-print-directory -C arm7 clean
 	@$(MAKE) --no-print-directory -C arm9 clean
 	@rm -f $(TARGET).nds

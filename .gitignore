@@ -27,9 +27,6 @@ __pycache__/
 
 # the DS device build (devkitPro; see platform/ds/README.md)
 platform/ds/kh.nds
-platform/ds/arm7/build/
 platform/ds/arm9/build/
-platform/ds/arm7/*.elf
 platform/ds/arm9/*.elf
-platform/ds/arm7/*.map
 platform/ds/arm9/*.map

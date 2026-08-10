@@ -216,9 +216,11 @@ def probe_build() -> Probe:
         (ds / "Makefile", "the top-level build; wraps both ELFs with ndstool"),
         (ds / "arm9" / "Makefile", "the ARM9, and the bin2s asset link step"),
         (ds / "arm9" / "source" / "main.cpp", "the frame glue"),
-        (ds / "arm7" / "Makefile", "the ARM7"),
-        (ds / "arm7" / "source" / "main.c", "the touchscreen and the FIFO"),
     ]
+    # No arm7/ here, and that is not an omission: the ARM7 half is libnds's own
+    # prebuilt core, found by the top-level makefile.  A hand-written one is a
+    # transcription of it that has to track someone else's API, and the first
+    # real toolchain rejected the transcription.
     missing = [f"{f.relative_to(ROOT)} ({why})" for f, why in need
                if not f.is_file()]
     if missing:

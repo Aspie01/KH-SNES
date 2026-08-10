@@ -134,6 +134,16 @@ with the system `g++` and tested against the oracle — and a **device tier** th
 only builds where devkitPro is present. The host tier is most of the port and
 all of the risk; see the brief.
 
+**The ARM7 is libnds's prebuilt core, not ours.** The DS's second processor
+samples the touchscreen and buttons over SPI, reads the calibration out of
+firmware, and services sound and power; libnds ships a core that does exactly
+that, and the top-level makefile hands it to `ndstool`. This tree compiles only
+the ARM9. A hand-written ARM7 was tried and deleted — it was a transcription of
+libnds's own template, it did not match the installed libnds's API on first
+contact with a real toolchain, and the port has no custom ARM7 work to justify
+maintaining one. When it acquires some (audio is the only candidate), start from
+devkitPro's current template rather than from a copy that has been rotting.
+
 **Almost all of the device tier is in the host tier too.** `device/*.cpp` is
 compiled and asserted on by every host run against a recording MMIO stub and
 against the real asset files — the frame loop, the scene table, the performer,
