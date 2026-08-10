@@ -1,6 +1,8 @@
 # Destiny Islands — content notes
 
-Reference for the island scenes. The Dive to the Heart comes first; this is
+Reference for the island scenes. **`docs/DESTINY_ISLANDS_PS2.md` is what the PS2
+play island actually looks like**, reconstructed from public descriptions; this
+file is what the port does, and where the two differ this one is the truth. The Dive to the Heart comes first; this is
 what the island needs once the player wakes up on the beach.
 
 ## Cast
