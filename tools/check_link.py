@@ -170,7 +170,27 @@ def main(argv: list[str] | None = None) -> int:
     # 4. Linked and unreferenced.  Not fatal -- it is ROM, not a fault -- but it
     #    is reported by name, because "in the cartridge and read by nothing" is
     #    what an unwired table looks like from the outside.
+    #
+    #    AND THE TOOL CAN OFTEN TELL WHICH, which the first version said it
+    #    could not.  The pipeline emits both a shared palette and a per-scene
+    #    copy of it -- divepal.bin and station1pal.bin are the same 32 bytes --
+    #    so an unreferenced file whose CONTENT is byte-identical to a referenced
+    #    one is a duplicate and not an omission.  Saying so is the difference
+    #    between three lines a reader has to investigate and three they can
+    #    dismiss; leaving a solvable question open is how a report trains people
+    #    to skim it.
     unused = sorted(present - declared)
+    by_content: dict[bytes, list[str]] = {}
+    for name in sorted(declared):
+        by_content.setdefault((ASSETS / f"{name}.bin").read_bytes(), []).append(name)
+    duplicates = {}
+    genuinely_unused = []
+    for name in unused:
+        same = by_content.get((ASSETS / f"{name}.bin").read_bytes())
+        if same:
+            duplicates[name] = same[0]
+        else:
+            genuinely_unused.append(name)
 
     if args.verbose:
         for name in sorted(declared):
@@ -178,13 +198,22 @@ def main(argv: list[str] | None = None) -> int:
 
     for p in problems:
         print(f"  NO   {p}")
-    if unused:
-        print(f"\n{len(unused)} .bin file(s) are linked into the cartridge and "
-              f"declared by nothing in main.cpp:")
-        for name in unused:
+    if duplicates:
+        print(f"\n{len(duplicates)} .bin file(s) are linked and unreferenced, and "
+              f"are byte-for-byte copies of ones that ARE referenced:")
+        for name, same in duplicates.items():
+            print(f"       {name}.bin == {same}.bin")
+        print("  The pipeline emits a shared palette and a per-scene copy of it; "
+              "these are the shared ones and the per-scene copies are what main "
+              "declares.  Dead weight, not an omission.")
+    if genuinely_unused:
+        print(f"\n{len(genuinely_unused)} .bin file(s) are linked into the "
+              f"cartridge, declared by nothing in main.cpp, and are not a copy "
+              f"of anything that is:")
+        for name in genuinely_unused:
             print(f"       {name}.bin")
         print("  Each is either dead weight or a table somebody forgot to wire "
-              "up, and this tool cannot tell which.")
+              "up.  This is the list worth reading.")
 
     if problems:
         print(f"\n{len(problems)} problem(s): the device build would not link, "

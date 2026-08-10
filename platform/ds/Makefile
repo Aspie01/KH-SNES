@@ -34,12 +34,31 @@
 
 .SUFFIXES:
 
+# "NOT SET" HERE USUALLY MEANS "NOT EXPORTED", and the two look identical from
+# the shell.  `echo $DEVKITARM` prints a plain shell variable just as happily as
+# an exported one; make is a child process and only inherits the exported kind.
+# So the message names that case first, because it is the one where the person
+# reading it can see the value on their own screen and reasonably conclude the
+# makefile is wrong.  Measured, on a devkitPro MSYS2 install.
+# `define`, not `:=`, because $(error) prints its argument verbatim and make
+# does NOT interpret a backslash-n inside one -- a help text written that way
+# comes out as one long line with literal \n in it, which is worse than no help
+# at all.  This was written the wrong way first and the difference was visible
+# only by running it.
+define KH_DEVKIT_HELP
+
+  Set them for this shell -- note EXPORT, not merely assignment:
+      export DEVKITPRO=/opt/devkitpro DEVKITARM=/opt/devkitpro/devkitARM
+  ...or source devkitPro's own script, which also makes it stick:
+      source /etc/profile.d/devkit-env.sh
+  python3 tools/check_device.py names every missing piece
+endef
+
 ifeq ($(strip $(DEVKITARM)),)
-$(error DEVKITARM is not set.  Install devkitPro and export DEVKITARM, or run \
-        python3 tools/check_device.py to be told exactly what is missing)
+$(error DEVKITARM is not set -- or is set and not EXPORTED, which make cannot see$(KH_DEVKIT_HELP))
 endif
 ifeq ($(strip $(DEVKITPRO)),)
-$(error DEVKITPRO is not set.  ndstool lives under $$DEVKITPRO/tools/bin)
+$(error DEVKITPRO is not set or not exported; ndstool lives under $$DEVKITPRO/tools/bin$(KH_DEVKIT_HELP))
 endif
 
 TARGET  := kh
