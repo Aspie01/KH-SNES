@@ -8,6 +8,7 @@
 # passage" -- and the doorway at its far end leads here.
 #
 # # cliff +3     C cave floor   * the dark (blocked, backdrop colour)
+# r loose boulder (blocked) -- derived as a Rock prop from the tile alone
 # d a doorway -- the way back out, at the far end of the passage
 #
 # THE WALLS ARE THE DARK AND NOT ROCK, and that is the whole difference between
@@ -27,6 +28,14 @@
 # there is no '#' anywhere SOUTH of walkable floor: a raised tile covers 8*h
 # pixels of whatever is north, so rock below the floor would paint over the floor.
 #
+# THE BOULDERS ARE 'r' AND NOT 'R', and the difference is the palette.  Both are
+# blocked props derived from the tile alone -- 'R' a boulder, 'r' a rock -- but 'R'
+# paints GRASS_L/M/D and 'r' paints SAND_L/M/D, and under BG_NIGHT those are the
+# same dim browns the cave floor is made of.  A boulder in cave-green would read as
+# a bush.  docs/DESTINY_ISLANDS_PS2.md: "loose rounded boulders, waist-to-chest
+# high, obstacles, not climbing routes", scattered with more banked at the wall
+# feet.  NONE IS IN THE CORRIDOR: an obstacle in a one-Sora-wide passage is a wall.
+#
 # The shape is the PS2's, which describes it as "a short tunnel curving into a
 # round chamber with the mysterious closed wooden door at the back": in from the
 # south-east, north up a short neck, west along a low corridor, and the chamber
@@ -39,12 +48,12 @@
 ***#############****************
 ***CCCCCCCCCCCCC****************
 ***CCCCCCCCCCCCC****************
+***CrCCCCCCCCrCC****************
 ***CCCCCCCCCCCCC****************
-***CCCCCCCCCCCCC****************
+***CCCrCCCCCCCCCCCCCCCC*********
 ***CCCCCCCCCCCCCCCCCCCC*********
-***CCCCCCCCCCCCCCCCCCCC*********
-***CCCCCCCCCCCCC****CCC*********
-****CCCCCCCCCCC*****CCCd********
+***CCCCCCCCCCCrC****CCC*********
+****rCCCCCCCCCC*****CCCd********
 ******CCCCCC********CCCC********
 ********************************
 ********************************

@@ -35,7 +35,13 @@ Scribble    11  4
 # "one inside the Secret Place" -- docs/DESTINY_ISLANDS.md's third mushroom,
 # which used to sit at (7,6) on the island map and now sits in the room it was
 # always described as being in.
-Mush         5 10
+#
+# BESIDE THE DOOR, ON ITS RIGHT AS YOU FACE IT, which is where
+# docs/DESTINY_ISLANDS_PS2.md puts it -- "on the floor beside the door, on its
+# RIGHT as you face it".  It sat across the chamber in the south-west corner until
+# that reference existed.  The Door is at (9,4) on the north wall, so facing it
+# puts east on your right, and (11,5) is the floor tile off its right foot.
+Mush        11  5
 
 [doors]
 # The way back out to the beach.  The near landing is the tile directly SOUTH,

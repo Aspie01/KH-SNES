@@ -378,8 +378,13 @@ KH_TEST(scene_the_secret_places_cast_is_the_back_wall) {
     SpawnResult r = spawnCast(a, cast, g);
     CHECK(r.complete());
     CHECK_EQ(r.refused, 0);
-    // Four: Sora and the three drawings.  No props -- a cave has no palms.
-    CHECK_EQ(r.spawned, 4);
+    // Nine: five boulders derived from the map's 'r' tiles, then Sora and the
+    // three drawings.  The props come FIRST -- the pipeline emits them in map
+    // order and then the placed cast, which is what keeps prop slots stable under
+    // an edit elsewhere in the room.
+    CHECK_EQ(r.spawned, 9);
+    CHECK_EQ(a.count(ActType::Rock), 5);
+    CHECK(a.type[0] == ActType::Rock);
     CHECK_EQ(a.count(ActType::Sora), 1);
     CHECK_EQ(a.count(ActType::Faces), 1);
     CHECK_EQ(a.count(ActType::Door), 1);
@@ -421,6 +426,60 @@ KH_TEST(scene_the_secret_places_cast_is_the_back_wall) {
     CHECK_EQ(tileOf(a.x[scrib]) - tileOf(a.x[door]), 2);
 }
 
+KH_TEST(scene_the_secret_places_boulders_block_the_floor_and_not_the_passage) {
+    // docs/DESTINY_ISLANDS_PS2.md: "loose rounded boulders, waist-to-chest high,
+    // obstacles, not climbing routes", scattered on the open floor with more
+    // banked at the wall feet.  They are 'r' tiles, so a Rock prop is derived from
+    // the map and nothing is authored twice.
+    //
+    // THE PASSAGE MUST STAY CLEAR.  The corridor is one Sora wide; a boulder in it
+    // is not an obstacle, it is a wall, and the room would be two rooms.  The
+    // corridor is rows 8-9 at columns 16-22 and the alcove down to the doorway is
+    // rows 10-12 at columns 20-22, so this asserts every one of those tiles is
+    // still walkable rather than asserting where the boulders are -- which is the
+    // claim that matters and the one that survives moving them.
+    //
+    // COLUMNS 16-22 AND NOT 3-22, and the first draft of this case got it wrong in
+    // the instructive direction: rows 8 and 9 run the full width of the map, so
+    // west of column 16 they are the CHAMBER's widest rows rather than a passage,
+    // and a boulder at (6,8) is scenery on an open floor.  The passage is only the
+    // part where those two rows are the only walkable ones.
+    const SceneAsset& s = SCENE_ASSETS[static_cast<int>(SceneId::Cave)];
+    Blob coll = khhost::load("cavecoll.bin", buf1, sizeof buf1);
+    if (!have(coll, "cavecoll.bin")) { CHECK(false); return; }
+    const int W = int(s.tilesW);
+
+    for (int i = 16; i <= 22; ++i) {
+        CHECK(coll.data[8 * W + i] != 0);           // the corridor, both rows
+        CHECK(coll.data[9 * W + i] != 0);
+        CHECK(coll.data[7 * W + i] == 0);           // ...and it IS only two wide
+        CHECK(coll.data[10 * W + i] == 0 || i >= 20);
+    }
+    for (int j = 10; j <= 12; ++j)
+        for (int i = 20; i <= 22; ++i)
+            CHECK(coll.data[j * W + i] != 0);       // the alcove
+
+    // ...and they really are blocking, or they are scenery rather than obstacles.
+    Blob hmap = khhost::load("caveheight.bin", buf2, sizeof buf2);
+    Blob cast = khhost::load("cavecast.bin", buf3, sizeof buf3);
+    if (!have(cast, "cavecast.bin")) { CHECK(false); return; }
+    SceneGround g;
+    g.set(coll, hmap, int(s.tilesW), int(s.tilesH));
+    Actors a;
+    a.clear();
+    CHECK(spawnCast(a, cast, g).complete());
+    int rocks = 0;
+    for (int k = 0; k < MAX_ACTORS; ++k) {
+        if (a.type[k] != ActType::Rock) continue;
+        ++rocks;
+        const int i = tileOf(a.x[k]);
+        const int j = tileOf(a.y[k]);
+        CHECK(coll.data[j * W + i] == 0);           // blocked, being a prop tile
+        CHECK_EQ(hmap.data[j * W + i], 0);          // and flat: nothing climbs one
+    }
+    CHECK_EQ(rocks, 5);
+}
+
 KH_TEST(scene_the_third_mushroom_is_in_the_room_it_was_always_described_as_in) {
     // docs/DESTINY_ISLANDS.md, day two: "one inside the Secret Place".  It used
     // to sit at (7,6) on the island map, which was the floor of the pocket; it is
@@ -429,4 +488,9 @@ KH_TEST(scene_the_third_mushroom_is_in_the_room_it_was_always_described_as_in) {
     if (!have(day2, "caveday2.bin")) { CHECK(false); return; }
     CHECK_EQ(day2.size, size_t(1 * CAST_STRIDE + 1));
     CHECK_EQ(day2.data[0], uint8_t(ActType::Mush));
+    // BESIDE THE DOOR, on its right as you face it -- docs/DESTINY_ISLANDS_PS2.md.
+    // The Door is at (9,4) on the north wall, so east is your right.  It sat at
+    // (5,10), across the chamber, until that reference existed.
+    CHECK_EQ(day2.data[1], 11);
+    CHECK_EQ(day2.data[2], 5);
 }

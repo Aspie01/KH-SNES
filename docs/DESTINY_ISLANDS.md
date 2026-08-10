@@ -83,6 +83,18 @@ Two things about the map are worth knowing before editing it:
   *north* of it, so rock below the floor paints over the floor. A host test walks
   the whole room asserting it.
 
+**What the reference moved.** The mushroom now sits at `(11,5)`, beside the Door on
+its right as you face it, where `docs/DESTINY_ISLANDS_PS2.md` puts it — it was
+across the chamber in the south-west corner until that document existed. And the
+chamber has five **loose boulders**, "waist-to-chest high, obstacles, not climbing
+routes", scattered on the open floor with two banked at the west wall foot.
+
+They are `r` tiles and not `R`, and the difference is the palette: both are blocked
+props derived from the tile alone, but `R` paints grass and `r` paints sand, and
+under `BG_NIGHT` sand is the same dim brown the cave floor is made of. A boulder in
+cave-green would read as a bush. **None is in the corridor** — an obstacle in a
+one-Sora-wide passage is a wall, and the room would be two rooms.
+
 It uses `BG_NIGHT` rather than the island's daylight palette, and that is the
 right palette rather than a borrowed one: a cave is lit by its opening, so index 0
 is near-black and the sand and rock ramps come out dim. It also means

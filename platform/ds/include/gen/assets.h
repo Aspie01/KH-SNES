@@ -135,7 +135,7 @@ constexpr SceneAsset SCENE_ASSETS[] = {
     {"town1", 48, 32, 85, nullptr, true, -1, uint8_t(SceneTable::Doors)},
     {"town2", 48, 32, 107, nullptr, true, -1, uint8_t(SceneTable::Doors | SceneTable::Spots)},
     {"town3", 48, 32, 85, nullptr, true, -1, uint8_t(SceneTable::Doors | SceneTable::Pair)},
-    {"cave", 32, 16, 35, nullptr, false, 1, uint8_t(SceneTable::Day2 | SceneTable::Doors)},
+    {"cave", 32, 16, 43, nullptr, false, 1, uint8_t(SceneTable::Day2 | SceneTable::Doors)},
 };
 
 // WHERE A PALETTE GOES, which is not a free choice: the SNES's own CGRAM
