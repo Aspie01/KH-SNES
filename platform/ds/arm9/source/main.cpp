@@ -309,6 +309,7 @@ uint16_t g_oamShadow[vram::OAM_ENTRIES * 4];    // four halfwords an entry
 uint16_t g_hudMap[HUD_ENTRIES];
 uint16_t g_boxMap[BOX_ENTRIES];
 uint16_t g_menuMap[BOX_ENTRIES];                // the diagnostics panel
+uint16_t g_overlayMap[BOX_ENTRIES];             // the top screen's probe, below
 OamEntry g_oam[OAM_SLOTS];
 SpriteSlot g_slots[OAM_SLOTS];
 
@@ -379,6 +380,37 @@ const char* const SCENE_NAMES[int(SceneId::Count)] = {
     "STATION 1", "STATION 2", "STATION 3", "DESTINY ISLANDS", "THE NIGHT",
     "THE FRAGMENT", "FIRST DISTRICT", "SECOND DISTRICT", "THIRD DISTRICT",
 };
+
+// ---------------------------------------------------------------------------
+// A PROBE ON THE TOP SCREEN, ON A LAYER THE GROUND DOES NOT USE.
+//
+// The top screen comes up as one flat colour: BG0 drawing nothing.  The bottom
+// screen works, and that already proves a great deal -- CPU stores into VRAM
+// (the font), palette RAM, dmaCopy, and both engines leaving forced blank.  It
+// proves none of it for ENGINE A, which is a different set of banks, bases and
+// registers, and that is exactly the gap the symptom lives in.
+//
+// So this writes a word onto BG1 of the main engine.  BG1 is the overlay layer,
+// nothing else uses it, and it reads its characters from UI_CHR -- the font
+// uploadResident() already put in bank B -- and its palette from main BG slot
+// 15, which is also already up.  So it shares the ground's ENGINE and BANK and
+// shares none of the ground's code.
+//
+//   text appears    engine A is fine; bank B takes CPU writes and DMA alike,
+//                   and the fault is in the ground path -- the character
+//                   upload, the streamer, or the map
+//   nothing         engine A is not displaying at all, and the ground was never
+//                   the question: the bank, the layer bits or DISPCNT are
+//
+// One screenshot, two hypotheses, no more guessing at which.  Scaffolding, like
+// the boot colours, and it goes with them.
+// ---------------------------------------------------------------------------
+void overlayProbe() {
+    for (int i = 0; i < BOX_ENTRIES; ++i) g_overlayMap[i] = boxCell(CH_CLEAR);
+    const char* const s = "TOP SCREEN OK";
+    for (int c = 0; s[c] && c < BOX_COLS; ++c)
+        g_overlayMap[c] = boxCell(glyphOf(s[c]));
+}
 
 // ---------------------------------------------------------------------------
 // The pad
@@ -617,6 +649,7 @@ int main() {
 
         buildHud(g_hudMap, game.actors(), game.hudState());
         buildBox(g_boxMap, game.dialogue());
+        overlayProbe();
 
         panelClear();
         panelText(0, SCENE_NAMES[int(game.scene())]);
@@ -698,5 +731,8 @@ int main() {
         dmaCopy(g_menuMap,
                 reinterpret_cast<void*>(address(MENU_MAP, Use::SubBg)),
                 sizeof g_menuMap);
+        dmaCopy(g_overlayMap,
+                reinterpret_cast<void*>(address(OVERLAY_MAP, Use::MainBg)),
+                sizeof g_overlayMap);
     }
 }

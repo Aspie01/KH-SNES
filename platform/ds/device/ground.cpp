@@ -88,9 +88,22 @@ bool TilemapGround::setMap(const CharMap& map) {
 }
 
 void TilemapGround::writeColumn(int mapCol) {
+    // VOLATILE, BECAUSE THE DESTINATION IS VRAM AND NOTHING EVER READS IT BACK.
+    //
+    // This is the one place in the port that writes video memory through a
+    // plain pointer: every other path is either a dmaCopy or a volatile store
+    // through device/mmio.h.  A compiler is entitled to notice that four
+    // thousand stores into a buffer nobody loads from are dead, and the display
+    // controller is not a reader it knows about.  Whether it actually does is
+    // beside the point -- VRAM is a device, and a device is written with
+    // volatile.
+    //
+    // On the host this changes nothing: the tests point `window` at an ordinary
+    // array and read it back, which a volatile store serves exactly as well.
+    volatile uint16_t* const vram = window_;
     const int w = wrap(mapCol, WINDOW_CHARS);
     for (int y = 0; y < WINDOW_CHARS; ++y)
-        window_[bgEntryIndex(w, y, WINDOW_CHARS, WINDOW_CHARS)] = map_.at(mapCol, y);
+        vram[bgEntryIndex(w, y, WINDOW_CHARS, WINDOW_CHARS)] = map_.at(mapCol, y);
     lastWritten_ += WINDOW_CHARS;
 }
 
