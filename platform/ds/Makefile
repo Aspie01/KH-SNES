@@ -2,63 +2,79 @@
 #
 #     make -C platform/ds
 #
-# REQUIRES devkitPro.  tools/check_device.py is the gate and it names every
-# missing piece; run that first if this fails in a way that mentions a compiler.
-# Nothing in this file works without it and nothing in the rest of the port
-# needs it -- the host tier is most of the port and all of the risk, and it
-# builds and tests with the system g++ (platform/ds/host/Makefile.host).
+# REQUIRES devkitPro with libnds 2.0 or later.  tools/check_device.py names
+# every missing piece; run it first if this fails in a way that mentions a
+# compiler.  Nothing here is needed by the rest of the port -- the host tier is
+# most of the port and all of the risk, and it builds and tests with the system
+# g++ (platform/ds/host/Makefile.host).
 #
-# THE ARM7: LIBNDS'S PREBUILT CORE IF THERE IS ONE, OTHERWISE BUILT HERE.
+# THERE IS ONE PROCESSOR TO COMPILE, NOT TWO.  The DS has two, and older
+# devkitPro layouts had you build both; libnds 2.0 runs on Calico and supplies
+# the ARM7 itself -- $(DEVKITARM)/ds_rules passes
+# `-7 $(CALICO)/bin/ds7_maine.elf` to ndstool without being asked, and
+# devkitPro's own combined template ships an EMPTY arm7/source directory to make
+# the point.  This tree had an arm7/ with a hand-written core in it for exactly
+# as long as it took a real toolchain to reject it; see the git history if the
+# question ever comes back.
 #
-# The DS has two processors.  The ARM9 runs the game; the ARM7 samples the
-# touchscreen and the buttons over SPI and pushes them across the FIFO, reads
-# the touchscreen calibration out of firmware, and services sound and power.
-# libnds ships a prebuilt core that does exactly that, and a hand-written one
-# was a transcription of it.
-#
-# The transcription cost more than it was worth on first contact with a real
-# toolchain: five undeclared functions, because the ARM7 template written from
-# memory did not match the installed libnds's API.  That is a maintenance
-# liability with no upside -- the port has no custom ARM7 work, and when it
-# acquires some (an audio driver is the only candidate) the right move will be
-# to start from devkitPro's current template rather than from a copy that has
-# been quietly rotting since.
-#
-# So the prebuilt core is PREFERRED -- and it is not always there.  On one
-# devkitPro install $(DEVKITPRO)/libnds holds nothing but include/, lib/ and
-# three licence files: that version expects you to build your own.  Both worlds
-# exist, so both are handled, and which one happened is printed at the end of
-# the build rather than left to be inferred.
+# ds_rules also builds the cartridge.  Its `%.nds: %.elf` rule adds the ARM7,
+# the default icon and the banner text, rewrites -specs=ds_arm9.specs into
+# Calico's own, and appends -lcalico_ds9 to the link.  A makefile that ran
+# ndstool by hand -- as this one did -- would silently get none of it, so this
+# one delegates to arm9/ and stays out of the way.
 #
 # THE ASSETS ARE LINKED IN, NOT LOADED.  arm9/Makefile points DATA at
-# assets/gen/ds and devkitPro's ds_rules runs bin2s over every .bin there,
-# turning each into an object with a `<name>_bin` symbol.  arm9/source/main.cpp
-# declares those symbols and hands them to device/boot.cpp as Blobs -- which is
-# the other half of the seam scene.h describes: "the two answers are 'read the
-# file' on the host and 'link the .bin in' on the device."
-#
-# So the pipeline must have been run before this will build:
+# assets/gen/ds and bin2o turns every .bin there into an object carrying a
+# `<name>_bin` symbol, which is how a table reaches a machine with no
+# filesystem.  So the pipeline must have been run first:
 #
 #     python3 tools/build_assets.py
+#     python3 tools/check_link.py      # the symbols, checked without a compiler
 #     make -C platform/ds
 #
-# A missing .bin is a LINK error naming the symbol, which is the right failure:
-# there is no filesystem on a DS and a table that is not linked in cannot be
-# found at run time.
+# A missing .bin is a link error naming the symbol, which is the right failure.
 
 .SUFFIXES:
 
-# `define`, not `:=`: $(error) prints its argument verbatim and make does not
-# interpret a backslash-n inside one, so a multi-line message has to be real
-# lines or it arrives as one long string with literal escapes in it.
+ifeq ($(strip $(DEVKITARM)),)
+$(error DEVKITARM is not set.  Put it on make's command line, which needs no \
+environment at all -- make -C platform/ds DEVKITARM=/opt/devkitpro/devkitARM \
+DEVKITPRO=/opt/devkitpro -- or export it.  python3 tools/check_device.py names \
+every missing piece)
+endif
+ifeq ($(strip $(DEVKITPRO)),)
+$(error DEVKITPRO is not set or not exported)
+endif
+
+# ---------------------------------------------------------------------------
+# THE SHELL AND MAKE MUST BE THE SAME MSYS2, and on Windows they easily are not.
+#
+# devkitPro's installer puts its own MSYS2 at C:\devkitPro\msys2 and adds
+# C:\devkitPro\msys2\usr\bin to the WINDOWS path, so devkitPro's make, bash and
+# python are all reachable from Git Bash -- a DIFFERENT MSYS2, with its own
+# msys-2.0.dll, root and mount table.  Run the build there and you get
+# devkitPro's make driving Git Bash's shell, and the two disagree about what the
+# filesystem is.
+#
+# It does not fail cleanly.  It fails as four unrelated-looking things: a path
+# make can open that bash says does not exist; exported variables vanishing, so
+# DEVKITARM looks unset while `env` lists it; the build-directory pass losing
+# its hand-over and stopping with "No targets"; and gcc inheriting no TMP and
+# asking Windows, which answers C:\WINDOWS\.  Each has a plausible local
+# workaround and every one of them is wrong.
+#
+# So: one check instead of four fixes.  It asks THE SHELL something make already
+# knows -- whether $(DEVKITARM) is a directory -- because the include in
+# arm9/Makefile proves make can see it.  It cannot fire where there is only one
+# runtime.
+# ---------------------------------------------------------------------------
 define KH_WRONG_SHELL
 this shell cannot see $(DEVKITARM), but make can.
 
   That means make and the shell come from DIFFERENT MSYS2 installations -- the
   usual cause on Windows is running the build from Git Bash, which finds
-  devkitPro's make on the Windows PATH while providing its own runtime, root
-  and mount table.  Nothing downstream of that works reliably: paths, exported
-  variables and the compiler's temp directory all disagree across the boundary.
+  devkitPro's make on the Windows PATH while supplying its own runtime, root
+  and mount table.
 
   Use devkitPro's own MSYS2 shell instead:
 
@@ -67,95 +83,22 @@ this shell cannot see $(DEVKITARM), but make can.
       make -C platform/ds
 
   `which make` should print /usr/bin/make in that shell, not a /c/... path.
-  On Linux or macOS this check cannot fire; there is only one runtime.
+  Only make needs it: git, Python and an editor can be anywhere pointed at the
+  same directory.  On Linux or macOS this check cannot fire.
 endef
 
-ifeq ($(strip $(DEVKITARM)),)
-$(error DEVKITARM is not set.  Install devkitPro and export DEVKITARM, or run \
-        python3 tools/check_device.py to be told exactly what is missing)
-endif
-ifeq ($(strip $(DEVKITPRO)),)
-$(error DEVKITPRO is not set.  ndstool lives under $$DEVKITPRO/tools/bin)
-endif
-
-# ---------------------------------------------------------------------------
-# THE SHELL AND MAKE MUST BE THE SAME MSYS2, and on Windows they easily are not.
-#
-# devkitPro's installer puts its own MSYS2 at C:\devkitPro\msys2 and adds
-# C:\devkitPro\msys2\usr\bin to the WINDOWS path.  So devkitPro's make, bash,
-# python and the rest are all reachable from Git Bash -- which is a DIFFERENT
-# MSYS2, with its own msys-2.0.dll, its own root and its own mount table.  Run
-# the build there and you get devkitPro's make driving Git Bash's shell, and the
-# two disagree about what the filesystem looks like.
-#
-# It does not fail cleanly.  It fails as four unrelated-looking things, all of
-# which were chased separately before the cause was found:
-#
-#   * make opens $(DEVKITARM)/ds_rules happily -- its runtime has the
-#     /opt/devkitpro mount -- and then the bash it spawns says a path under that
-#     same mount does not exist, naming a file that plainly does;
-#   * exported variables do not survive the boundary, so DEVKITARM looks unset
-#     to make even though `env` lists it;
-#   * the build-directory pass gets none of the template's exported hand-over
-#     and stops with "No targets", naming nothing;
-#   * gcc inherits no TMP and asks Windows, which answers C:\WINDOWS\, which it
-#     may not write to.
-#
-# Every one of those has a plausible local workaround, and every workaround is
-# wrong, because the build is simply being run from the wrong shell.  So this is
-# ONE CHECK INSTEAD OF FOUR FIXES.
-#
-# It works by asking THE SHELL something make already knows: whether $(DEVKITARM)
-# is a directory.  Make can see it -- the include above succeeded, or we would
-# not be here -- so a shell that cannot is a shell from another installation.
-# ---------------------------------------------------------------------------
 ifeq ($(shell test -d '$(DEVKITARM)' && echo yes),)
 $(error $(KH_WRONG_SHELL))
 endif
 
-TARGET  := kh
-NDSTOOL := $(DEVKITPRO)/tools/bin/ndstool
+TARGET := kh
 
-# libnds's prebuilt ARM7, under whichever of its names this install uses.  The
-# file has been called default_arm7.elf and default.arm7.elf in different
-# versions, so it is FOUND rather than named -- and if none of them is there,
-# the error lists what actually is, because a missing file whose name nobody is
-# sure of is exactly the case where a directory listing ends the argument.
-PREBUILT_ARM7 := $(firstword $(wildcard \
-    $(DEVKITPRO)/libnds/default_arm7.elf $(DEVKITPRO)/libnds/default.arm7.elf \
-    $(DEVKITPRO)/libnds/default_arm7 $(DEVKITPRO)/libnds/default.arm7))
+.PHONY: all clean
 
-ifeq ($(PREBUILT_ARM7),)
-ARM7ELF  := arm7/arm7.elf
-ARM7DEP  := arm7
-ARM7FROM := built here, from arm7/source
-else
-ARM7ELF  := $(PREBUILT_ARM7)
-ARM7DEP  :=
-ARM7FROM := libnds, $(notdir $(PREBUILT_ARM7))
-endif
-
-.PHONY: all arm7 arm9 clean
-
-all: $(TARGET).nds
-
-# PHONY, because these targets share a name with the directories they build in
-# -- without it make finds the directory, decides it is up to date, and never
-# descends.
-arm7:
-	@$(MAKE) --no-print-directory -C arm7
-
-arm9:
+# arm9/ produces $(TARGET).nds in THIS directory -- see DIVERGENCE 4 there --
+# so there is nothing to copy and nothing to wrap afterwards.
+all:
 	@$(MAKE) --no-print-directory -C arm9
 
-# No banner and no icon.  `-b` takes a bitmap and a three-line title, and
-# inventing box art for something that is not being distributed is inventing
-# work; a homebrew loader shows its own placeholder.
-$(TARGET).nds: $(ARM7DEP) arm9
-	$(NDSTOOL) -c $@ -9 arm9/arm9.elf -7 $(ARM7ELF)
-	@echo "built $@ (ARM7: $(ARM7FROM))"
-
 clean:
-	@$(MAKE) --no-print-directory -C arm7 clean
 	@$(MAKE) --no-print-directory -C arm9 clean
-	@rm -f $(TARGET).nds

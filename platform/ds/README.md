@@ -142,15 +142,15 @@ with the system `g++` and tested against the oracle — and a **device tier** th
 only builds where devkitPro is present. The host tier is most of the port and
 all of the risk; see the brief.
 
-**The ARM7 is libnds's prebuilt core, not ours.** The DS's second processor
-samples the touchscreen and buttons over SPI, reads the calibration out of
-firmware, and services sound and power; libnds ships a core that does exactly
-that, and the top-level makefile hands it to `ndstool`. This tree compiles only
-the ARM9. A hand-written ARM7 was tried and deleted — it was a transcription of
-libnds's own template, it did not match the installed libnds's API on first
-contact with a real toolchain, and the port has no custom ARM7 work to justify
-maintaining one. When it acquires some (audio is the only candidate), start from
-devkitPro's current template rather than from a copy that has been rotting.
+**Only the ARM9 is compiled.** libnds 2.0 runs on Calico and supplies the ARM7
+itself: `$DEVKITARM/ds_rules` passes `-7 $CALICO/bin/ds7_maine.elf` to `ndstool`
+without being asked, and devkitPro's own combined template ships an *empty*
+`arm7/source` directory to make the point. `ds_rules` also builds the cartridge
+— adding the icon and banner, rewriting `-specs=ds_arm9.specs` into Calico's,
+and appending `-lcalico_ds9` — so `platform/ds/Makefile` delegates to `arm9/`
+and calls no tools of its own. A hand-written ARM7 lived here briefly and was
+deleted: the functions it called (`irqInit`, `fifoInit`, `readUserSettings`,
+`installSystemFIFO`) do not exist in 2.0, because the runtime does that work.
 
 **Almost all of the device tier is in the host tier too.** `device/*.cpp` is
 compiled and asserted on by every host run against a recording MMIO stub and
