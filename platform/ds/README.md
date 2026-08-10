@@ -26,7 +26,7 @@ plus one prompt per milestone, with mechanically checkable exit criteria.
 ## It runs
 
 `platform/ds/kh.nds` boots and plays in **melonDS**. The Third District draws,
-Sora is on screen, the HUD and the controls work, and L/R walk the nine scenes.
+Sora is on screen, the HUD and the controls work, and L/R walk the eleven scenes.
 
 **Use melonDS, not DeSmuME.** DeSmuME's last release predates libnds 2.0's
 Calico startup and never gets past the ROM header — it shows two white screens
@@ -83,6 +83,24 @@ python3 tools/build_assets.py     # the .bin tables the cartridge links in
 python3 tools/check_link.py       # every symbol the ARM9 declares is on disk
 make -C platform/ds               # -> platform/ds/kh.nds
 ```
+
+**The pipeline is not optional and skipping it used to look like a code bug.**
+`assets/gen/` is gitignored, so a pull never brings the `.bin` tables; and
+`arm9/Makefile` finds them with a wildcard that runs when make *parses* the
+file, not when it links. An empty `assets/gen/ds` therefore produces no asset
+objects at all, and the build compiles everything perfectly and then dies with
+about 150 lines of
+
+```
+undefined reference to 'station1coll_bin'
+undefined reference to 'hudchr_bin'
+...
+```
+
+every one of them blaming `main.cpp`, which is the only file that is right. The
+tell is that *every* symbol is undefined rather than some. `arm9/Makefile` now
+refuses that case before compiling anything and says which directory it looked
+in — run the two Python lines above and build again.
 
 **Pull before you regenerate.** `build_assets.py` writes the `.bin` tables into
 `assets/gen/`, which is gitignored — but it also writes the review images into
@@ -174,7 +192,7 @@ Windows Python inherits the real Win32 working directory and both scripts
 resolve their own location from `__file__`, so relative paths work unchanged.
 
 The `.nds` runs on melonDS, DeSmuME or a flashcart. It boots straight into the
-first Station of Awakening; **L and R step through the nine scenes and SELECT
+first Station of Awakening; **L and R step through the eleven scenes and SELECT
 restarts the loaded one**, because there is no save system and a person testing
 a build needs to reach the Third District without playing to it. The bottom
 screen carries the HUD and, in the panel below it, the name of the loaded scene

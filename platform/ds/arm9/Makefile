@@ -105,6 +105,53 @@ CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
 SFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 BINFILES := $(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.bin)))
 
+# ---------------------------------------------------------------------------
+# THE GLOB ABOVE RUNS WHEN THIS FILE IS PARSED, AND assets/gen/ IS GITIGNORED.
+# Those two facts meet badly.  A pull brings the main.cpp that DECLARES
+# `station1coll_bin` and none of the .bin that DEFINES it, so in a tree where
+# nobody has run the pipeline the wildcard matches nothing, OFILES_BIN is empty,
+# and not one bin2o object is built or linked.  Every source file then compiles
+# perfectly and the link dies with EVERY asset symbol undefined at once --
+# about 150 lines, all naming main.cpp, which is the one file that is not wrong.
+#
+# That failure names the wrong thing twice over: it accuses the declarations,
+# and it arrives at the link, which is the last place anyone looks for "you
+# skipped a build step".  The count of errors IS the diagnosis -- all of them
+# rather than some -- and nothing in them says so.
+#
+# ONE missing .bin still fails the way ../Makefile says it does: a single
+# undefined reference naming the symbol, which is exactly right and wants no
+# guard.  This is only for the empty case.
+#
+# NOT FOR `clean`.  Emptying assets/gen/ is one of the ways to arrive here, and
+# a tree that cannot be cleaned is worse than one that cannot be built.
+# ---------------------------------------------------------------------------
+define KH_NO_ASSETS
+
+$(abspath $(DATA)) holds no .bin files, so there is nothing for the ARM9 to
+  link and every asset symbol main.cpp declares would come back undefined.
+
+  The asset pipeline has not been run IN THIS WORKING TREE.  assets/gen/ is
+  gitignored -- the tables never travel with a pull -- so a fresh clone, a new
+  machine or a second checkout always starts out empty:
+
+      python3 tools/build_assets.py     # writes assets/gen/ds/*.bin
+      python3 tools/check_link.py       # every symbol main.cpp declares is there
+      make -C platform/ds
+
+  If you HAVE run it and this still fires, you ran it in a different tree from
+  the one make is in.  The path above is the directory make is looking at;
+  compare it with the one your shell prints for pwd.  devkitPro's MSYS2 and Git
+  Bash do not share a /home, so two shells can sit in two checkouts that print
+  the same-looking name.
+endef
+
+ifeq ($(strip $(BINFILES)),)
+ifeq ($(filter clean,$(MAKECMDGOALS)),)
+$(error $(KH_NO_ASSETS))
+endif
+endif
+
 export LD := $(CXX)
 
 export OFILES_BIN     := $(addsuffix .o,$(BINFILES))

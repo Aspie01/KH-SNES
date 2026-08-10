@@ -1905,7 +1905,7 @@ all: the window is as tall as the tallest map anyone has authored, and a
 65-character map would wrap onto itself and draw its top rows under its bottom
 ones — a seam a third of the way up the screen that reads as corrupt data. It is
 refused at load with the reason, and `ground_every_streaming_scene_in_the_pipeline_actually_fits`
-walks all nine scenes to prove the claim holds today.
+walks every scene the pipeline emits to prove the claim holds today.
 
 **Six breakages, all fired**, and each is a real way to write this wrong: a
 signed `%`, the partial right-hand column forgotten, `cam.x` for `cam.bgHOfs`, an
@@ -2219,7 +2219,7 @@ code, and both are worth recording:
 
 `make -C platform/ds` produces `platform/ds/kh.nds`, and it boots and plays in
 melonDS: the ground draws, Sora is on screen, the HUD and the pad work, and L/R
-step through the nine scenes. Everything below this section was written before
+step through the eleven scenes. Everything below this section was written before
 any of it had been compiled; it is left as it was, and this is what changed.
 
 **Use melonDS.** DeSmuME's last release predates libnds 2.0's Calico startup and

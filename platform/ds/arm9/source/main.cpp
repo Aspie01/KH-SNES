@@ -17,7 +17,7 @@
 //
 // WHAT IT IS NOT.  Not a demo, not a menu, not a title screen: it boots
 // straight into the first Station of Awakening, which is where the game starts.
-// SELECT restarts the scene and L/R step through the nine scenes, because a
+// SELECT restarts the scene and L/R step through the eleven scenes, because a
 // person testing a build on hardware needs to reach the town without playing to
 // it, and that is the smallest thing that gets them there.
 

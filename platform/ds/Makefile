@@ -33,6 +33,10 @@
 #     make -C platform/ds
 #
 # A missing .bin is a link error naming the symbol, which is the right failure.
+# NO .bin AT ALL is not: the glob that finds them runs at makefile-parse time, so
+# an empty assets/gen/ds builds no bin2o objects and the link reports every asset
+# symbol undefined at once, blaming main.cpp.  arm9/Makefile refuses that case up
+# front instead; the comment above BINFILES there is the long version.
 
 .SUFFIXES:
 
