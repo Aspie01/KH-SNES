@@ -80,7 +80,8 @@ struct Inventory {
 // south of the door on the far side, so a player who walks straight through
 // comes out facing the square").  <scene>doors.bin ALSO has a land_i/land_j and
 // it is a DIFFERENT TILE: the near side, beside the door in the door's own map,
-// always (i, DOOR_ROW + 1), which test_scene.cpp:256-260 asserts.  Nothing may
+// always (i, DOOR_ROW + 1), which test_scene.cpp's
+// scene_reads_the_spot_and_door_tables asserts.  Nothing may
 // copy one into the other.  It is derived by the generator from the reciprocal
 // door rather than authored, so it cannot be typed wrong.
 //

@@ -321,7 +321,8 @@ def check_tiles(wires: list[Wire], grids: dict, casts: dict,
                 raise SystemExit(
                     f"{name}_cast.txt: R3 -- the door at ({di},{dj}) lands on "
                     f"({li},{lj}); a [doors] landing is the NEAR side and is "
-                    f"always (i, DOOR_ROW + 1), which test_scene.cpp:256-260 "
+                    f"always (i, DOOR_ROW + 1), which test_scene.cpp's "
+                    f"scene_reads_the_spot_and_door_tables "
                     f"asserts of the emitted binary")
 
 
@@ -595,7 +596,8 @@ def emit(districts, casts, wires, landings, eq, snes_rows) -> str:
     w_("//")
     w_("// NOTE: TownDoor::landing is the FAR side, in the destination's map.")
     w_("// <scene>doors.bin's land_i/land_j are the NEAR side, beside the door in")
-    w_("// its own map -- always (i, DOOR_ROW + 1), which test_scene.cpp:256-260")
+    w_("// its own map -- always (i, DOOR_ROW + 1), which test_scene.cpp's")
+    w_("// scene_reads_the_spot_and_door_tables")
     w_("// asserts.  They are different tiles and no code may copy one into the")
     w_("// other.")
     w_("//")

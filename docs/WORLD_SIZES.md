@@ -352,7 +352,7 @@ Three remain, and the first of them owns most of the other two.
 
   Two symptoms, both of which can be pointed at rather than asserted:
 
-  - **Of the nine cast files, exactly one is read at runtime**, and only by the
+  - **Of the cast files, exactly one is read at runtime**, and only by the
     trace harness: `station1cast.bin`, at `host/trace_main.cpp:747-752`, which
     is the single `spawnCast` call in the whole non-test tree. Seven of the
     eight trace scenarios build hand-written `CastRow[]` tables instead, and

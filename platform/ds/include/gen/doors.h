@@ -20,7 +20,8 @@
 //
 // NOTE: TownDoor::landing is the FAR side, in the destination's map.
 // <scene>doors.bin's land_i/land_j are the NEAR side, beside the door in
-// its own map -- always (i, DOOR_ROW + 1), which test_scene.cpp:256-260
+// its own map -- always (i, DOOR_ROW + 1), which test_scene.cpp's
+// scene_reads_the_spot_and_door_tables
 // asserts.  They are different tiles and no code may copy one into the
 // other.
 //
