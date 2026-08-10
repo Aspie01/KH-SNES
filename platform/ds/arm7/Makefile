@@ -46,7 +46,15 @@ CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions
 ASFLAGS  := -g $(ARCH)
 LDFLAGS   = -specs=ds_arm7.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
+# -lnds7, plus maxmod's ARM7 half IF this install has it.  devkitPro's own
+# combined template links -lmm7 -lnds7 and its ARM7 main may call mmInstall();
+# linking a library nothing references costs nothing, and not linking one the
+# template needs is an undefined reference.  Conditional on the file existing
+# rather than assumed, because some installs have no maxmod at all.
 LIBS     := -lnds7
+ifneq ($(wildcard $(DEVKITPRO)/libnds/lib/libmm7.a),)
+LIBS     := -lmm7 -lnds7
+endif
 LIBDIRS  := $(LIBNDS)
 
 #---------------------------------------------------------------------------
